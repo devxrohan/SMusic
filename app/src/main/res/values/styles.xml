@@ -1,0 +1,16 @@
+<resources>
+
+    <style name="Theme.SMusic" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">?android:attr/colorBackground</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="Theme.SMusic.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/smusic_black</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/smusic_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/smusic_black</item>
+        <item name="postSplashScreenTheme">@style/Theme.SMusic</item>
+    </style>
+
+</resources>

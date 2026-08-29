@@ -1,0 +1,33 @@
+# ---- Secrets: never push these ----
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# ---- Personal release-automation scripts (not project source) ----
+release-tools/
+
+# ---- Build output ----
+build/
+*/build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ---- IDE ----
+.idea/
+*.iml
+.DS_Store
+
+# ---- Large bundled archives (not project source) ----
+SMusic-classic-rebuilt.zip
+SMusic-classic-v3.zip
+
+# ---- Logs / captures ----
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties.bak

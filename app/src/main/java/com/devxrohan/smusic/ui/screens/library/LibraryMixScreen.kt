@@ -1,0 +1,788 @@
+package com.devxrohan.smusic.ui.screens.library
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import com.devxrohan.smusic.LocalPlayerAwareWindowInsets
+import com.devxrohan.smusic.LocalPlayerConnection
+import com.devxrohan.smusic.R
+import com.devxrohan.smusic.constants.AlbumViewTypeKey
+import com.devxrohan.smusic.constants.CONTENT_TYPE_HEADER
+import com.devxrohan.smusic.constants.CONTENT_TYPE_PLAYLIST
+import com.devxrohan.smusic.constants.GridItemSize
+import com.devxrohan.smusic.constants.GridItemsSizeKey
+import com.devxrohan.smusic.constants.GridThumbnailHeight
+import com.devxrohan.smusic.constants.LibraryViewType
+import com.devxrohan.smusic.constants.MixSortDescendingKey
+import com.devxrohan.smusic.constants.MixSortType
+import com.devxrohan.smusic.constants.MixSortTypeKey
+import com.devxrohan.smusic.db.entities.Album
+import com.devxrohan.smusic.db.entities.Artist
+import com.devxrohan.smusic.db.entities.Playlist
+import com.devxrohan.smusic.db.entities.PlaylistEntity
+import com.devxrohan.smusic.extensions.reversed
+import com.devxrohan.smusic.ui.component.AlbumGridItem
+import com.devxrohan.smusic.ui.component.AlbumListItem
+import com.devxrohan.smusic.ui.component.ArtistGridItem
+import com.devxrohan.smusic.ui.component.ArtistListItem
+import com.devxrohan.smusic.ui.component.LocalMenuState
+import com.devxrohan.smusic.ui.component.PlaylistGridItem
+import com.devxrohan.smusic.ui.component.PlaylistListItem
+import com.devxrohan.smusic.ui.component.SortHeader
+import com.devxrohan.smusic.ui.menu.AlbumMenu
+import com.devxrohan.smusic.ui.menu.ArtistMenu
+import com.devxrohan.smusic.ui.menu.PlaylistMenu
+import com.devxrohan.smusic.utils.rememberEnumPreference
+import com.devxrohan.smusic.utils.rememberPreference
+import com.devxrohan.smusic.viewmodels.LibraryMixViewModel
+import java.text.Collator
+import java.time.LocalDateTime
+import java.util.Locale
+import java.util.UUID
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun LibraryMixScreen(
+    navController: NavController,
+    filterContent: @Composable () -> Unit,
+    onLocalClick: () -> Unit = {},
+    onImportPlaylistClick: (() -> Unit)? = null,
+    viewModel: LibraryMixViewModel = hiltViewModel(),
+) {
+    val menuState = LocalMenuState.current
+    val haptic = LocalHapticFeedback.current
+    val playerConnection = LocalPlayerConnection.current ?: return
+    val isPlaying by playerConnection.isPlaying.collectAsState()
+    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+
+    var showSpotifyImportDialog by remember { mutableStateOf(false) }
+
+    var viewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.GRID)
+    val (sortType, onSortTypeChange) = rememberEnumPreference(
+        MixSortTypeKey,
+        MixSortType.CREATE_DATE
+    )
+    val (sortDescending, onSortDescendingChange) = rememberPreference(MixSortDescendingKey, true)
+    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
+
+    val topSize by viewModel.topValue.collectAsState(initial = 50)
+    val likedPlaylist =
+        Playlist(
+            playlist = PlaylistEntity(
+                id = UUID.randomUUID().toString(),
+                name = stringResource(R.string.liked)
+            ),
+            songCount = 0,
+            thumbnails = emptyList(),
+        )
+
+    val downloadPlaylist =
+        Playlist(
+            playlist = PlaylistEntity(
+                id = UUID.randomUUID().toString(),
+                name = stringResource(R.string.offline)
+            ),
+            songCount = 0,
+            thumbnails = emptyList(),
+        )
+
+    val topPlaylist =
+        Playlist(
+            playlist = PlaylistEntity(
+                id = UUID.randomUUID().toString(),
+                name = stringResource(R.string.my_top) + " $topSize"
+            ),
+            songCount = 0,
+            thumbnails = emptyList(),
+        )
+
+    val cachePlaylist =
+        Playlist(
+            playlist = PlaylistEntity(
+                id = UUID.randomUUID().toString(),
+                name = stringResource(R.string.cached_playlist)
+            ),
+            songCount = 0,
+            thumbnails = emptyList(),
+        )
+
+    val localPlaylist =
+        Playlist(
+            playlist = PlaylistEntity(
+                id = UUID.randomUUID().toString(),
+                name = stringResource(R.string.filter_local)
+            ),
+            songCount = 0,
+            thumbnails = emptyList(),
+        )
+
+    val importPlaylist =
+        Playlist(
+            playlist = PlaylistEntity(
+                id = UUID.randomUUID().toString(),
+                name = "Import Playlist"
+            ),
+            songCount = 0,
+            thumbnails = emptyList(),
+        )
+
+    val albums = viewModel.albums.collectAsState()
+    val artist = viewModel.artists.collectAsState()
+    val playlist = viewModel.playlists.collectAsState()
+
+    var allItems = albums.value + artist.value + playlist.value
+    val collator = Collator.getInstance(Locale.getDefault())
+    collator.strength = Collator.PRIMARY
+    allItems =
+        when (sortType) {
+            MixSortType.CREATE_DATE ->
+                allItems.sortedBy { item ->
+                    when (item) {
+                        is Album -> item.album.bookmarkedAt
+                        is Artist -> item.artist.bookmarkedAt
+                        is Playlist -> item.playlist.createdAt
+                        else -> LocalDateTime.now()
+                    }
+                }
+
+            MixSortType.NAME ->
+                allItems.sortedWith(
+                    compareBy(collator) { item ->
+                        when (item) {
+                            is Album -> item.album.title
+                            is Artist -> item.artist.name
+                            is Playlist -> item.playlist.name
+                            else -> ""
+                        }
+                    },
+                )
+
+            MixSortType.LAST_UPDATED ->
+                allItems.sortedBy { item ->
+                    when (item) {
+                        is Album -> item.album.lastUpdateTime
+                        is Artist -> item.artist.lastUpdateTime
+                        is Playlist -> item.playlist.lastUpdateTime
+                        else -> LocalDateTime.now()
+                    }
+                }
+        }.reversed(sortDescending)
+
+    val coroutineScope = rememberCoroutineScope()
+
+    val lazyListState = rememberLazyListState()
+    val lazyGridState = rememberLazyGridState()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val scrollToTop =
+        backStackEntry?.savedStateHandle?.getStateFlow("scrollToTop", false)?.collectAsState()
+
+    LaunchedEffect(scrollToTop?.value) {
+        if (scrollToTop?.value == true) {
+            when (viewType) {
+                LibraryViewType.LIST -> lazyListState.animateScrollToItem(0)
+                LibraryViewType.GRID -> lazyGridState.animateScrollToItem(0)
+            }
+            backStackEntry?.savedStateHandle?.set("scrollToTop", false)
+        }
+    }
+    val headerContent = @Composable {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 16.dp),
+        ) {
+            SortHeader(
+                sortType = sortType,
+                sortDescending = sortDescending,
+                onSortTypeChange = onSortTypeChange,
+                onSortDescendingChange = onSortDescendingChange,
+                sortTypeText = { sortType ->
+                    when (sortType) {
+                        MixSortType.CREATE_DATE -> R.string.sort_by_create_date
+                        MixSortType.LAST_UPDATED -> R.string.sort_by_last_updated
+                        MixSortType.NAME -> R.string.sort_by_name
+                    }
+                },
+            )
+
+            Spacer(Modifier.weight(1f))
+
+            IconButton(
+                onClick = {
+                    viewType = viewType.toggle()
+                },
+                modifier = Modifier.padding(start = 6.dp, end = 6.dp),
+            ) {
+                Icon(
+                    painter =
+                        painterResource(
+                            when (viewType) {
+                                LibraryViewType.LIST -> R.drawable.list
+                                LibraryViewType.GRID -> R.drawable.grid_view
+                            },
+                        ),
+                    contentDescription = null,
+                )
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        when (viewType) {
+            LibraryViewType.LIST ->
+                LazyColumn(
+                    state = lazyListState,
+                    contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+                ) {
+                    item(
+                        key = "filter",
+                        contentType = CONTENT_TYPE_HEADER,
+                    ) {
+                        filterContent()
+                    }
+
+                    item(
+                        key = "header",
+                        contentType = CONTENT_TYPE_HEADER,
+                    ) {
+                        headerContent()
+                    }
+
+                    item(
+                        key = "likedPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistListItem(
+                            playlist = likedPlaylist,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        navController.navigate("auto_playlist/liked")
+                                    }
+                                    .animateItem(),
+                        )
+                    }
+
+                    item(
+                        key = "downloadedPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistListItem(
+                            playlist = downloadPlaylist,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        navController.navigate("auto_playlist/downloaded")
+                                    }
+                                    .animateItem(),
+                        )
+                    }
+
+                    item(
+                        key = "TopPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistListItem(
+                            playlist = topPlaylist,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        navController.navigate("top_playlist/$topSize")
+                                    }
+                                    .animateItem(),
+                        )
+                    }
+                    item(
+                        key = "cachePlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistListItem(
+                            playlist = cachePlaylist,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        navController.navigate("cache_playlist/cached")
+                                    }
+                                    .animateItem(),
+                        )
+                    }
+
+                    item(
+                        key = "localPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistListItem(
+                            playlist = localPlaylist,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onLocalClick()
+                                    }
+                                    .animateItem(),
+                        )
+                    }
+
+                    item(
+                        key = "importPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistListItem(
+                            playlist = importPlaylist,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (onImportPlaylistClick != null) {
+                                            onImportPlaylistClick()
+                                        } else {
+                                            showSpotifyImportDialog = true
+                                        }
+                                    }
+                                    .animateItem(),
+                        )
+                    }
+
+
+                    items(
+                        items = allItems,
+                        key = { it.id },
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) { item ->
+                        when (item) {
+                            is Playlist -> {
+                                PlaylistListItem(
+                                    playlist = item,
+                                    trailingContent = {
+                                        IconButton(
+                                            onClick = {
+                                                menuState.show {
+                                                    PlaylistMenu(
+                                                        playlist = item,
+                                                        coroutineScope = coroutineScope,
+                                                        onDismiss = menuState::dismiss,
+                                                    )
+                                                }
+                                            },
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.more_vert),
+                                                contentDescription = null,
+                                            )
+                                        }
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                onClick = {
+                                                    navController.navigate("local_playlist/${item.id}")
+                                                },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    menuState.show {
+                                                        PlaylistMenu(
+                                                            playlist = item,
+                                                            coroutineScope = coroutineScope,
+                                                            onDismiss = menuState::dismiss,
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                            .animateItem(),
+                                )
+                            }
+
+                            is Artist -> {
+                                ArtistListItem(
+                                    artist = item,
+                                    trailingContent = {
+                                        IconButton(
+                                            onClick = {
+                                                menuState.show {
+                                                    ArtistMenu(
+                                                        originalArtist = item,
+                                                        coroutineScope = coroutineScope,
+                                                        onDismiss = menuState::dismiss,
+                                                    )
+                                                }
+                                            },
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.more_vert),
+                                                contentDescription = null,
+                                            )
+                                        }
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                onClick = {
+                                                    navController.navigate("artist/${item.id}")
+                                                },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    menuState.show {
+                                                        ArtistMenu(
+                                                            originalArtist = item,
+                                                            coroutineScope = coroutineScope,
+                                                            onDismiss = menuState::dismiss,
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                            .animateItem(),
+                                )
+                            }
+
+                            is Album -> {
+                                AlbumListItem(
+                                    album = item,
+                                    isActive = item.id == mediaMetadata?.album?.id,
+                                    isPlaying = isPlaying,
+                                    trailingContent = {
+                                        IconButton(
+                                            onClick = {
+                                                menuState.show {
+                                                    AlbumMenu(
+                                                        originalAlbum = item,
+                                                        navController = navController,
+                                                        onDismiss = menuState::dismiss,
+                                                    )
+                                                }
+                                            },
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.more_vert),
+                                                contentDescription = null,
+                                            )
+                                        }
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                onClick = {
+                                                    navController.navigate("album/${item.id}")
+                                                },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    menuState.show {
+                                                        AlbumMenu(
+                                                            originalAlbum = item,
+                                                            navController = navController,
+                                                            onDismiss = menuState::dismiss,
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                            .animateItem(),
+                                )
+                            }
+
+                            else -> {}
+                        }
+                    }
+                }
+
+            LibraryViewType.GRID ->
+                LazyVerticalGrid(
+                    state = lazyGridState,
+                    columns =
+                        GridCells.Adaptive(
+                            minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp,
+                        ),
+                    contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+                ) {
+                    item(
+                        key = "filter",
+                        span = { GridItemSpan(maxLineSpan) },
+                        contentType = CONTENT_TYPE_HEADER,
+                    ) {
+                        filterContent()
+                    }
+
+                    item(
+                        key = "header",
+                        span = { GridItemSpan(maxLineSpan) },
+                        contentType = CONTENT_TYPE_HEADER,
+                    ) {
+                        headerContent()
+                    }
+
+                    item(
+                        key = "likedPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistGridItem(
+                            playlist = likedPlaylist,
+                            fillMaxWidth = true,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            navController.navigate("auto_playlist/liked")
+                                        },
+                                    )
+                                    .animateItem(),
+                            context = LocalContext.current // Pasamos el contexto actual para obtener la URI de la miniatura
+                        )
+                    }
+
+                    item(
+                        key = "downloadedPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistGridItem(
+                            playlist = downloadPlaylist,
+                            fillMaxWidth = true,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            navController.navigate("auto_playlist/downloaded")
+                                        },
+                                    )
+                                    .animateItem(),
+                            context = LocalContext.current // Pasamos el contexto actual para obtener la URI de la miniatura
+                        )
+                    }
+
+                    item(
+                        key = "TopPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistGridItem(
+                            playlist = topPlaylist,
+                            fillMaxWidth = true,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            navController.navigate("top_playlist/$topSize")
+                                        },
+                                    )
+                                    .animateItem(),
+                            context = LocalContext.current // Pasamos el contexto actual para obtener la URI de la miniatura
+                        )
+                    }
+                    item(
+                        key = "cachePlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistGridItem(
+                            playlist = cachePlaylist,
+                            fillMaxWidth = true,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            navController.navigate("cache_playlist/cached")
+                                        },
+                                    )
+                                    .animateItem(),
+                            context = LocalContext.current // Pasamos el contexto actual para obtener la URI de la miniatura
+                        )
+                    }
+
+                    item(
+                        key = "localPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistGridItem(
+                            playlist = localPlaylist,
+                            fillMaxWidth = true,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            onLocalClick()
+                                        },
+                                    )
+                                    .animateItem(),
+                            context = LocalContext.current // Pasamos el contexto actual para obtener la URI de la miniatura
+                        )
+                    }
+
+                    item(
+                        key = "importPlaylist",
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) {
+                        PlaylistGridItem(
+                            playlist = importPlaylist,
+                            fillMaxWidth = true,
+                            autoPlaylist = true,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (onImportPlaylistClick != null) {
+                                                onImportPlaylistClick()
+                                            } else {
+                                                showSpotifyImportDialog = true
+                                            }
+                                        },
+                                    )
+                                    .animateItem(),
+                            context = LocalContext.current // Pasamos el contexto actual para obtener la URI de la miniatura
+                        )
+                    }
+
+
+                    items(
+                        items = allItems,
+                        key = { it.id },
+                        contentType = { CONTENT_TYPE_PLAYLIST },
+                    ) { item ->
+                        when (item) {
+                            is Playlist -> {
+                                PlaylistGridItem(
+                                    playlist = item,
+                                    fillMaxWidth = true,
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                onClick = {
+                                                    navController.navigate("local_playlist/${item.id}")
+                                                },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    menuState.show {
+                                                        PlaylistMenu(
+                                                            playlist = item,
+                                                            coroutineScope = coroutineScope,
+                                                            onDismiss = menuState::dismiss,
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                            .animateItem(),
+                                    context = LocalContext.current // Pasamos el contexto actual para obtener la URI de la miniatura
+                                )
+                            }
+
+                            is Artist -> {
+                                ArtistGridItem(
+                                    artist = item,
+                                    fillMaxWidth = true,
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                onClick = {
+                                                    navController.navigate("artist/${item.id}")
+                                                },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    menuState.show {
+                                                        ArtistMenu(
+                                                            originalArtist = item,
+                                                            coroutineScope = coroutineScope,
+                                                            onDismiss = menuState::dismiss,
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                            .animateItem(),
+                                )
+                            }
+
+                            is Album -> {
+                                AlbumGridItem(
+                                    album = item,
+                                    isActive = item.id == mediaMetadata?.album?.id,
+                                    isPlaying = isPlaying,
+                                    coroutineScope = coroutineScope,
+                                    fillMaxWidth = true,
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                onClick = {
+                                                    navController.navigate("album/${item.id}")
+                                                },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    menuState.show {
+                                                        AlbumMenu(
+                                                            originalAlbum = item,
+                                                            navController = navController,
+                                                            onDismiss = menuState::dismiss,
+                                                        )
+                                                    }
+                                                },
+                                            )
+                                            .animateItem(),
+                                )
+                            }
+
+                            else -> {}
+                        }
+                    }
+                }
+        }
+    }
+    if (showSpotifyImportDialog) {
+        SpotifyImportDialog(onDismiss = { showSpotifyImportDialog = false })
+    }
+}

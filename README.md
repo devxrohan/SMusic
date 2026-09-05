@@ -30,6 +30,14 @@
 
 ---
 
+> [!NOTE]
+> ### 💡 Note Regarding Repository History & Initial Commit
+> This repository was made public **after the project had already been fully developed locally**. 
+> As a result, the initial public commit contains the complete existing codebase and shows a large number of additions (~136k). 
+> All subsequent updates, fixes, and active development are properly tracked through individual commits moving forward.
+
+---
+
 ## About
 
 SMusic is a free, open-source Android music app that streams from YouTube Music, with offline downloads, synced lyrics, music recognition, and a deep set of customization options — including **11 distinct in-app player styles** you can switch between, each with its own look, layout, and controls.

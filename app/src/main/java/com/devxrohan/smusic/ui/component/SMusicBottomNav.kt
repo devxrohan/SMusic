@@ -6,6 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.devxrohan.smusic.constants.NavBarStyle
 
 /**
  * The actual bug fixed here: this was referenced everywhere (this file,
@@ -47,40 +51,80 @@ fun SMusicBottomNav(
     selectedIndex: Int,
     onItemSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    scale: Float = 1f
+    scale: Float = 1f,
+    showLabels: Boolean = true,
+    style: NavBarStyle = NavBarStyle.FLOATING
 ) {
-    // The incoming `modifier` (fillMaxSize + offset + scale + alpha, passed
-    // from MainActivity exactly like original AirBeats' nav bar components
-    // receive) is applied here, on a plain positioning Box — not on the
-    // pill itself. This is the actual fix: previously the pill Row absorbed
-    // that fillMaxSize directly and painted its background across whatever
-    // that resolved to (the whole bottomBar area), rather than just its own
-    // small pill footprint. Matches how original's CurvedBottomNavigationBar
-    // clips its visible paint to a small shape within a fillMaxSize canvas.
+    // The incoming modifier may occupy the full bottom-navigation host area.
+    // Keep this positioning layer non-clickable: a clickable fillMaxSize Box
+    // intercepts every touch on every screen, blocking scrolling and controls.
+    // Touches are consumed only by the actual visible nav surface below.
     Box(
         modifier = modifier,
         contentAlignment = Alignment.BottomCenter
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth(0.8f)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .heightIn(min = 56.dp)
-                .scale(scale)
-                .shadow(elevation = 12.dp, shape = RoundedCornerShape(24.dp), clip = false)
-                .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .padding(horizontal = 6.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            items.forEachIndexed { index, item ->
-                val selected = index == selectedIndex
-                SMusicNavPill(
-                    item = item,
-                    selected = selected,
-                    onClick = { onItemSelected(index) }
-                )
+        if (style == NavBarStyle.FLOATING) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .heightIn(min = 56.dp)
+                    .scale(scale)
+                    .shadow(elevation = 12.dp, shape = RoundedCornerShape(24.dp), clip = false)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items.forEachIndexed { index, item ->
+                    val selected = index == selectedIndex
+                    SMusicNavPill(
+                        item = item,
+                        selected = selected,
+                        onClick = { onItemSelected(index) },
+                        showLabel = showLabels
+                    )
+                }
+            }
+        } else {
+            val systemNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp + systemNavInset)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .scale(scale)
+                        .padding(horizontal = 6.dp, vertical = 8.dp)
+                        .align(Alignment.TopCenter),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items.forEachIndexed { index, item ->
+                        val selected = index == selectedIndex
+                        SMusicNavPill(
+                            item = item,
+                            selected = selected,
+                            onClick = { onItemSelected(index) },
+                            showLabel = showLabels
+                        )
+                    }
+                }
             }
         }
     }
@@ -90,7 +134,8 @@ fun SMusicBottomNav(
 private fun SMusicNavPill(
     item: CurvedBottomNavigationItem,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    showLabel: Boolean
 ) {
     val bgColor by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
@@ -126,7 +171,7 @@ private fun SMusicNavPill(
             tint = contentColor,
             modifier = Modifier.size(20.dp)
         )
-        if (selected) {
+        if (selected && showLabel) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,

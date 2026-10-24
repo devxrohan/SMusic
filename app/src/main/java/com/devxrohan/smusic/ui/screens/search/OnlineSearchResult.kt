@@ -154,13 +154,7 @@ fun OnlineSearchResult(
         if (newQuery.isEmpty() || newQuery == viewModel.query) return
         keyboardController?.hide()
         isFieldFocused = false
-        coroutineScope.launch {
-            if (!context.dataStore.get(com.devxrohan.smusic.constants.PauseSearchHistoryKey, false)) {
-                database.transaction {
-                    insert(com.devxrohan.smusic.db.entities.SearchHistory(query = newQuery))
-                }
-            }
-        }
+        suggestionViewModel.recordSearch(newQuery)
         navController.navigate("search/${android.net.Uri.encode(newQuery)}") {
             popUpTo("search/${android.net.Uri.encode(viewModel.query)}") { inclusive = true }
         }
@@ -242,7 +236,11 @@ fun OnlineSearchResult(
         androidx.compose.foundation.lazy.LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .weight(1f),
+            // Bottom safe area as contentPadding so suggestions scroll behind the bar (no empty strip).
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                bottom = com.devxrohan.smusic.ui.utils.bottomSafeArea()
+            ),
         ) {
             items(suggestionState.history, key = { "history_${it.query}" }) { entry ->
                 Row(
@@ -264,8 +262,24 @@ fun OnlineSearchResult(
                     Text(
                         text = entry.query,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(start = 16.dp)
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 16.dp)
                     )
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                database.query { delete(entry) }
+                            }
+                        },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.close),
+                            contentDescription = stringResource(R.string.delete),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             items(suggestionState.suggestions, key = { "suggestion_$it" }) { suggestion ->

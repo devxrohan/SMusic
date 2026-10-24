@@ -35,8 +35,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.devxrohan.smusic.innertube.models.*
-import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.extensions.togglePlayPause
 import com.devxrohan.smusic.models.toMediaMetadata
@@ -59,7 +61,6 @@ fun OnlineSearchScreen(
     pureBlack: Boolean,
     viewModel: OnlineSearchSuggestionViewModel = hiltViewModel(),
 ) {
-    val database = LocalDatabase.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val menuState = LocalMenuState.current
     val playerConnection = LocalPlayerConnection.current ?: return
@@ -71,7 +72,18 @@ fun OnlineSearchScreen(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val viewState by viewModel.viewState.collectAsState()
+
+    // Refresh local cached history immediately on return from a result page or another app;
+    // account history refresh runs in the background and is throttled by the ViewModel.
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshHistoryOnReturn()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val lazyListState = rememberLazyListState()
 
@@ -105,11 +117,7 @@ fun OnlineSearchScreen(
                     onSearch(history.query)
                     onDismiss()
                 },
-                onDelete = {
-                    database.query {
-                        delete(history)
-                    }
-                },
+                onDelete = { viewModel.removeHistory(history.query) },
                 onFillTextField = {
                     onQueryChange(TextFieldValue(history.query, TextRange(history.query.length)))
                 },

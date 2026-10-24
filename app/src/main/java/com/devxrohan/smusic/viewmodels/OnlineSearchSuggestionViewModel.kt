@@ -19,19 +19,22 @@ import com.devxrohan.smusic.constants.HideExplicitKey
 import com.devxrohan.smusic.constants.HideVideoKey
 import com.devxrohan.smusic.db.MusicDatabase
 import com.devxrohan.smusic.db.entities.SearchHistory
+import com.devxrohan.smusic.db.migrateSearchHistoryToLocalOnly
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.getSuspend
 import com.devxrohan.smusic.utils.get
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -41,31 +44,30 @@ class OnlineSearchSuggestionViewModel
 @Inject
 constructor(
     @ApplicationContext val context: Context,
-    database: MusicDatabase,
+    private val database: MusicDatabase,
 ) : ViewModel() {
     val query = MutableStateFlow("")
     private val _viewState = MutableStateFlow(SearchSuggestionViewState())
     val viewState = _viewState.asStateFlow()
 
     init {
-        // History flow: updates immediately from DB
+        // Recent searches are local only (Room), the same in guest and account mode.
+        // First run after the update: merge what older builds kept in their separate stores.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { migrateSearchHistoryToLocalOnly(context, database) }
+        }
+
         viewModelScope.launch {
             query
-                .flatMapLatest { query ->
-                    if (query.isEmpty()) {
-                        database.searchHistory().map { history ->
-                            SearchSuggestionViewState(history = history)
-                        }
-                    } else {
-                        database
-                            .searchHistory(query)
-                            .map { it.take(3) }
-                            .map { history ->
-                                SearchSuggestionViewState(history = history)
-                            }
+                .flatMapLatest { queryText ->
+                    database.searchHistory(queryText).map { rows ->
+                        // Typing shows a few matches, an empty box shows the whole recent list.
+                        if (queryText.isBlank()) rows.take(MAX_RECENT) else rows.take(3)
                     }
-                }.collect {
-                    _viewState.value = it
+                }
+                .distinctUntilChanged()
+                .collect { history ->
+                    _viewState.value = _viewState.value.copy(history = history)
                 }
         }
 
@@ -96,6 +98,33 @@ constructor(
                     )
                 }
         }
+    }
+
+    /** The list is a live Room flow, so there is nothing to refresh when the screen comes back. */
+    fun refreshHistoryOnReturn() {}
+
+    fun removeHistory(queryText: String) {
+        val target = queryText.trim()
+        // Drop it from the visible list immediately, then delete the row(s) from Room.
+        _viewState.value = _viewState.value.copy(
+            history = _viewState.value.history.filterNot { it.query.trim().equals(target, ignoreCase = true) }
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            database.searchHistory().first()
+                .filter { it.query.trim().equals(target, ignoreCase = true) }
+                .forEach { database.delete(it) }
+        }
+    }
+
+    fun recordSearch(queryText: String) {
+        if (context.dataStore.get(com.devxrohan.smusic.constants.PauseSearchHistoryKey, false)) return
+        val clean = queryText.trim()
+        if (clean.isBlank()) return
+        database.query { insert(SearchHistory(query = clean)) }
+    }
+
+    private companion object {
+        const val MAX_RECENT = 20
     }
 }
 

@@ -13,6 +13,8 @@ import com.devxrohan.smusic.innertube.models.oddElements
 
 data class HomePage(
     val sections: List<Section>,
+    /** Token for the remaining pages when the feed was loaded with a continuation limit. */
+    val continuation: String? = null,
 ) {
     data class Section(
         val title: String,
@@ -20,21 +22,53 @@ data class HomePage(
         val thumbnail: String?,
         val endpoint: BrowseEndpoint?,
         val items: List<YTItem>,
+        /** True for list-style shelves (YouTube Music's real "Quick picks" is one of these). */
+        val isList: Boolean = false,
     ) {
         companion object {
             fun fromMusicCarouselShelfRenderer(renderer: MusicCarouselShelfRenderer): Section? {
+                val cards = renderer.contents.mapNotNull {
+                    it.musicTwoRowItemRenderer
+                }.mapNotNull {
+                    fromMusicTwoRowItemRenderer(it)
+                }
+                // Quick picks (and similar shelves) are made of list rows, not cards. They used to be dropped.
+                val rows = if (cards.isEmpty()) renderer.contents.mapNotNull {
+                    it.musicResponsiveListItemRenderer
+                }.mapNotNull {
+                    fromMusicResponsiveListItemRenderer(it)
+                } else emptyList()
+                val items: List<YTItem> = cards.ifEmpty { rows }.ifEmpty { return null }
                 return Section(
                     title = renderer.header?.musicCarouselShelfBasicHeaderRenderer?.title?.runs?.firstOrNull()?.text ?: return null,
                     label = renderer.header.musicCarouselShelfBasicHeaderRenderer.strapline?.runs?.firstOrNull()?.text,
                     thumbnail = renderer.header.musicCarouselShelfBasicHeaderRenderer.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl(),
                     endpoint = renderer.header.musicCarouselShelfBasicHeaderRenderer.moreContentButton?.buttonRenderer?.navigationEndpoint?.browseEndpoint,
-                    items = renderer.contents.mapNotNull {
-                        it.musicTwoRowItemRenderer
-                    }.mapNotNull {
-                        fromMusicTwoRowItemRenderer(it)
-                    }.ifEmpty {
-                        return null
-                    }
+                    items = items,
+                    isList = cards.isEmpty() && rows.isNotEmpty(),
+                )
+            }
+
+            private fun fromMusicResponsiveListItemRenderer(renderer: com.devxrohan.smusic.innertube.models.MusicResponsiveListItemRenderer): SongItem? {
+                return SongItem(
+                    id = renderer.playlistItemData?.videoId ?: return null,
+                    title = renderer.flexColumns.firstOrNull()
+                        ?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.firstOrNull()
+                        ?.text ?: return null,
+                    artists = renderer.flexColumns.getOrNull(1)?.musicResponsiveListItemFlexColumnRenderer?.text?.runs
+                        ?.oddElements()?.map {
+                            Artist(name = it.text, id = it.navigationEndpoint?.browseEndpoint?.browseId)
+                        }.orEmpty(),
+                    album = renderer.flexColumns.getOrNull(2)?.musicResponsiveListItemFlexColumnRenderer?.text?.runs
+                        ?.firstOrNull()?.let {
+                            val albumId = it.navigationEndpoint?.browseEndpoint?.browseId ?: return@let null
+                            com.devxrohan.smusic.innertube.models.Album(name = it.text, id = albumId)
+                        },
+                    duration = null,
+                    thumbnail = renderer.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl() ?: return null,
+                    explicit = renderer.badges?.find {
+                        it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
+                    } != null,
                 )
             }
 

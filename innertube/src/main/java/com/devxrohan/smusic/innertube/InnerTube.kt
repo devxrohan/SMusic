@@ -34,6 +34,12 @@ class InnerTube {
             field = value
             cookieMap = if (value == null) emptyMap() else parseCookieString(value)
         }
+
+    /**
+     * Optional trace of which requests carry the account: set it (e.g. to Timber.d) to see, per request, whether
+     * the cookie / SAPISIDHASH are attached. Only booleans are logged, never the cookie itself.
+     */
+    var authTrace: ((String) -> Unit)? = null
     private var cookieMap = emptyMap<String, String>()
 
     var proxy: Proxy? = null
@@ -74,19 +80,25 @@ class InnerTube {
     }
 
     private fun HttpRequestBuilder.ytClient(client: YouTubeClient, setLogin: Boolean = false) {
+        val hasAccountCookie = cookie != null && cookieMap.containsKey("SAPISID")
+        authTrace?.invoke(
+            "client=${client.clientName} setLogin=$setLogin loginSupported=${client.loginSupported} " +
+                "account=${setLogin && client.loginSupported && hasAccountCookie} " +
+                "dataSyncId=${dataSyncId != null} visitorData=${visitorData != null}"
+        )
         contentType(ContentType.Application.Json)
         headers {
             append("X-Goog-Api-Format-Version", "1")
             append("X-YouTube-Client-Name", client.clientId /* Not a typo. The Client-Name header does contain the client id. */)
             append("X-YouTube-Client-Version", client.clientVersion)
-            append("X-Origin", YouTubeClient.ORIGIN_YOUTUBE_MUSIC)
-            append("Referer", YouTubeClient.REFERER_YOUTUBE_MUSIC)
+            append("X-Origin", client.requestOrigin())
+            append("Referer", client.requestReferer())
             if (setLogin && client.loginSupported) {
                 cookie?.let { cookie ->
                     append("cookie", cookie)
                     if ("SAPISID" !in cookieMap) return@let
                     val currentTime = System.currentTimeMillis() / 1000
-                    val sapisidHash = sha1("$currentTime ${cookieMap["SAPISID"]} ${YouTubeClient.ORIGIN_YOUTUBE_MUSIC}")
+                    val sapisidHash = sha1("$currentTime ${cookieMap["SAPISID"]} ${client.requestOrigin()}")
                     append("Authorization", "SAPISIDHASH ${currentTime}_${sapisidHash}")
                 }
             }
@@ -98,7 +110,7 @@ class InnerTube {
     /**
      * Simple retry wrapper for transient IO errors (socket aborts, timeouts).
      * Retries the given block up to [maxAttempts] times with exponential backoff.
-     * Ported from AirBeats — this was completely missing before, meaning any
+     * Ported from SMusic — this was completely missing before, meaning any
      * transient network hiccup during bulk operations (e.g. downloading many
      * songs at once) became an immediate hard failure with no recovery.
      */
@@ -151,12 +163,13 @@ class InnerTube {
         videoId: String,
         playlistId: String?,
         signatureTimestamp: Int?,
+        setLogin: Boolean = true,
     ) = withRetry {
         httpClient.post("player") {
-            ytClient(client, setLogin = true)
+            ytClient(client, setLogin = setLogin)
             setBody(
                 PlayerBody(
-                    context = client.toContext(locale, visitorData, dataSyncId).let {
+                    context = client.toContext(locale, visitorData, if (setLogin) dataSyncId else null).let {
                         if (client.isEmbedded) {
                             it.copy(
                                 thirdParty = Context.ThirdParty(
@@ -250,15 +263,25 @@ class InnerTube {
     suspend fun getSearchSuggestions(
         client: YouTubeClient,
         input: String,
+        authenticated: Boolean = false,
     ) = withRetry {
         httpClient.post("music/get_search_suggestions") {
-            ytClient(client)
+            // Recent-search history is account-scoped. Only this explicit path opts into
+            // SAPISIDHASH auth; ordinary live suggestions remain anonymous as before.
+            ytClient(client, setLogin = authenticated)
             setBody(
                 GetSearchSuggestionsBody(
-                    context = client.toContext(locale, visitorData, null),
+                    context = client.toContext(locale, visitorData, dataSyncId?.takeIf { authenticated && it.isNotBlank() }),
                     input = input
                 )
             )
+        }
+    }
+
+    suspend fun removeSearchHistory(client: YouTubeClient, feedbackToken: String) = withRetry {
+        httpClient.post("feedback") {
+            ytClient(client, setLogin = true)
+            setBody(FeedbackBody(feedbackTokens = listOf(feedbackToken)))
         }
     }
 

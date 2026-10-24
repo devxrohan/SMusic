@@ -22,12 +22,13 @@ build/
 *.iml
 .DS_Store
 
-# ---- Large bundled archives (not project source) ----
-SMusic-classic-rebuilt.zip
-SMusic-classic-v3.zip
+
 
 # ---- Logs / captures ----
 captures/
 .externalNativeBuild/
 .cxx/
 local.properties.bak
+
+# Firebase service account key (secret)
+tools/service-account.json

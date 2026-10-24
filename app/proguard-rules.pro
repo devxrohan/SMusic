@@ -89,3 +89,19 @@
 -dontwarn java.beans.Introspector
 -dontwarn java.beans.PropertyDescriptor
 -dontwarn okhttp3.internal.Util
+
+# --- Ported from SMusic' app-size/release-build hardening ---
+
+# Preserve line number information for readable crash stack traces.
+-keepattributes SourceFile,LineNumberTable
+
+# Keep Android framework org.json classes and prevent R8 renaming. SMusic already uses org.json
+# directly in several places (Updater, CloudBackupClient, AI code, etc.) — without this,
+# release-build R8 minification can strip/rename members those
+# classes reflectively rely on.
+-keep class org.json.** { *; }
+-dontwarn org.json.**
+
+# Keep SMusic's own model/data classes from aggressive renaming where they're populated via
+# reflection-based JSON parsing (Gson/kotlinx.serialization field matching).
+-keep class com.devxrohan.smusic.models.** { *; }

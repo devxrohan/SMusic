@@ -109,6 +109,7 @@ import com.devxrohan.smusic.playback.queues.ListQueue
 import com.devxrohan.smusic.ui.component.AlbumGridItem
 import com.devxrohan.smusic.ui.component.DefaultDialog
 import com.devxrohan.smusic.ui.component.DraggableScrollbar
+import com.devxrohan.smusic.ui.component.EmptyPlaceholder
 import com.devxrohan.smusic.ui.component.IconButton
 import com.devxrohan.smusic.ui.component.LocalMenuState
 import com.devxrohan.smusic.ui.component.NavigationTitle
@@ -155,6 +156,7 @@ fun AlbumScreen(
     val playlistId by viewModel.playlistId.collectAsState()
     val albumWithSongs by viewModel.albumWithSongs.collectAsState()
     val otherVersions by viewModel.otherVersions.collectAsState()
+    val albumLoadError by viewModel.loadError.collectAsState()
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
     val (disableBlur) = rememberPreference(DisableBlurKey, false)
 
@@ -781,8 +783,14 @@ fun AlbumScreen(
                         }
                     }
                 }
-            } ?: item(key = "shimmer") {
-                ShimmerHost {
+            } ?: item(key = if (albumLoadError != null) "album_load_error" else "shimmer") {
+                if (albumLoadError != null) {
+                    EmptyPlaceholder(
+                        icon = R.drawable.error,
+                        text = albumLoadError ?: "Couldn't load this album.",
+                        modifier = Modifier.padding(top = systemBarsTopPadding + AppBarHeight)
+                    )
+                } else ShimmerHost {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()

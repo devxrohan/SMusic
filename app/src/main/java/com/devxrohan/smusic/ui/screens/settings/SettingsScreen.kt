@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.screens.settings
 
+import com.devxrohan.smusic.ui.utils.bottomSafeArea
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
@@ -458,15 +459,10 @@ fun UpdateCard(updateViewModel: com.devxrohan.smusic.update.UpdateViewModel = hi
     UpdateDownloadDialog(updateViewModel = updateViewModel)
 }
 
-/**
- * System-update-style progress UI, driven directly by UpdateManager's
- * state — same worker manifest, same DownloadManager-backed download, same
- * "Available -> Downloading -> ReadyToInstall" flow as the SMusic
- * (com.elite.music) project this was ported from.
- */
+/** Compact, scrollable update dialog. The dialog itself stays a predictable size even for long changelogs. */
 @Composable
 fun UpdateDownloadDialog(
-    updateViewModel: com.devxrohan.smusic.update.UpdateViewModel = hiltViewModel()
+    updateViewModel: com.devxrohan.smusic.update.UpdateViewModel = hiltViewModel(),
 ) {
     val state by updateViewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -480,148 +476,179 @@ fun UpdateDownloadDialog(
     }
 
     Dialog(onDismissRequest = {
-        when (val s = state) {
-            is com.devxrohan.smusic.update.UpdateState.Available -> scope.launch { updateViewModel.skip(s.info) }
-            is com.devxrohan.smusic.update.UpdateState.Downloading -> Unit
+        when (state) {
+            // Tapping outside / back = "Later": comes back after a few hours, stays in bell + notification.
+            is com.devxrohan.smusic.update.UpdateState.Available,
+            is com.devxrohan.smusic.update.UpdateState.ReadyToInstall -> updateViewModel.later()
+            is com.devxrohan.smusic.update.UpdateState.Downloading -> updateViewModel.dismiss()
             else -> updateViewModel.dismiss()
         }
     }) {
-        GlassCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
         ) {
-            Column(
+            val maxHeight = minOf(maxHeight - 32.dp, 620.dp)
+            Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxWidth(0.92f)
+                    .heightIn(max = maxHeight),
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 10.dp,
             ) {
-                Text(
-                    text = stringResource(id = R.string.update_version, info.versionName),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                when (val s = state) {
-                    is com.devxrohan.smusic.update.UpdateState.Available -> {
-                        if (s.info.changelog.isNotBlank()) {
-                            Text(
-                                s.info.changelog,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        } else {
-                            Text(
-                                stringResource(R.string.download_question),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(24.dp))
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 20.dp, vertical = 20.dp),
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            WaterDropButton(
-                                onClick = { scope.launch { updateViewModel.skip(s.info) } },
-                                modifier = Modifier.weight(1f),
-                                text = stringResource(R.string.cancel),
-                                colors = listOf(
-                                    Color(0xFF2A2A2A),
-                                    Color(0xFF3A3A3A),
-                                    Color(0xFF2A2A2A)
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.download),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(28.dp),
                                 )
-                            )
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    stringResource(R.string.ui_software_update),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    "v${info.versionName}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
 
-                            WaterDropButton(
-                                onClick = { updateViewModel.startDownload(s.info) },
-                                modifier = Modifier.weight(1f),
-                                text = stringResource(R.string.download),
-                                colors = listOf(
-                                    Color(0xFF6C5CE7),
-                                    Color(0xFFA463F5),
-                                    Color(0xFFC45AF0)
+                        Spacer(Modifier.height(18.dp))
+
+                        when (val s = state) {
+                            is com.devxrohan.smusic.update.UpdateState.Available -> {
+                                Text(
+                                    stringResource(R.string.ui_a_new_version_of_smusic_is),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                            )
+                                if (s.info.changelog.isNotBlank()) {
+                                    Spacer(Modifier.height(14.dp))
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 240.dp)
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .background(MaterialTheme.colorScheme.surface)
+                                            .verticalScroll(rememberScrollState())
+                                            .padding(15.dp),
+                                    ) {
+                                        Text(stringResource(R.string.whats_new), fontWeight = FontWeight.SemiBold)
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(
+                                            com.devxrohan.smusic.update.formatReleaseNotes(s.info.changelog),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            lineHeight = 18.sp,
+                                        )
+                                    }
+                                }
+                            }
+
+                            is com.devxrohan.smusic.update.UpdateState.Downloading -> {
+                                Text(
+                                    stringResource(R.string.ui_downloading_the_update),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                LinearProgressIndicator(
+                                    progress = { s.progress / 100f },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Spacer(Modifier.height(7.dp))
+                                Text("${s.progress}%", fontWeight = FontWeight.SemiBold)
+                            }
+
+                            is com.devxrohan.smusic.update.UpdateState.ReadyToInstall -> {
+                                Text(
+                                    stringResource(R.string.ui_the_apk_is_ready_install_it),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+
+                            is com.devxrohan.smusic.update.UpdateState.Failed -> {
+                                Text(
+                                    s.message,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+
+                            com.devxrohan.smusic.update.UpdateState.Idle -> Unit
                         }
                     }
 
-                    is com.devxrohan.smusic.update.UpdateState.Downloading -> {
-                        Text(
-                            stringResource(R.string.downloading_update),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                progress = { s.progress / 100f },
-                                modifier = Modifier.size(72.dp),
-                                strokeWidth = 5.dp,
-                                color = Color(0xFFE53935),
-                                trackColor = Color(0xFFE53935).copy(alpha = 0.2f)
-                            )
-                            Text(
-                                text = "${s.progress}%",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+
+                    when (val s = state) {
+                        is com.devxrohan.smusic.update.UpdateState.Available -> {
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                TextButton(
+                                    onClick = { updateViewModel.later() },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(stringResource(R.string.ui_later)) }
+                                TextButton(
+                                    onClick = { updateViewModel.startDownload(s.info) },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(if (s.info.apkUrl.isBlank()) "Open release" else "Download") }
+                            }
                         }
+                        is com.devxrohan.smusic.update.UpdateState.Downloading -> {
+                            TextButton(
+                                onClick = updateViewModel::cancelDownload,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(stringResource(R.string.cancel)) }
+                        }
+                        is com.devxrohan.smusic.update.UpdateState.ReadyToInstall -> {
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                TextButton(
+                                    onClick = { updateViewModel.later() },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(stringResource(R.string.ui_later)) }
+                                Button(
+                                    onClick = { updateViewModel.install(s.apkFile) },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(stringResource(R.string.ui_install_now)) }
+                            }
+                        }
+                        is com.devxrohan.smusic.update.UpdateState.Failed -> {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Button(
+                                    onClick = { updateViewModel.openReleaseInBrowser(s.info) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(stringResource(R.string.ui_open_in_browser)) }
+                                TextButton(
+                                    onClick = updateViewModel::dismiss,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(stringResource(R.string.close)) }
+                            }
+                        }
+                        com.devxrohan.smusic.update.UpdateState.Idle -> Unit
                     }
-
-                    is com.devxrohan.smusic.update.UpdateState.ReadyToInstall -> {
-                        Icon(
-                            painter = painterResource(R.drawable.download),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            stringResource(R.string.update_ready_to_install),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
-                        WaterDropButton(
-                            onClick = { updateViewModel.install(s.apkFile) },
-                            text = stringResource(R.string.install),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = listOf(
-                                Color(0xFF6C5CE7),
-                                Color(0xFFA463F5),
-                                Color(0xFFC45AF0)
-                            )
-                        )
-                    }
-
-                    is com.devxrohan.smusic.update.UpdateState.Failed -> {
-                        Text(
-                            stringResource(R.string.download_errorup),
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        WaterDropButton(
-                            onClick = { updateViewModel.dismiss() },
-                            text = stringResource(R.string.close),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = listOf(
-                                Color(0xFFCF6679),
-                                Color(0xFFB0003A),
-                                Color(0xFFCF6679)
-                            )
-                        )
-                    }
-
-                    com.devxrohan.smusic.update.UpdateState.Idle -> {}
                 }
             }
         }
@@ -649,50 +676,78 @@ fun SettingsScreen(
 
     val cards = listOf(
         SettingsCard(
-            title = "Appearance",
-            subtitle = "Theme, fonts, colors",
+            title = stringResource(R.string.account),
+            subtitle = stringResource(R.string.ui_youtube_discord),
+            iconRes = R.drawable.account,
+            iconBg = androidx.compose.ui.graphics.Color(0xFF1B5E20),
+            route = "settings/account"
+        ),
+        SettingsCard(
+            title = stringResource(R.string.ai_integration),
+            subtitle = stringResource(R.string.ui_playlists_translation),
+            iconRes = R.drawable.custom_ai_sparkle,
+            iconBg = androidx.compose.ui.graphics.Color(0xFF4A148C),
+            route = "settings/ai"
+        ),
+        SettingsCard(
+            title = stringResource(R.string.android_auto),
+            subtitle = stringResource(R.string.ui_car_display_and_library_controls),
+            iconRes = R.drawable.custom_android_auto,
+            iconBg = androidx.compose.ui.graphics.Color(0xFF1A4A5C),
+            route = "settings/android_auto"
+        ),
+        SettingsCard(
+            title = stringResource(R.string.voice_assistant),
+            subtitle = stringResource(R.string.ui_hands_free_playback_controls),
+            iconRes = R.drawable.mic,
+            iconBg = androidx.compose.ui.graphics.Color(0xFF00695C),
+            route = "settings/voice"
+        ),
+        SettingsCard(
+            title = stringResource(R.string.appearance),
+            subtitle = stringResource(R.string.ui_theme_fonts_colors),
             iconRes = R.drawable.palette,
             iconBg = androidx.compose.ui.graphics.Color(0xFF7D5260),
             route = "settings/appearance"
         ),
         SettingsCard(
-            title = "Player & Audio",
-            subtitle = "Playback, equalizer",
+            title = stringResource(R.string.ui_player_amp_audio),
+            subtitle = stringResource(R.string.ui_playback_equalizer),
             iconRes = R.drawable.play,
             iconBg = androidx.compose.ui.graphics.Color(0xFF324F34),
             route = "settings/player"
         ),
         SettingsCard(
-            title = "Content",
-            subtitle = "Language, region",
+            title = stringResource(R.string.content),
+            subtitle = stringResource(R.string.ui_language_region),
             iconRes = R.drawable.language,
             iconBg = androidx.compose.ui.graphics.Color(0xFF1A3A5C),
             route = "settings/content"
         ),
         SettingsCard(
-            title = "Storage",
-            subtitle = "Cache & downloads",
-            iconRes = R.drawable.storage,
+            title = stringResource(R.string.storage),
+            subtitle = stringResource(R.string.ui_cache_amp_downloads),
+            iconRes = R.drawable.custom_storage,
             iconBg = androidx.compose.ui.graphics.Color(0xFF3E4C63),
             route = "settings/storage"
         ),
         SettingsCard(
-            title = "Privacy",
-            subtitle = "History, security",
+            title = stringResource(R.string.privacy),
+            subtitle = stringResource(R.string.ui_history_security),
             iconRes = R.drawable.security,
             iconBg = androidx.compose.ui.graphics.Color(0xFF633B48),
             route = "settings/privacy"
         ),
         SettingsCard(
-            title = "Backup",
-            subtitle = "Backup & restore",
-            iconRes = R.drawable.restore,
+            title = stringResource(R.string.backup),
+            subtitle = stringResource(R.string.feature_backup_title),
+            iconRes = R.drawable.custom_backup,
             iconBg = androidx.compose.ui.graphics.Color(0xFF4A3000),
             route = "settings/backup_restore"
         ),
         SettingsCard(
-            title = "About",
-            subtitle = "App info, developer",
+            title = stringResource(R.string.about),
+            subtitle = stringResource(R.string.ui_app_info_developer),
             iconRes = R.drawable.info,
             iconBg = androidx.compose.ui.graphics.Color(0xFF2E2E2E),
             route = com.devxrohan.smusic.ui.screens.settings.AboutRoute
@@ -703,13 +758,18 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            // Bottom safe area is added inside the scrolling column below, so the cards scroll
+            // behind the bottom bar instead of being cut off above an empty strip.
             .windowInsetsPadding(
-                LocalPlayerAwareWindowInsets.current.only(
-                    WindowInsetsSides.Horizontal + WindowInsetsSides.Top + WindowInsetsSides.Bottom
-                )
+                LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal)
             )
     ) {
-        SMusicSectionHeader(title = "Settings")
+        SMusicSectionHeader(
+            title = stringResource(R.string.settings),
+            modifier = Modifier
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = 12.dp)
+        )
 
         BoxWithConstraints(modifier = Modifier.padding(horizontal = 16.dp)) {
             val gap = 14.dp
@@ -733,7 +793,8 @@ fun SettingsScreen(
                                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                     .clickable { navController.navigate(card.route) }
                                     .padding(16.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
+                                verticalArrangement = Arrangement.SpaceBetween,
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -749,19 +810,36 @@ fun SettingsScreen(
                                         modifier = Modifier.size(26.dp)
                                     )
                                 }
-                                Column(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    if (card.title == "Voice Assistant") {
+                                        Text(
+                                            text = stringResource(R.string.ui_beta),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                     Text(
                                         text = card.title,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        textAlign = TextAlign.Center
                                     )
                                     Text(
                                         text = card.subtitle,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
+                                        textAlign = TextAlign.Center,
                                         modifier = Modifier.padding(top = 2.dp)
                                     )
                                 }
@@ -776,7 +854,7 @@ fun SettingsScreen(
                 // Version card
                 VersionCard(navController)
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp + bottomSafeArea()))
             }
         }
     }

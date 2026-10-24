@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.devxrohan.smusic.innertube.YouTube
 import com.devxrohan.smusic.innertube.models.PlaylistItem
 import com.devxrohan.smusic.innertube.models.SongItem
-import com.devxrohan.smusic.innertube.utils.completed
 import com.devxrohan.smusic.db.MusicDatabase
 import com.devxrohan.smusic.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -45,6 +44,9 @@ class OnlinePlaylistViewModel @Inject constructor(
 
     var continuation: String? = null
         private set
+    private val consumedContinuations = mutableSetOf<String>()
+    private var continuationPagesLoaded = 0
+    private var consecutiveEmptyPages = 0
 
     init {
         load(initial = true)
@@ -57,17 +59,26 @@ class OnlinePlaylistViewModel @Inject constructor(
     fun loadMoreSongs() {
         if (_isLoadingMore.value) return
 
-        continuation?.let {
+        continuation?.let { token ->
+            if (continuationPagesLoaded >= 100 || !consumedContinuations.add(token)) {
+                continuation = null // A repeated continuation must never trap the screen in a load loop.
+                return
+            }
+            continuationPagesLoaded++
             viewModelScope.launch(Dispatchers.IO) {
                 _isLoadingMore.value = true
-                YouTube.playlistContinuation(it)
+                YouTube.playlistContinuation(token)
                     .onSuccess { playlistContinuationPage ->
-                        val currentSongs = playlistSongs.value.toMutableList()
-                        currentSongs.addAll(playlistContinuationPage.songs)
-                        playlistSongs.value = currentSongs.distinctBy { it.id }
+                        val beforeCount = playlistSongs.value.size
+                        playlistSongs.value = (playlistSongs.value + playlistContinuationPage.songs).distinctBy { it.id }
                         continuation = playlistContinuationPage.continuation
+                        if (playlistSongs.value.size == beforeCount) consecutiveEmptyPages++ else consecutiveEmptyPages = 0
+                        if (consecutiveEmptyPages >= 3 || continuation?.let { it in consumedContinuations } == true) {
+                            continuation = null
+                        }
                         _isLoadingMore.value = false
                     }.onFailure { throwable ->
+                        consumedContinuations.remove(token)
                         _isLoadingMore.value = false
                         reportException(throwable)
                     }
@@ -95,9 +106,11 @@ class OnlinePlaylistViewModel @Inject constructor(
 
             _error.value = null
 
+            consumedContinuations.clear()
+            continuationPagesLoaded = 0
+            consecutiveEmptyPages = 0
             YouTube
                 .playlist(playlistId)
-                .completed()
                 .onSuccess { playlistPage ->
                     playlist.value = playlistPage.playlist
                     playlistSongs.value = playlistPage.songs.distinctBy { it.id }

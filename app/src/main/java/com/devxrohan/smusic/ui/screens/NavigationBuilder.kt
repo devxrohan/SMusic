@@ -22,6 +22,9 @@ import com.devxrohan.smusic.BuildConfig
 import com.devxrohan.smusic.ui.screens.artist.ArtistItemsScreen
 import com.devxrohan.smusic.ui.screens.artist.ArtistScreen
 import com.devxrohan.smusic.ui.screens.artist.ArtistSongsScreen
+import androidx.compose.ui.res.stringResource
+import com.devxrohan.smusic.R
+import com.devxrohan.smusic.ui.component.LibraryPage
 import com.devxrohan.smusic.ui.screens.library.CachePlaylistScreen
 import com.devxrohan.smusic.ui.screens.library.LibraryScreen
 import com.devxrohan.smusic.ui.screens.library.LibraryAlbumsScreen
@@ -50,6 +53,7 @@ fun NavGraphBuilder.navigationBuilder(
     latestVersionName: String,
     playerBottomSheetState: BottomSheetState,
     onSearchClick: () -> Unit,
+    onboardingLoginReady: () -> Unit = {},
 ) {
     composable(Screens.Home.route) {
         HomeScreen(navController = navController)
@@ -64,16 +68,36 @@ fun NavGraphBuilder.navigationBuilder(
         ExploreScreen(navController, scrollBehavior)
     }
     composable(Screens.Search.route) {
-        com.devxrohan.smusic.ui.screens.search.SearchTabScreen(navController = navController)
+        OnlineSearchResult(navController)
     }
     composable("history") {
         HistoryScreen(navController)
+    }
+    composable("stats") {
+        StatsScreen(navController)
+    }
+    composable("local_songs") {
+        com.devxrohan.smusic.ui.screens.library.LocalSongsScreen(navController)
     }
     composable("new_release") {
         NewReleaseScreen(navController, scrollBehavior)
     }
     composable("insight") {
         InsightScreen(navController)
+    }
+    composable("pulse") {
+        PulseScreen(navController)
+    }
+
+    composable("generator") {
+        com.devxrohan.smusic.ui.screens.generator.GenerateScreen(
+            navController = navController,
+            onBack = { navController.popBackStack() },
+            onNavigateToPlaylist = { playlistId ->
+                navController.popBackStack()
+                navController.navigate("local_playlist/$playlistId")
+            },
+        )
     }
 
     composable(com.devxrohan.smusic.ui.screens.musicrecognition.MusicRecognitionRoute) {
@@ -252,16 +276,24 @@ fun NavGraphBuilder.navigationBuilder(
 
 
     composable("library/albums") {
-        LibraryAlbumsScreen(navController, onDeselect = { })
+        LibraryPage(stringResource(R.string.albums), navController, scrollBehavior) {
+            LibraryAlbumsScreen(navController, onDeselect = { })
+        }
     }
     composable("library/artists") {
-        LibraryArtistsScreen(navController, onDeselect = { })
+        LibraryPage(stringResource(R.string.artists), navController, scrollBehavior) {
+            LibraryArtistsScreen(navController, onDeselect = { })
+        }
     }
     composable("library/songs") {
-        LibrarySongsScreen(navController, onDeselect = { })
+        LibraryPage(stringResource(R.string.songs), navController, scrollBehavior) {
+            LibrarySongsScreen(navController, onDeselect = { })
+        }
     }
     composable("library/playlists") {
-        LibraryPlaylistsScreen(navController, filterContent = { })
+        LibraryPage(stringResource(R.string.playlists), navController, scrollBehavior) {
+            LibraryPlaylistsScreen(navController, filterContent = { })
+        }
     }
         composable("settings") {
         val latestVersion by mutableLongStateOf(BuildConfig.VERSION_CODE.toLong())
@@ -282,6 +314,34 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/privacy") {
         PrivacySettings(navController, scrollBehavior)
     }
+    // --- Account integration (ported from SMusic) ---
+    composable("settings/account") {
+        com.devxrohan.smusic.ui.screens.settings.AccountSettings(navController, scrollBehavior)
+    }
+    composable("account") {
+        com.devxrohan.smusic.ui.screens.AccountScreen(navController, scrollBehavior)
+    }
+    composable("login") {
+        com.devxrohan.smusic.ui.screens.LoginScreen(navController)
+    }
+    composable("youtube_login") {
+        com.devxrohan.smusic.ui.screens.YouTubeLoginScreen(navController, onScreenReady = onboardingLoginReady)
+    }
+    composable("settings/discord") {
+        com.devxrohan.smusic.ui.screens.settings.DiscordSettings(navController, scrollBehavior)
+    }
+    composable("settings/discord/login") {
+        com.devxrohan.smusic.ui.screens.settings.DiscordLoginScreen(navController)
+    }
+    composable("settings/ai") {
+        com.devxrohan.smusic.ui.screens.settings.AiSettings(navController, scrollBehavior)
+    }
+    composable("settings/voice") {
+        com.devxrohan.smusic.ui.screens.settings.VoiceAssistantSettings(navController, scrollBehavior)
+    }
+    composable("settings/android_auto") {
+        com.devxrohan.smusic.ui.screens.settings.AndroidAutoSettings(navController, scrollBehavior)
+    }
     composable("settings/backup_restore") {
         BackupAndRestore(navController, scrollBehavior)
     }
@@ -301,4 +361,3 @@ fun NavGraphBuilder.navigationBuilder(
         com.devxrohan.smusic.ui.screens.settings.AnnouncementScreen(navController)
     }
 }
-

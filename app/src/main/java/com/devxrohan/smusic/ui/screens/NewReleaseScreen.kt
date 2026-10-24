@@ -284,7 +284,7 @@ fun NewReleaseScreen(
 
             item {
                 ReleaseSectionHeader(
-                    title = "EPs",
+                    title = stringResource(R.string.ui_eps),
                     count = if (uiState is NewReleaseUiState.Loading) null else epsList.size,
                     iconRes = R.drawable.queue_music,
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -414,7 +414,7 @@ private fun NewReleaseHero(
             VerticalDividerLine()
             HeroStat(
                 count = epCount,
-                label = "EPs",
+                label = stringResource(R.string.ui_eps),
                 iconRes = R.drawable.queue_music,
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -582,7 +582,7 @@ private fun FeaturedCarousel(
                 }
             }
             Text(
-                text = "Featured Releases",
+                text = stringResource(R.string.ui_featured_releases),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -1101,7 +1101,7 @@ private fun ErrorState(
                 modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Retry")
+            Text(stringResource(R.string.retry))
         }
     }
 }
@@ -1131,7 +1131,7 @@ private fun EmptyState(
             }
         }
         Text(
-            text = "No releases found",
+            text = stringResource(R.string.ui_no_releases_found),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
@@ -1151,7 +1151,7 @@ private fun EmptyState(
                 modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Refresh")
+            Text(stringResource(R.string.ui_refresh))
         }
     }
 }

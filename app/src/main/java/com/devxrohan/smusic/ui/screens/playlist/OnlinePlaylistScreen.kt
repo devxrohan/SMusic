@@ -847,7 +847,7 @@ fun OnlinePlaylistScreen(
                                     ) {
                                         Icon(
                                             painter = painterResource(R.drawable.radio),
-                                            contentDescription = "Start Radio",
+                                            contentDescription = stringResource(R.string.ui_start_radio),
                                             modifier = Modifier.size(20.dp)
                                         )
                                         Spacer(modifier = Modifier.size(8.dp))

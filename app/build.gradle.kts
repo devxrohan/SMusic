@@ -10,6 +10,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.compose.compiler)
+    id("com.google.gms.google-services")
 }
 
 val localProperties = Properties().apply {
@@ -22,6 +23,7 @@ val googleApiKey = localProperties.getProperty("google.api.key") ?: ""
 val statsApiKey = localProperties.getProperty("stats.api.key") ?: ""
 val statsBaseUrl = localProperties.getProperty("stats.base.url") ?: ""
 val authBaseUrl = localProperties.getProperty("auth.api.base.url") ?: ""
+val discordApplicationId = localProperties.getProperty("discord.application.id") ?: ""
 val updateManifestUrl = localProperties.getProperty("update.manifest.url") ?: ""
 val githubRepo = localProperties.getProperty("github.repo") ?: ""
 
@@ -44,17 +46,18 @@ android {
         applicationId = "com.devxrohan.smusic"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 2
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GOOGLE_API_KEY", googleApiKey.asBuildConfigString())
         buildConfigField("String", "STATS_API_KEY", statsApiKey.asBuildConfigString())
         buildConfigField("String", "STATS_BASE_URL", statsBaseUrl.asBuildConfigString())
         buildConfigField("String", "AUTH_API_BASE_URL", authBaseUrl.asBuildConfigString())
+        buildConfigField("String", "DISCORD_APPLICATION_ID", discordApplicationId.asBuildConfigString())
         buildConfigField("String", "UPDATE_MANIFEST_URL", updateManifestUrl.asBuildConfigString())
         buildConfigField("String", "GITHUB_REPO", githubRepo.asBuildConfigString())
         
-        // Strip out language resources from libraries that the app doesn't support
+        // English only: drop translated resources shipped by libraries.
         resConfigs("en")
     }
 
@@ -137,6 +140,12 @@ android {
             excludes += "META-INF/LICENSE.md"
             excludes += "META-INF/NOTICE.md"
             excludes += "META-INF/*.md"
+            // Strip unused metadata/property files from transitive crypto and Google API libraries.
+            excludes += "org/bouncycastle/**/*.properties"
+            excludes += "**/*.bin.properties"
+            excludes += "com/google/api/client/**/*.p12"
+            excludes += "com/google/api/client/**/*.jks"
+            excludes += "**/*.proto"
         }
     }
 }
@@ -145,7 +154,17 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+configurations.all {
+    // Ported from SMusic: kotlinx.serialization's JSON org.json compat shim can otherwise
+    // pull in a duplicate org.json:json artifact that only bloats the release APK (Android
+    // already ships its own org.json implementation on-device).
+    exclude(group = "org.json", module = "json")
+}
+
 dependencies {
+    // Firebase Cloud Messaging (push messages to all users, see tools/README.md)
+    implementation(platform("com.google.firebase:firebase-bom:35.0.0"))
+    implementation("com.google.firebase:firebase-messaging")
     implementation("dev.chrisbanes.haze:haze:0.7.3")
     implementation(libs.guava)
     implementation(libs.coroutines.guava)
@@ -227,6 +246,7 @@ dependencies {
     implementation(projects.innertube)
     implementation(projects.kugou)
     implementation(projects.lrclib)
+    implementation(projects.discordrpc)
     implementation(project(":jossredconnect"))
     implementation(project(":shazamkit"))
     implementation(project(":betterlyrics"))

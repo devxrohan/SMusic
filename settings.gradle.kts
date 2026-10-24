@@ -1,4 +1,11 @@
 @file:Suppress("UnstableApiUsage")
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
@@ -23,3 +30,4 @@ include(":material-color-utilities")
 include(":jossredconnect")
 include(":betterlyrics")
 include(":shazamkit")
+include(":discordrpc")

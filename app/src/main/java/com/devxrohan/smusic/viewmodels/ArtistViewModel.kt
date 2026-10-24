@@ -23,6 +23,8 @@ class ArtistViewModel @Inject constructor(
 ) : ViewModel() {
     val artistId = savedStateHandle.get<String>("artistId")!!
     var artistPage by mutableStateOf<ArtistPage?>(null)
+    /** True when the online artist page could not be loaded, so the screen can stop showing the loading skeleton. */
+    var loadFailed by mutableStateOf(false)
     val libraryArtist = database.artist(artistId)
         .stateIn(viewModelScope, SharingStarted.Lazily, null)
     val librarySongs = database.artistSongsPreview(artistId)
@@ -37,7 +39,9 @@ class ArtistViewModel @Inject constructor(
             YouTube.artist(artistId)
                 .onSuccess {
                     artistPage = it
+                    loadFailed = false
                 }.onFailure {
+                    loadFailed = true
                     reportException(it)
                 }
         }

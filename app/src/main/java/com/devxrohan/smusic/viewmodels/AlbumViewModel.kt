@@ -29,9 +29,12 @@ constructor(
             .albumWithSongs(albumId)
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     var otherVersions = MutableStateFlow<List<AlbumItem>>(emptyList())
+    val isLoading = MutableStateFlow(true)
+    val loadError = MutableStateFlow<String?>(null)
 
     init {
         viewModelScope.launch {
+            loadError.value = null
             val album = database.album(albumId).first()
             YouTube
                 .album(albumId)
@@ -46,6 +49,7 @@ constructor(
                         }
                     }
                 }.onFailure {
+                    loadError.value = it.message ?: "Couldn't load this album. Check your connection and try again."
                     reportException(it)
                     if (it.message?.contains("NOT_FOUND") == true) {
                         database.query {
@@ -53,6 +57,7 @@ constructor(
                         }
                     }
                 }
+            isLoading.value = false
         }
     }
 }

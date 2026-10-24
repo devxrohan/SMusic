@@ -7,7 +7,7 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * Ported from AirBeats. IMPORTANT: this routes requests through PUBLIC,
+ * Ported from SMusic. IMPORTANT: this routes requests through PUBLIC,
  * UNVERIFIED HTTP proxies pulled from a community GitHub list — anyone
  * running one of those proxies can see the traffic passing through it.
  * Off by default (see UseRotatingProxyKey); only meant as a last-resort

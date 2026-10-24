@@ -12,6 +12,7 @@ data class MoodAndGenres(
     data class Item(
         val title: String,
         val stripeColor: Long,
+        val thumbnailUrl: String? = null,
         val endpoint: BrowseEndpoint,
     )
 

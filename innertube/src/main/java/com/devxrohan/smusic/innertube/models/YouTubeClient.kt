@@ -27,7 +27,11 @@ data class YouTubeClient(
         client = Context.Client(
             clientName = clientName,
             clientVersion = clientVersion,
+            osName = osName,
             osVersion = osVersion,
+            deviceMake = deviceMake,
+            deviceModel = deviceModel,
+            androidSdkVersion = androidSdkVersion,
             gl = locale.gl,
             hl = locale.hl,
             visitorData = visitorData

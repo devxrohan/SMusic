@@ -14,12 +14,31 @@ data class AnnouncementInfo(
     val id: String = "",
     val title: String = "",
     val message: String = "",
-    val enabled: Boolean = false
+    val enabled: Boolean = false,
+    /**
+     * Push messages only. Epoch millis after which the message disappears from the bell (and from
+     * the notification tray). 0 = no time limit: it stays until the user swipes the notification away.
+     */
+    val expiresAt: Long = 0L,
+    /** Optional publicly accessible HTTPS image URL attached to a push announcement. */
+    val imageUrl: String = ""
+)
+
+/**
+ * Optional developer card text served by the worker. Only used as a last
+ * fallback for the Developer screen when GitHub cannot be reached. Leave it
+ * out of the worker response if you don't need it.
+ */
+@Serializable
+data class DeveloperInfo(
+    val name: String = "",
+    val bio: String = "",
 )
 
 /** The combined shape returned by the worker: update info + a list of announcements, in one response. */
 @Serializable
 data class AppManifest(
     val update: UpdateInfo = UpdateInfo(),
-    val announcements: List<AnnouncementInfo> = emptyList()
+    val announcements: List<AnnouncementInfo> = emptyList(),
+    val developer: DeveloperInfo? = null,
 )

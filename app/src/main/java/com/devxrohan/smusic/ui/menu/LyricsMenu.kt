@@ -1,5 +1,33 @@
 package com.devxrohan.smusic.ui.menu
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.ui.unit.sp
+import android.widget.Toast
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.font.FontWeight
+import com.devxrohan.smusic.constants.AiProviderKey
+import com.devxrohan.smusic.constants.AiTranslationLanguages
+import com.devxrohan.smusic.constants.CustomPromptKey
+import com.devxrohan.smusic.constants.DeeplApiKey
+import com.devxrohan.smusic.constants.OpenRouterApiKey
+import com.devxrohan.smusic.constants.OpenRouterBaseUrlKey
+import com.devxrohan.smusic.constants.OpenRouterModelKey
+import com.devxrohan.smusic.constants.ReplaceOriginalLyricsWithTranslationKey
+import com.devxrohan.smusic.constants.TranslateLanguageKey
+import com.devxrohan.smusic.constants.TranslateModeKey
+import com.devxrohan.smusic.lyrics.LyricsTranslationHelper
+import com.devxrohan.smusic.utils.rememberPreference
 import android.app.SearchManager
 import android.content.Intent
 import androidx.compose.animation.animateContentSize
@@ -63,10 +91,32 @@ fun LyricsMenu(
     mediaMetadataProvider: () -> MediaMetadata,
     onDismiss: () -> Unit,
     onLyricsUpdated: () -> Unit = {}, // NUEVO: Callback para notificar actualización
+    navController: androidx.navigation.NavController? = null,
     viewModel: LyricsMenuViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
+    val coroutineScope = rememberCoroutineScope()
+
+    // AI translation (same flow as AirBeats; Puter / Custom need no API key)
+    val openRouterApiKey by rememberPreference(OpenRouterApiKey, "")
+    val openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
+    val openRouterModel by rememberPreference(OpenRouterModelKey, "gpt-4o-mini")
+    val aiProvider by rememberPreference(AiProviderKey, "Puter")
+    val deeplApiKey by rememberPreference(DeeplApiKey, "")
+    val translateMode by rememberPreference(TranslateModeKey, "Literal")
+    var selectedTargetLanguage by rememberPreference(TranslateLanguageKey, "auto")
+    var customPromptText by rememberPreference(CustomPromptKey, "")
+    var replaceOriginalLyrics by rememberPreference(ReplaceOriginalLyricsWithTranslationKey, false)
+    val hasApiKey = when (aiProvider) {
+        "DeepL" -> deeplApiKey.isNotBlank()
+        "Puter", "Custom" -> true
+        else -> openRouterApiKey.isNotBlank()
+    }
+    val translationStatus by LyricsTranslationHelper.status.collectAsState()
+    val hasTranslations by LyricsTranslationHelper.hasActiveTranslations.collectAsState()
+    var showTranslateDialog by rememberSaveable { mutableStateOf(false) }
+    var showLanguageSelectorDialog by rememberSaveable { mutableStateOf(false) }
 
     var showEditDialog by rememberSaveable {
         mutableStateOf(false)
@@ -304,6 +354,479 @@ fun LyricsMenu(
         }
     }
 
+    if (showLanguageSelectorDialog) {
+        var searchQuery by remember { mutableStateOf("") }
+        val allLanguages = remember {
+            AiTranslationLanguages.entries.toList().sortedWith(
+                compareBy<Map.Entry<String, String>> { (code, _) ->
+                    // Pin Hinglish and common languages at the top
+                    when (code) {
+                        "auto" -> 0
+                        "hi-Latn" -> 1
+                        "en" -> 2
+                        "hi" -> 3
+                        else -> 4
+                    }
+                }.thenBy { it.value }
+            )
+        }
+
+        val filteredLanguages = remember(searchQuery) {
+            if (searchQuery.isBlank()) {
+                allLanguages
+            } else {
+                allLanguages.filter { (code, name) ->
+                    name.contains(searchQuery, ignoreCase = true) || code.contains(searchQuery, ignoreCase = true)
+                }
+            }
+        }
+
+        DefaultDialog(
+            onDismiss = { showLanguageSelectorDialog = false },
+            icon = { Icon(painter = painterResource(R.drawable.translate), contentDescription = null) },
+            title = { Text(stringResource(R.string.translate_to)) },
+            buttons = {
+                TextButton(onClick = { showLanguageSelectorDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            }
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text(stringResource(R.string.ui_search_language_2)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            )
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 350.dp)
+            ) {
+                items(items = filteredLanguages, key = { it.key }) { entry ->
+                    val code = entry.key
+                    val name = entry.value
+                    val isSelected = selectedTargetLanguage == code
+                    Surface(
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                            .clickable {
+                                selectedTargetLanguage = code
+                                showLanguageSelectorDialog = false
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (code == "auto") {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.padding(start = 6.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.ui_smart),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // AI Lyrics Translation Dialog
+    if (showTranslateDialog) {
+        val currentLyricsEntity = lyricsProvider()
+        val rawLyrics = currentLyricsEntity?.lyrics.orEmpty()
+        val isTranslating = translationStatus is LyricsTranslationHelper.TranslationStatus.Translating
+        val resolvedTarget = remember(currentLyricsEntity?.id, selectedTargetLanguage) {
+            LyricsTranslationHelper.resolveTargetLanguage(
+                selectedTargetLanguage,
+                LyricsTranslationHelper.parseLyricsToEntries(rawLyrics).map { it.text }
+            )
+        }
+        val isCached = remember(currentLyricsEntity?.id, resolvedTarget) {
+            LyricsTranslationHelper.hasCachedTranslation(context, mediaMetadataProvider().id, resolvedTarget)
+        }
+
+        DefaultDialog(
+            modifier = Modifier.verticalScroll(rememberScrollState()),
+            onDismiss = { showTranslateDialog = false },
+            icon = {
+                Icon(
+                    painter = painterResource(R.drawable.translate),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            title = { Text(stringResource(R.string.lyrics_translation)) },
+            buttons = {
+                if (translationStatus is LyricsTranslationHelper.TranslationStatus.Success) {
+                    Button(
+                        onClick = {
+                            LyricsTranslationHelper.resetStatus()
+                            showTranslateDialog = false
+                        }
+                    ) {
+                        Text(stringResource(R.string.done))
+                    }
+                } else {
+                    TextButton(
+                        onClick = { showTranslateDialog = false }
+                    ) {
+                        Text(stringResource(android.R.string.cancel))
+                    }
+
+                    if (hasTranslations || isCached) {
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                LyricsTranslationHelper.clearTranslations(
+                                    context = context,
+                                    songId = mediaMetadataProvider().id
+                                )
+                                Toast.makeText(context, "Translation cleared", Toast.LENGTH_SHORT).show()
+                                showTranslateDialog = false
+                            }
+                        ) {
+                            Text(
+                                stringResource(R.string.clear_translation),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(8.dp))
+
+                    TextButton(
+                        enabled = !isTranslating && rawLyrics.isNotBlank(),
+                        onClick = {
+                            if (!hasApiKey) {
+                                showTranslateDialog = false
+                                onDismiss()
+                                navController?.navigate("settings/ai")
+                                Toast.makeText(context, "Please configure your AI API key first", Toast.LENGTH_LONG).show()
+                                return@TextButton
+                            }
+
+                            LyricsTranslationHelper.translateLyrics(
+                                rawLyrics = rawLyrics,
+                                targetLanguageCode = selectedTargetLanguage,
+                                apiKey = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey,
+                                baseUrl = openRouterBaseUrl,
+                                model = openRouterModel,
+                                mode = translateMode,
+                                customPrompt = customPromptText.takeIf { it.isNotBlank() },
+                                provider = aiProvider,
+                                context = context,
+                                songId = mediaMetadataProvider().id,
+                                scope = coroutineScope
+                            )
+                        }
+                    ) {
+                        Text(
+                            if (hasTranslations || isCached) stringResource(R.string.retranslate) else stringResource(R.string.Translate)
+                        )
+                    }
+                }
+            }
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // API Key Warning Banner if missing
+                if (!hasApiKey) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = stringResource(R.string.ui_api_key_missing),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                text = stringResource(R.string.api_key_required_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                            )
+                            TextButton(
+                                onClick = {
+                                    showTranslateDialog = false
+                                    onDismiss()
+                                    navController?.navigate("settings/ai")
+                                }
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.auto_awesome),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(stringResource(R.string.ai_settings))
+                            }
+                        }
+                    }
+                }
+
+                // Target Language Selector
+                Text(
+                    text = stringResource(R.string.translate_to),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+
+                OutlinedCard(
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showLanguageSelectorDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.translate),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = AiTranslationLanguages[selectedTargetLanguage] ?: selectedTargetLanguage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            painter = painterResource(R.drawable.expand_more),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                // Custom Prompt Input
+                Text(
+                    text = stringResource(R.string.custom_prompt),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+
+                OutlinedTextField(
+                    value = customPromptText,
+                    onValueChange = { customPromptText = it },
+                    label = { Text(stringResource(R.string.ui_custom_prompt_optional)) },
+                    placeholder = { Text(stringResource(R.string.ui_e_g_translate_into_poetic_hinglish), fontSize = 12.sp) },
+                    singleLine = false,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                // Replace Original Lyrics Checkmark / Toggle
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { replaceOriginalLyrics = !replaceOriginalLyrics }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = replaceOriginalLyrics,
+                            onCheckedChange = { replaceOriginalLyrics = it },
+                            colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.replace_original_lyrics),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = stringResource(R.string.replace_original_lyrics_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // Status & Progress Feedback
+                when (val status = translationStatus) {
+                    is LyricsTranslationHelper.TranslationStatus.Translating -> {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.5.dp
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = stringResource(R.string.ui_translating_lyrics),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = status.logs.lastOrNull() ?: "Processing lines...",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { LyricsTranslationHelper.cancelTranslation() }
+                                ) {
+                                    Text(stringResource(R.string.cancel), style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                    is LyricsTranslationHelper.TranslationStatus.Error -> {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.close),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = status.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+                    is LyricsTranslationHelper.TranslationStatus.Success -> {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.check_circle),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = stringResource(R.string.ui_translation_applied_successfully),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = {
+                                        LyricsTranslationHelper.resetStatus()
+                                        showTranslateDialog = false
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(stringResource(R.string.done), style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                    else -> {
+                        if (hasTranslations || isCached) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.auto_awesome),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = stringResource(R.string.ui_active_translation_in, AiTranslationLanguages[resolvedTarget] ?: resolvedTarget),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
     GridMenu(
         contentPadding =
             PaddingValues(
@@ -333,6 +856,12 @@ fun LyricsMenu(
             title = R.string.search,
         ) {
             showSearchDialog = true
+        }
+        GridMenuItem(
+            icon = R.drawable.translate,
+            title = R.string.Translate,
+        ) {
+            showTranslateDialog = true
         }
     }
 }

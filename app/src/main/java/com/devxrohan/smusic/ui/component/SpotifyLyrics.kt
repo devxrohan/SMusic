@@ -1,5 +1,18 @@
 package com.devxrohan.smusic.ui.component
 
+import androidx.compose.runtime.DisposableEffect
+import com.devxrohan.smusic.constants.AutoTranslateKey
+import com.devxrohan.smusic.constants.ReplaceOriginalLyricsWithTranslationKey
+import com.devxrohan.smusic.constants.TranslateLanguageKey
+import com.devxrohan.smusic.constants.AiProviderKey
+import com.devxrohan.smusic.constants.CustomPromptKey
+import com.devxrohan.smusic.constants.DeeplApiKey
+import com.devxrohan.smusic.constants.OpenRouterApiKey
+import com.devxrohan.smusic.constants.OpenRouterBaseUrlKey
+import com.devxrohan.smusic.constants.OpenRouterModelKey
+import com.devxrohan.smusic.constants.TranslateModeKey
+import com.devxrohan.smusic.lyrics.LyricsTranslationHelper
+import com.devxrohan.smusic.utils.rememberPreference
 import android.graphics.drawable.BitmapDrawable
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
@@ -124,6 +137,57 @@ fun SpotifyLyrics(
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .mapIndexed { index, line -> LyricsEntry(index * 2500L, line) }
+        }
+    }
+    val replaceOriginalLyrics by rememberPreference(ReplaceOriginalLyricsWithTranslationKey, false)
+    val translationVersion by LyricsTranslationHelper.translationVersion.collectAsState()
+    val autoTranslate by rememberPreference(AutoTranslateKey, false)
+    val targetLanguage by rememberPreference(TranslateLanguageKey, "auto")
+    val aiProvider by rememberPreference(AiProviderKey, "Puter")
+    val openRouterApiKey by rememberPreference(OpenRouterApiKey, "")
+    val deeplApiKey by rememberPreference(DeeplApiKey, "")
+    val openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
+    val openRouterModel by rememberPreference(OpenRouterModelKey, "gpt-4o-mini")
+    val translateMode by rememberPreference(TranslateModeKey, "Literal")
+    val customPrompt by rememberPreference(CustomPromptKey, "")
+    val translateScope = androidx.compose.runtime.rememberCoroutineScope()
+
+    LaunchedEffect(mediaMetadata?.id) {
+        mediaMetadata?.id?.let { LyricsTranslationHelper.onSongChanged(it) }
+    }
+
+    DisposableEffect(lines) {
+        LyricsTranslationHelper.registerLyrics(lines)
+        onDispose {
+            LyricsTranslationHelper.unregisterLyrics(lines)
+        }
+    }
+
+    LaunchedEffect(lines, mediaMetadata?.id, targetLanguage, translationVersion, autoTranslate) {
+        val songId = mediaMetadata?.id ?: return@LaunchedEffect
+        if (lines.isEmpty()) return@LaunchedEffect
+        if (autoTranslate) {
+            val hasLoaded = LyricsTranslationHelper.loadTranslationsFromCache(
+                lyrics = lines, context = context, songId = songId, targetLanguageCode = targetLanguage
+            )
+            if (!hasLoaded && !LyricsTranslationHelper.isTranslating()) {
+                val key = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
+                if (key.isNotBlank() || aiProvider == "Puter" || aiProvider == "Custom") {
+                    LyricsTranslationHelper.translateLyrics(
+                        lyrics = lines,
+                        targetLanguageCode = targetLanguage,
+                        apiKey = key,
+                        baseUrl = openRouterBaseUrl,
+                        model = openRouterModel,
+                        mode = translateMode,
+                        customPrompt = customPrompt.takeIf { it.isNotBlank() },
+                        provider = aiProvider,
+                        context = context,
+                        songId = songId,
+                        scope = translateScope
+                    )
+                }
+            }
         }
     }
     val activeLineIndex = remember(lines, position) {
@@ -299,8 +363,10 @@ fun SpotifyLyrics(
                         items(lines.size) { index ->
                             val isCurrent = index == activeLineIndex
                             val isPast = index < activeLineIndex
+                            val translatedText by lines[index].translatedTextFlow.collectAsState()
+                            val displayText = if (replaceOriginalLyrics && !translatedText.isNullOrBlank()) translatedText!! else lines[index].text
                             Text(
-                                text = lines[index].text,
+                                text = displayText,
                                 style = if (isCurrent) {
                                     MaterialTheme.typography.displaySmall.copy(fontFamily = SpotifyLyricsFontFamily, fontSize = 34.sp, fontWeight = FontWeight.Bold)
                                 } else {

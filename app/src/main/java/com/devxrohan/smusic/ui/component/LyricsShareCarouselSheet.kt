@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.models.MediaMetadata
+import androidx.compose.ui.res.stringResource
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API pública
@@ -90,7 +91,7 @@ fun LyricsShareCarouselSheet(
 
             // ── Título del sheet ──────────────────────────────────────────
             Text(
-                text       = "Compartir letra",
+                text       = stringResource(R.string.share_lyrics),
                 style      = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 modifier   = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
@@ -116,7 +117,7 @@ fun LyricsShareCarouselSheet(
             Spacer(Modifier.height(22.dp))
 
             // ── Carrusel de layouts ───────────────────────────────────────
-            SheetSectionLabel("Diseño")
+            SheetSectionLabel(stringResource(R.string.ui_layout))
 
             Row(
                 modifier = Modifier
@@ -140,7 +141,7 @@ fun LyricsShareCarouselSheet(
             Spacer(Modifier.height(18.dp))
 
             // ── Selector de estilo de vidrio ──────────────────────────────
-            SheetSectionLabel("Estilo")
+            SheetSectionLabel(stringResource(R.string.ui_style))
 
             Row(
                 modifier = Modifier
@@ -184,7 +185,7 @@ fun LyricsShareCarouselSheet(
                         modifier = Modifier.weight(1f),
                         shape    = RoundedCornerShape(14.dp),
                     ) {
-                        Text("Guardar")
+                        Text(stringResource(R.string.save))
                     }
                 } else {
                     OutlinedButton(
@@ -192,7 +193,7 @@ fun LyricsShareCarouselSheet(
                         modifier = Modifier.weight(1f),
                         shape    = RoundedCornerShape(14.dp),
                     ) {
-                        Text("Cancelar")
+                        Text(stringResource(R.string.cancel))
                     }
                 }
                 Button(
@@ -206,7 +207,7 @@ fun LyricsShareCarouselSheet(
                         modifier           = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Compartir")
+                    Text(stringResource(R.string.share))
                 }
             }
         }
@@ -418,7 +419,7 @@ private fun CustomizationPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text       = "Personalización",
+                text       = stringResource(R.string.ui_customization),
                 style      = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -452,7 +453,7 @@ private fun CustomizationPanel(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "Tamaño de texto",
+                            stringResource(R.string.aod_text_size_label),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                         )
@@ -474,7 +475,7 @@ private fun CustomizationPanel(
                 // ── Alineación del texto ──────────────────────────────────
                 Column {
                     Text(
-                        text       = "Alineación",
+                        text       = stringResource(R.string.ui_alignment),
                         style      = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         modifier   = Modifier.padding(bottom = 8.dp),
@@ -485,19 +486,19 @@ private fun CustomizationPanel(
                     ) {
                         AlignButton(
                             painter = painterResource(R.drawable.format_align_left),
-                            label = "Izquierda",
+                            label = stringResource(R.string.left),
                             isSelected = config.textAlign == TextAlign.Start,
                             onClick = { onConfigChange(config.copy(textAlign = TextAlign.Start)) },
                         )
                         AlignButton(
                             painter = painterResource(R.drawable.format_align_center),
-                            label = "Izquierda",
+                            label = stringResource(R.string.left),
                             isSelected = config.textAlign == TextAlign.Start,
                             onClick = { onConfigChange(config.copy(textAlign = TextAlign.Start)) },
                         )
                         AlignButton(
                             painter = painterResource(R.drawable.format_align_right),
-                            label = "Izquierda",
+                            label = stringResource(R.string.left),
                             isSelected = config.textAlign == TextAlign.Start,
                             onClick = { onConfigChange(config.copy(textAlign = TextAlign.Start)) },
                         )
@@ -508,15 +509,15 @@ private fun CustomizationPanel(
 
                 // ── Visibilidad de elementos ──────────────────────────────
                 Text(
-                    text       = "Visibilidad",
+                    text       = stringResource(R.string.ui_visibility),
                     style      = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    ToggleRow("Mostrar título",    config.showTitle)   { onConfigChange(config.copy(showTitle   = it)) }
-                    ToggleRow("Mostrar artista",   config.showArtist)  { onConfigChange(config.copy(showArtist  = it)) }
-                    ToggleRow("Mostrar portada",   config.showCoverArt){ onConfigChange(config.copy(showCoverArt = it)) }
-                    ToggleRow("Mostrar SMusic",  config.showBranding){ onConfigChange(config.copy(showBranding = it)) }
+                    ToggleRow(stringResource(R.string.aod_show_title),    config.showTitle)   { onConfigChange(config.copy(showTitle   = it)) }
+                    ToggleRow(stringResource(R.string.aod_show_artist),   config.showArtist)  { onConfigChange(config.copy(showArtist  = it)) }
+                    ToggleRow(stringResource(R.string.ui_show_cover),   config.showCoverArt){ onConfigChange(config.copy(showCoverArt = it)) }
+                    ToggleRow(stringResource(R.string.ui_show_smusic),  config.showBranding){ onConfigChange(config.copy(showBranding = it)) }
                 }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
@@ -529,7 +530,7 @@ private fun CustomizationPanel(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "Espaciado",
+                            stringResource(R.string.ui_spacing),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                         )

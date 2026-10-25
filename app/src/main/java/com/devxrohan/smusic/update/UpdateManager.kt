@@ -1,240 +1,277 @@
 package com.devxrohan.smusic.update
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
-import androidx.core.content.ContextCompat
+import android.provider.Settings
 import androidx.core.content.FileProvider
-import com.devxrohan.smusic.constants.SkippedUpdateVersionCodeKey
+import com.devxrohan.smusic.BuildConfig
+import com.devxrohan.smusic.constants.UpdateSnoozeUntilKey
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.getSuspend
-import com.devxrohan.smusic.utils.get
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import androidx.datastore.preferences.core.edit
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
+sealed class UpdateCheckResult {
+    data object UpToDate : UpdateCheckResult()
+    data class Available(val info: UpdateInfo) : UpdateCheckResult()
+    data class Failed(val message: String) : UpdateCheckResult()
+}
+
 sealed class UpdateState {
-    object Idle : UpdateState()
-    /** An update is available and waiting on the person to act — shows the dialog. */
+    data object Idle : UpdateState()
     data class Available(val info: UpdateInfo) : UpdateState()
     data class Downloading(val info: UpdateInfo, val progress: Int) : UpdateState()
-    /** Downloaded and ready — shows the "Install" button in place of "Update". */
     data class ReadyToInstall(val info: UpdateInfo, val apkFile: File) : UpdateState()
     data class Failed(val info: UpdateInfo, val message: String) : UpdateState()
 }
 
 /**
- * Single source of truth for the whole in-app update flow — same design as
- * SMusic (com.elite.music)'s UpdateManager: a background silent check and
- * an explicit Settings "Check for updates" row both drive the same [state],
- * so an update found either way shows up as the same dialog.
+ * In-app updater: GitHub Releases (several raced routes, DNS-over-HTTPS
+ * fallback) is the source for versions and APKs, the Worker manifest is the
+ * last-resort version source, and if even that fails the browser is opened on
+ * the direct APK. The APK is streamed into the app cache and the system
+ * package installer handles the final install.
  */
 @Singleton
 class UpdateManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val updateChecker: UpdateChecker
+    private val updateChecker: UpdateChecker,
+    private val releaseFetcher: GitHubReleaseFetcher,
 ) {
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
-    val state: StateFlow<UpdateState> = _state
+    val state: StateFlow<UpdateState> = _state.asStateFlow()
 
-    /**
-     * Set by CheckForUpdateScreen while it's on-screen — that screen
-     * already shows the same update info in its own UI, so the global
-     * auto-popup dialog should stay hidden there instead of stacking on
-     * top of it redundantly.
-     */
     private val _suppressGlobalDialog = MutableStateFlow(false)
-    val suppressGlobalDialog: StateFlow<Boolean> = _suppressGlobalDialog
+    val suppressGlobalDialog: StateFlow<Boolean> = _suppressGlobalDialog.asStateFlow()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var downloadCancelled = false
+    private var downloadJob: kotlinx.coroutines.Job? = null
+
     fun setSuppressGlobalDialog(suppress: Boolean) {
         _suppressGlobalDialog.value = suppress
     }
 
-    private val downloadManager get() = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-    private var activeDownloadId: Long? = null
-
-    /** The APK for this exact version, if it was already downloaded in a previous session and never installed. */
     private fun existingApkFor(info: UpdateInfo): File? {
-        val file = File(context.getExternalFilesDir("updates"), "update-${info.versionCode}.apk")
-        return file.takeIf { it.exists() && it.length() > 0 }
+        val dir = File(context.cacheDir, "updates")
+        return File(dir, "smusic-${info.versionName}.apk")
+            .takeIf { it.exists() && it.length() > 0L }
+    }
+
+    private fun showAvailable(info: UpdateInfo) {
+        _state.value = existingApkFor(info)?.let { UpdateState.ReadyToInstall(info, it) }
+            ?: UpdateState.Available(info)
     }
 
     /**
-     * Silent check used on app-open: finds an update and surfaces it via
-     * [state] if there is one and the person hasn't already dismissed that
-     * exact version, but never reports back "no update" — there's no one
-     * waiting on a result to show them.
+     * Called on every successful "you're on the newest version" result (and
+     * after an app update): removes the persistent notification, the bell
+     * badge data, the snooze and the downloaded APK.
      */
-    suspend fun checkSilently() {
-        if (_state.value != UpdateState.Idle) return // don't clobber a download/dialog already in progress
-        val info = updateChecker.checkForUpdate() ?: return
-        val skippedVersionCode = context.dataStore.getSuspend(SkippedUpdateVersionCodeKey)
-        if (skippedVersionCode == info.versionCode) return
-        val existingApk = existingApkFor(info)
-        _state.value = if (existingApk != null) {
-            UpdateState.ReadyToInstall(info, existingApk)
-        } else {
-            UpdateState.Available(info)
+    private suspend fun onUpToDate() {
+        AppNotificationManager.clearPendingUpdate(context)
+        context.dataStore.edit { it.remove(UpdateSnoozeUntilKey) }
+        UpdateFiles.deleteInstalledOrOutdated(context, BuildConfig.VERSION_NAME)
+        if (_state.value !is UpdateState.Downloading) _state.value = UpdateState.Idle
+    }
+
+    @Volatile private var lastSilentCheckAt = 0L
+
+    /**
+     * Foreground check. [force] = app open / onboarding finished: always hits the
+     * network. Otherwise it is throttled so the 60 s foreground poll doesn't
+     * hammer GitHub. "Later" hides the popup for a while (snooze) but the
+     * update stays pending (bell badge + notification) until it is installed.
+     */
+    suspend fun checkSilently(force: Boolean = false) {
+        if (_state.value != UpdateState.Idle && _state.value !is UpdateState.Available) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastSilentCheckAt < SILENT_CHECK_THROTTLE_MS) return
+        lastSilentCheckAt = now
+
+        // A previous update may have just been installed: clear leftovers right away.
+        UpdateFiles.deleteInstalledOrOutdated(context, BuildConfig.VERSION_NAME)
+
+        // Instant popup from what we already know (no network needed): this is what makes the
+        // popup appear the moment the app opens, even offline or on a network that blocks GitHub.
+        val snoozedUntil = context.dataStore.getSuspend(UpdateSnoozeUntilKey) ?: 0L
+        fun snoozed() = System.currentTimeMillis() < snoozedUntil
+        if (_state.value == UpdateState.Idle && !snoozed()) {
+            AppNotificationManager.getPendingUpdate(context)?.let { showAvailable(it) }
         }
+
+        val outcome = runCatching { updateChecker.checkForUpdate() }
+        if (outcome.isFailure) {
+            // Offline / blocked: try again in ~2 minutes instead of waiting out the full throttle.
+            lastSilentCheckAt = System.currentTimeMillis() - SILENT_CHECK_THROTTLE_MS + RETRY_AFTER_FAILURE_MS
+            return
+        }
+        val info = outcome.getOrNull()
+        if (info == null) {
+            onUpToDate()
+            return
+        }
+        AppNotificationManager.savePendingUpdate(context, info)
+        if (snoozed()) return // user tapped Later recently
+        val current = _state.value
+        if (current == UpdateState.Idle || current is UpdateState.Available) showAvailable(info)
     }
 
-    /**
-     * Explicit check from Settings. Unlike [checkSilently], always reports
-     * something — including a previously-skipped version, since asking
-     * directly is a clear signal the person wants the real answer, not the
-     * quiet-by-default one.
-     */
+    /** Shows the already-known pending update (no network), ignoring the snooze. Used by the bell / notification / update screen. */
+    suspend fun restorePending() {
+        val info = AppNotificationManager.getPendingUpdate(context) ?: return
+        // Viewing the update page is not the same as opening the in-app Notifications inbox.
+        if (_state.value != UpdateState.Idle) return
+        showAvailable(info)
+    }
+
+    /** "Later": hide the popup for [SNOOZE_MS]; the update remains pending in the bell and notification. */
+    suspend fun later() {
+        context.dataStore.edit { it[UpdateSnoozeUntilKey] = System.currentTimeMillis() + SNOOZE_MS }
+        if (_state.value !is UpdateState.Downloading) _state.value = UpdateState.Idle
+    }
+
+    /** Deletes every downloaded update APK. Returns freed bytes. */
+    fun clearDownloadedApks(): Long {
+        val freed = UpdateFiles.clear(context)
+        val current = _state.value
+        if (current is UpdateState.ReadyToInstall) _state.value = UpdateState.Available(current.info)
+        return freed
+    }
+
+    suspend fun releaseHistory(): List<GitHubRelease> = releaseFetcher.fetchReleases()
+
     suspend fun checkNow(): UpdateCheckResult {
-        val info = updateChecker.checkForUpdate()
-            ?: return UpdateCheckResult.UpToDate
-        if (_state.value == UpdateState.Idle) {
-            val existingApk = existingApkFor(info)
-            _state.value = if (existingApk != null) {
-                UpdateState.ReadyToInstall(info, existingApk)
-            } else {
-                UpdateState.Available(info)
+        return try {
+            val info = updateChecker.checkForUpdate()
+            if (info == null) {
+                onUpToDate()
+                return UpdateCheckResult.UpToDate
             }
+            AppNotificationManager.savePendingUpdate(context, info)
+            context.dataStore.edit { it.remove(UpdateSnoozeUntilKey) }
+            if (_state.value == UpdateState.Idle) showAvailable(info)
+            UpdateCheckResult.Available(info)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            // checkForUpdate() already tried every GitHub route (each with a
+            // DNS-over-HTTPS retry) and then the Worker. Nothing worked, so
+            // hand the user the direct APK / latest release in the browser.
+            // Refresh the bell announcements in the background, without making
+            // the browser fallback wait for it.
+            scope.launch { runCatching { UpdateCheckWorker.runAnnouncementFallback(context) } }
+            openUrlInBrowser(releaseFetcher.fallbackDownloadUrl())
+            UpdateCheckResult.Failed(error.message ?: "Couldn't reach GitHub Releases")
         }
-        return UpdateCheckResult.Available(info)
     }
 
     fun startDownload(info: UpdateInfo) {
-        val dm = downloadManager ?: run {
-            _state.value = UpdateState.Failed(info, "Downloads are disabled on this device")
+        if (info.apkUrl.isBlank()) {
+            openReleaseInBrowser(info)
+            _state.value = UpdateState.Failed(info, "No APK asset was found. The GitHub release page was opened.")
             return
         }
+        downloadCancelled = false
+        _state.value = UpdateState.Downloading(info, 0)
+        val dir = UpdateFiles.dir(context)
+        val target = File(dir, "smusic-${info.versionName}.apk")
+        downloadJob = scope.launch {
+            runCatching {
+                dir.listFiles()?.forEach { it.delete() }
 
-        // DownloadManager runs in a separate system process and cannot write
-        // into the app's private internal cacheDir — it needs a destination
-        // it actually has permission to write to. External-files-dir is
-        // still app-private (no storage permission needed) but IS reachable
-        // by DownloadManager, unlike context.cacheDir.
-        val subDir = "updates"
-        val externalUpdatesDir = context.getExternalFilesDir(subDir) ?: run {
-            _state.value = UpdateState.Failed(info, "Couldn't access storage for the download")
-            return
-        }
-        // Cleared before each new download — a half-downloaded APK from a
-        // previous attempt or an older version sitting here would otherwise
-        // just accumulate.
-        externalUpdatesDir.listFiles()?.forEach { it.delete() }
-        val fileName = "update-${info.versionCode}.apk"
-        val apkFile = File(externalUpdatesDir, fileName)
-
-        val request = DownloadManager.Request(Uri.parse(info.apkUrl))
-            .setTitle("SMusic update")
-            .setDescription("Downloading version ${info.versionName}")
-            .setDestinationInExternalFilesDir(context, subDir, fileName)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_ONLY_COMPLETION)
-            .setAllowedOverMetered(true)
-
-        try {
-            activeDownloadId = dm.enqueue(request)
-        } catch (e: Exception) {
-            _state.value = UpdateState.Failed(info, "Couldn't start the download: ${e.message}")
-            return
-        }
-        _state.value = UpdateState.Downloading(info, progress = 0)
-        registerReceiverIfNeeded()
-        pollProgress(info, apkFile)
-    }
-
-    private fun pollProgress(info: UpdateInfo, apkFile: File) {
-        val dm = downloadManager ?: return
-        val id = activeDownloadId ?: return
-        // DownloadManager doesn't push progress, only a single "finished"
-        // broadcast — this is what turns that into the live percentage the
-        // dialog shows while it runs.
-        Thread {
-            var downloading = true
-            while (downloading) {
-                val cursor = dm.query(DownloadManager.Query().setFilterById(id))
-                cursor?.use {
-                    if (it.moveToFirst()) {
-                        val statusIdx = it.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                        val soFarIdx = it.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
-                        val totalIdx = it.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
-                        val status = if (statusIdx >= 0) it.getInt(statusIdx) else -1
-                        val soFar = if (soFarIdx >= 0) it.getLong(soFarIdx) else 0L
-                        val total = if (totalIdx >= 0) it.getLong(totalIdx) else 0L
-
-                        when (status) {
-                            DownloadManager.STATUS_SUCCESSFUL -> {
-                                downloading = false
-                                _state.value = UpdateState.ReadyToInstall(info, apkFile)
-                            }
-                            DownloadManager.STATUS_FAILED -> {
-                                downloading = false
-                                _state.value = UpdateState.Failed(info, "Download failed — check your connection and try again")
-                            }
-                            else -> {
-                                val pct = if (total > 0) ((soFar * 100) / total).toInt() else 0
-                                _state.value = UpdateState.Downloading(info, pct)
-                            }
-                        }
-                    } else {
-                        downloading = false
+                releaseFetcher.downloadApk(info.apkUrl, target) { progress ->
+                    if (!downloadCancelled) {
+                        _state.value = UpdateState.Downloading(info, progress)
                     }
-                } ?: run { downloading = false }
-                if (downloading) Thread.sleep(400)
+                }
+                if (!downloadCancelled && target.exists() && target.length() > 0L) {
+                    _state.value = UpdateState.ReadyToInstall(info, target)
+                } else if (!downloadCancelled) {
+                    error("The downloaded APK is empty")
+                }
+            }.onFailure { error ->
+                // Never leave a partial APK behind: it would look like a finished download later.
+                runCatching { target.delete() }
+                if (!downloadCancelled) {
+                    openReleaseInBrowser(info)
+                    _state.value = UpdateState.Failed(
+                        info,
+                        "Couldn't download the update in-app. The direct APK download was opened in your browser.",
+                    )
+                } else {
+                    _state.value = UpdateState.Available(info)
+                }
             }
-        }.start()
-    }
-
-    /** Launches the system installer for an APK already sitting on disk. */
-    fun install(apkFile: File) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", apkFile)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(intent)
     }
 
-    /** "Later" on the dialog — remembers the choice so a silent check won't re-interrupt with the same version, without ever contacting a server. */
-    suspend fun skip(info: UpdateInfo) {
-        context.dataStore.edit { it[SkippedUpdateVersionCodeKey] = info.versionCode }
-        _state.value = UpdateState.Idle
+    fun cancelDownload() {
+        downloadCancelled = true
+        downloadJob?.cancel()
+    }
+
+    fun openReleaseInBrowser(info: UpdateInfo) {
+        // A direct APK URL lets Chrome/other browser download the selected ABI
+        // immediately. If the asset URL is unavailable, use the release page.
+        val url = info.apkUrl.takeIf { it.isNotBlank() }
+            ?: info.releaseUrl.takeIf { it.isNotBlank() }
+            ?: releaseFetcher.latestReleasePage
+        openUrlInBrowser(url)
+    }
+
+    private fun openUrlInBrowser(url: String) {
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    fun install(apkFile: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !context.packageManager.canRequestPackageInstalls()
+        ) {
+            context.startActivity(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                    .setData(Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            return
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", apkFile)
+        context.startActivity(
+            Intent(Intent.ACTION_INSTALL_PACKAGE)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
 
     fun dismiss() {
+        if (_state.value is UpdateState.Downloading) return
         _state.value = UpdateState.Idle
     }
 
-    private var receiverRegistered = false
-    private fun registerReceiverIfNeeded() {
-        // Not strictly required — pollProgress() already catches the
-        // terminal state on its own — but registering this means a
-        // completed download still resolves promptly even if the polling
-        // thread got stopped by the process being backgrounded partway
-        // through, since the system broadcast arrives independently of it.
-        if (receiverRegistered) return
-        receiverRegistered = true
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                // pollProgress already reconciles final state by querying
-                // DownloadManager directly; this only needs to exist so the
-                // OS doesn't consider the download abandoned.
-            }
-        }
-        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            context.registerReceiver(receiver, filter)
-        }
+    private companion object {
+        /** How long "Later" hides the popup. */
+        const val SNOOZE_MS = 3 * 60 * 60 * 1000L
+        /** Minimum gap between non-forced silent checks (the foreground poll runs every minute). */
+        const val SILENT_CHECK_THROTTLE_MS = 15 * 60 * 1000L
+        /** After a failed silent check (offline / blocked), the next attempt comes this soon. */
+        const val RETRY_AFTER_FAILURE_MS = 2 * 60 * 1000L
     }
-}
-
-sealed class UpdateCheckResult {
-    object UpToDate : UpdateCheckResult()
-    data class Available(val info: UpdateInfo) : UpdateCheckResult()
 }

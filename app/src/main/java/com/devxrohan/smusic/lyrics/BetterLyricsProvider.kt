@@ -9,6 +9,9 @@ package com.devxrohan.smusic.lyrics
 
 import android.content.Context
 import com.devxrohan.smusic.betterlyrics.BetterLyrics
+import com.devxrohan.smusic.constants.EnableBetterLyricsKey
+import com.devxrohan.smusic.utils.dataStore
+import com.devxrohan.smusic.utils.get
 import android.util.Log
 
 object BetterLyricsProvider : LyricsProvider {
@@ -20,7 +23,7 @@ object BetterLyricsProvider : LyricsProvider {
 
     override val name = "BetterLyrics"
 
-    override fun isEnabled(context: Context): Boolean = true
+    override fun isEnabled(context: Context): Boolean = context.dataStore[EnableBetterLyricsKey] ?: true
 
     override suspend fun getLyrics(
         id: String,

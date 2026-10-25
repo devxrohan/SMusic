@@ -11,6 +11,7 @@ import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.reportException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import androidx.annotation.Keep
@@ -21,36 +22,40 @@ class LyricsHelper
 constructor(
     @ApplicationContext private val context: Context,
 ) {
-    private var lyricsProviders =
-        listOf(
-            LrcLibLyricsProvider,
-            KuGouLyricsProvider,
-            YouTubeSubtitleLyricsProvider,
-            YouTubeLyricsProvider
-        )
-    val preferred =
-        context.dataStore.data
-            .map {
-                it[PreferredLyricsProviderKey].toEnum(PreferredLyricsProvider.LRCLIB)
-            }.distinctUntilChanged()
-            .map {
-                lyricsProviders =
-                    if (it == PreferredLyricsProvider.LRCLIB) {
-                        listOf(
-                            LrcLibLyricsProvider,
-                            KuGouLyricsProvider,
-                            YouTubeSubtitleLyricsProvider,
-                            YouTubeLyricsProvider
-                        )
-                    } else {
-                        listOf(
-                            KuGouLyricsProvider,
-                            LrcLibLyricsProvider,
-                            YouTubeSubtitleLyricsProvider,
-                            YouTubeLyricsProvider
-                        )
-                    }
-            }
+    private val allProviders: List<LyricsProvider> = listOf(
+        LrcLibLyricsProvider,
+        KuGouLyricsProvider,
+        SimpMusicLyricsProvider,
+        UnisonLyricsProvider,
+        YouLyLyricsProvider,
+        MegalobizLyricsProvider,
+        PaxsenixLyricsProvider,
+        PortatoLyricsProvider,
+        BetterLyricsProvider,
+        YouTubeSubtitleLyricsProvider,
+        YouTubeLyricsProvider,
+    )
+
+    val preferred = context.dataStore.data
+        .map { it[PreferredLyricsProviderKey].toEnum(PreferredLyricsProvider.LRCLIB) }
+        .distinctUntilChanged()
+
+    private suspend fun providersInPreferredOrder(): List<LyricsProvider> {
+        val preferredProvider = when (context.dataStore.data.first()[PreferredLyricsProviderKey].toEnum(PreferredLyricsProvider.LRCLIB)) {
+            PreferredLyricsProvider.LRCLIB -> LrcLibLyricsProvider
+            PreferredLyricsProvider.KUGOU -> KuGouLyricsProvider
+            PreferredLyricsProvider.SIMP_MUSIC -> SimpMusicLyricsProvider
+            PreferredLyricsProvider.YOUTUBE_SUBTITLES -> YouTubeSubtitleLyricsProvider
+            PreferredLyricsProvider.PAXSENIX -> PaxsenixLyricsProvider
+            PreferredLyricsProvider.UNISON -> UnisonLyricsProvider
+            PreferredLyricsProvider.BETTER_LYRICS -> BetterLyricsProvider
+            PreferredLyricsProvider.PORTATO -> PortatoLyricsProvider
+            PreferredLyricsProvider.YOULY -> YouLyLyricsProvider
+            PreferredLyricsProvider.MEGALOBIZ -> MegalobizLyricsProvider
+            PreferredLyricsProvider.YOUTUBE_MUSIC -> YouTubeLyricsProvider
+        }
+        return listOf(preferredProvider) + allProviders.filterNot { it === preferredProvider }
+    }
     private val cache = LruCache<String, List<LyricsResult>>(MAX_CACHE_SIZE)
 
     suspend fun getLyrics(mediaMetadata: MediaMetadata): String {
@@ -58,7 +63,7 @@ constructor(
         if (cached != null) {
             return cached.lyrics
         }
-        lyricsProviders.forEach { provider ->
+        providersInPreferredOrder().forEach { provider ->
             if (provider.isEnabled(context)) {
                 provider
                     .getLyrics(
@@ -91,7 +96,7 @@ constructor(
             return
         }
         val allResult = mutableListOf<LyricsResult>()
-        lyricsProviders.forEach { provider ->
+        providersInPreferredOrder().forEach { provider ->
             if (provider.isEnabled(context)) {
                 provider.getAllLyrics(mediaId, songTitle, songArtists, duration) { lyrics ->
                     val result = LyricsResult(provider.name, lyrics)

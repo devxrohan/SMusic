@@ -31,6 +31,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import me.saket.squiggles.SquigglySlider
+import com.devxrohan.smusic.ui.component.PlayerSliderTrack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,6 +43,9 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.devxrohan.smusic.ui.component.AudioPipelineDialog
+import com.devxrohan.smusic.ui.component.AudioQualityTag
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +71,8 @@ import androidx.core.graphics.drawable.toBitmap
 import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
+import com.devxrohan.smusic.constants.PlayerBackgroundStyle
+import com.devxrohan.smusic.constants.PlayerBackgroundStyleKey
 import com.devxrohan.smusic.constants.SliderStyle
 import com.devxrohan.smusic.constants.SliderStyleKey
 import com.devxrohan.smusic.db.entities.LyricsEntity
@@ -73,6 +82,16 @@ import com.devxrohan.smusic.models.MediaMetadata
 import com.devxrohan.smusic.ui.component.Lyrics
 import com.devxrohan.smusic.ui.component.LyricsV2
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import com.devxrohan.smusic.constants.RotateBackgroundKey
 import androidx.compose.foundation.background
 import com.devxrohan.smusic.ui.component.LocalMenuState
 import com.devxrohan.smusic.ui.component.BigSeekBar
@@ -113,14 +132,33 @@ fun SMusicLyricsScreen(
     val playerVolume = playerConnection.service.playerVolume.collectAsState()
     
     val currentLyrics by playerConnection.currentLyrics.collectAsState(initial = null)
-    val useLyricsV2 = true
+    val currentFormat by playerConnection.currentFormat.collectAsState(initial = null)
+    var showAudioPipelineDialog by rememberSaveable { mutableStateOf(false) }
+    val lyricsScreenStyle by rememberEnumPreference(
+        com.devxrohan.smusic.constants.LyricsScreenStyleKey,
+        com.devxrohan.smusic.constants.LyricsScreenStyle.LYRICS_2
+    )
+    val useLyricsV2 = lyricsScreenStyle == com.devxrohan.smusic.constants.LyricsScreenStyle.LYRICS_2
+    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SQUIGGLY)
+    val rotateBackground by rememberPreference(RotateBackgroundKey, defaultValue = false)
+
+    val infiniteTransition = rememberInfiniteTransition(label = "backgroundRotation")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 20000,
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
 
     // Auto-fetch lyrics when no lyrics found (same logic as refetch)
     LaunchedEffect(mediaMetadata.id, currentLyrics) {
         if (currentLyrics == null) {
-            // Small delay to ensure database state is stable
-            delay(500)
-            
             coroutineScope.launch(Dispatchers.IO) {
                 try {
                     // Get LyricsHelper from Hilt
@@ -144,9 +182,23 @@ fun SMusicLyricsScreen(
         }
     }
 
-    var position by remember { mutableLongStateOf(0L) }
-    var duration by remember { mutableLongStateOf(C.TIME_UNSET) }
+    var position by remember(mediaMetadata.id) { mutableLongStateOf(0L) }
+    var duration by remember(mediaMetadata.id) {
+        val metaDur = mediaMetadata.duration * 1000L
+        mutableLongStateOf(if (metaDur > 0) metaDur else C.TIME_UNSET)
+    }
     var sliderPosition by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(mediaMetadata.id) {
+        sliderPosition = null
+        position = 0L
+        val metaDur = mediaMetadata.duration * 1000L
+        if (metaDur > 0) {
+            duration = metaDur
+        } else if (player.duration > 0) {
+            duration = player.duration
+        }
+    }
     
     // Track loading state: when buffering or when user is seeking
     val isLoading = playbackState == STATE_BUFFERING || sliderPosition != null
@@ -154,29 +206,58 @@ fun SMusicLyricsScreen(
     val textBackgroundColor = Color.White
     val icBackgroundColor = Color.Black
 
-    LaunchedEffect(playbackState) {
-        if (playbackState == STATE_READY) {
+    LaunchedEffect(playbackState, mediaMetadata.id) {
+        if (playbackState == STATE_READY || playbackState == STATE_BUFFERING) {
             while (isActive) {
+                val currentPos = player.currentPosition
+                if (currentPos >= 0) {
+                    position = currentPos
+                }
+                val dur = player.duration
+                if (dur > 0) {
+                    duration = dur
+                } else {
+                    val metaDur = mediaMetadata.duration * 1000L
+                    if (metaDur > 0) {
+                        duration = metaDur
+                    }
+                }
                 delay(100)
-                position = player.currentPosition
-                duration = player.duration
             }
         }
     }
 
     BackHandler(onBack = onBackClick)
 
+    if (showAudioPipelineDialog) {
+        AudioPipelineDialog(
+            currentFormat = currentFormat,
+            mediaMetadata = mediaMetadata,
+            onDismiss = { showAudioPipelineDialog = false }
+        )
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+        ) {
             coil.compose.AsyncImage(
-                placeholder = painterResource(R.drawable.music_note),
-                error = painterResource(R.drawable.music_note),
                 model = mediaMetadata.thumbnailUrl,
                 contentDescription = null,
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(48.dp)
+                    .blur(28.dp)
+                    .graphicsLayer {
+                        if (rotateBackground) {
+                            scaleX = 2.5f
+                            scaleY = 2.5f
+                            rotationZ = rotation
+                            transformOrigin = TransformOrigin.Center
+                        }
+                    }
             )
             Box(
                 modifier = Modifier
@@ -256,6 +337,7 @@ fun SMusicLyricsScreen(
                                 ) {
                                     menuState.show {
                                         LyricsMenu(
+                                            navController = navController,
                                             lyricsProvider = { currentLyrics },
                                             mediaMetadataProvider = { mediaMetadata },
                                             onDismiss = menuState::dismiss
@@ -316,12 +398,14 @@ fun SMusicLyricsScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             // Slider
-                            androidx.compose.material3.Slider(
-                                value = (sliderPosition ?: position).toFloat(),
-                                valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
-                                onValueChange = {
-                                    sliderPosition = it.toLong()
-                                },
+                            LyricsSlider(
+                                sliderStyle = sliderStyle,
+                                sliderPosition = sliderPosition,
+                                position = position,
+                                duration = duration,
+                                isPlaying = isPlaying,
+                                textBackgroundColor = textBackgroundColor,
+                                onValueChange = { sliderPosition = it },
                                 onValueChangeFinished = {
                                     sliderPosition?.let {
                                         player.seekTo(it)
@@ -329,10 +413,6 @@ fun SMusicLyricsScreen(
                                     }
                                     sliderPosition = null
                                 },
-                                colors = androidx.compose.material3.SliderDefaults.colors(
-                                    activeTrackColor = textBackgroundColor,
-                                    thumbColor = textBackgroundColor
-                                ),
                                 modifier = Modifier.fillMaxWidth()
                             )
 
@@ -341,12 +421,19 @@ fun SMusicLyricsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = makeTimeString(sliderPosition ?: position),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = textBackgroundColor.copy(alpha = 0.7f)
+                                )
+                                AudioQualityTag(
+                                    currentFormat = currentFormat,
+                                    mediaMetadata = mediaMetadata,
+                                    tint = textBackgroundColor,
+                                    onClick = { showAudioPipelineDialog = true }
                                 )
                                 Text(
                                     text = if (duration != C.TIME_UNSET) makeTimeString(duration) else "",
@@ -367,15 +454,14 @@ fun SMusicLyricsScreen(
                             ) {
                                 // Repeat button
                                 IconButton(
-                                    onClick = { playerConnection.player.toggleRepeatMode() },
+                                    onClick = { player.toggleRepeatMode() },
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
                                         painter = painterResource(
                                             when (repeatMode) {
-                                                Player.REPEAT_MODE_OFF, 
-                                                Player.REPEAT_MODE_ALL -> R.drawable.repeat
                                                 Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
+                                                Player.REPEAT_MODE_ALL -> R.drawable.repeat_on
                                                 else -> R.drawable.repeat
                                             }
                                         ),
@@ -445,7 +531,7 @@ fun SMusicLyricsScreen(
 
                                 // Shuffle button
                                 IconButton(
-                                    onClick = { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled },
+                                    onClick = { playerConnection.toggleShuffle() },
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
@@ -473,7 +559,7 @@ fun SMusicLyricsScreen(
                             ) {
                                 Icon(
                                     painter = painterResource(R.drawable.volume_off),
-                                    contentDescription = "Minimum Volume",
+                                    contentDescription = stringResource(R.string.ui_minimum_volume),
                                     modifier = Modifier.size(20.dp),
                                     tint = textBackgroundColor
                                 )
@@ -490,7 +576,7 @@ fun SMusicLyricsScreen(
 
                                 Icon(
                                     painter = painterResource(R.drawable.volume_up),
-                                    contentDescription = "Maximum Volume",
+                                    contentDescription = stringResource(R.string.ui_maximum_volume),
                                     modifier = Modifier.size(20.dp),
                                     tint = textBackgroundColor
                                 )
@@ -567,6 +653,7 @@ fun SMusicLyricsScreen(
                                 ) {
                                     menuState.show {
                                         LyricsMenu(
+                                            navController = navController,
                                             lyricsProvider = { currentLyrics },
                                             mediaMetadataProvider = { mediaMetadata },
                                             onDismiss = menuState::dismiss
@@ -609,12 +696,14 @@ fun SMusicLyricsScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 48.dp, vertical = 16.dp)
                     ) {
-                        androidx.compose.material3.Slider(
-                            value = (sliderPosition ?: position).toFloat(),
-                            valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
-                            onValueChange = {
-                                sliderPosition = it.toLong()
-                            },
+                        LyricsSlider(
+                            sliderStyle = sliderStyle,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            isPlaying = isPlaying,
+                            textBackgroundColor = textBackgroundColor,
+                            onValueChange = { sliderPosition = it },
                             onValueChangeFinished = {
                                 sliderPosition?.let {
                                     player.seekTo(it)
@@ -622,10 +711,6 @@ fun SMusicLyricsScreen(
                                 }
                                 sliderPosition = null
                             },
-                            colors = androidx.compose.material3.SliderDefaults.colors(
-                                activeTrackColor = textBackgroundColor,
-                                thumbColor = textBackgroundColor
-                            ),
                             modifier = Modifier.fillMaxWidth()
                         )
 
@@ -634,12 +719,19 @@ fun SMusicLyricsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = makeTimeString(sliderPosition ?: position),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = textBackgroundColor.copy(alpha = 0.7f)
+                            )
+                            AudioQualityTag(
+                                currentFormat = currentFormat,
+                                mediaMetadata = mediaMetadata,
+                                tint = textBackgroundColor,
+                                onClick = { showAudioPipelineDialog = true }
                             )
                             Text(
                                 text = if (duration != C.TIME_UNSET) makeTimeString(duration) else "",
@@ -660,15 +752,14 @@ fun SMusicLyricsScreen(
                         ) {
                             // Repeat button with clear state indication
                             IconButton(
-                                onClick = { playerConnection.player.toggleRepeatMode() },
+                                onClick = { player.toggleRepeatMode() },
                                 modifier = Modifier.size(40.dp)
                             ) {
                                 Icon(
                                     painter = painterResource(
                                         when (repeatMode) {
-                                            Player.REPEAT_MODE_OFF, 
-                                            Player.REPEAT_MODE_ALL -> R.drawable.repeat
                                             Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
+                                            Player.REPEAT_MODE_ALL -> R.drawable.repeat_on
                                             else -> R.drawable.repeat
                                         }
                                     ),
@@ -740,7 +831,7 @@ fun SMusicLyricsScreen(
 
                             // Shuffle button with clear state indication
                             IconButton(
-                                onClick = { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled },
+                                onClick = { playerConnection.toggleShuffle() },
                                 modifier = Modifier.size(40.dp)
                             ) {
                                 Icon(
@@ -770,7 +861,7 @@ fun SMusicLyricsScreen(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.volume_off),
-                                contentDescription = "Minimum Volume",
+                                contentDescription = stringResource(R.string.ui_minimum_volume),
                                 modifier = Modifier.size(20.dp),
                                 tint = textBackgroundColor
                             )
@@ -787,7 +878,7 @@ fun SMusicLyricsScreen(
 
                             Icon(
                                 painter = painterResource(R.drawable.volume_up),
-                                contentDescription = "Maximum Volume",
+                                contentDescription = stringResource(R.string.ui_maximum_volume),
                                 modifier = Modifier.size(20.dp),
                                 tint = textBackgroundColor
                             )
@@ -797,6 +888,75 @@ fun SMusicLyricsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LyricsSlider(
+    sliderStyle: SliderStyle,
+    sliderPosition: Long?,
+    position: Long,
+    duration: Long,
+    isPlaying: Boolean,
+    textBackgroundColor: Color,
+    onValueChange: (Long) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val sliderColors = SliderDefaults.colors(
+        activeTrackColor = textBackgroundColor,
+        inactiveTrackColor = textBackgroundColor.copy(alpha = 0.3f),
+        thumbColor = textBackgroundColor
+    )
+    val sliderValue = (sliderPosition ?: position).toFloat()
+    val sliderRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat())
+
+    when (sliderStyle) {
+        SliderStyle.DEFAULT -> {
+            Slider(
+                value = sliderValue,
+                valueRange = sliderRange,
+                onValueChange = { onValueChange(it.toLong()) },
+                onValueChangeFinished = onValueChangeFinished,
+                colors = sliderColors,
+                modifier = modifier
+            )
+        }
+
+        SliderStyle.SQUIGGLY -> {
+            SquigglySlider(
+                value = sliderValue,
+                valueRange = sliderRange,
+                onValueChange = { onValueChange(it.toLong()) },
+                onValueChangeFinished = onValueChangeFinished,
+                colors = sliderColors,
+                modifier = modifier,
+                squigglesSpec = SquigglySlider.SquigglesSpec(
+                    amplitude = if (isPlaying) 2.dp else 0.dp,
+                    strokeWidth = 3.dp,
+                )
+            )
+        }
+
+        SliderStyle.SLIM -> {
+            Slider(
+                value = sliderValue,
+                valueRange = sliderRange,
+                onValueChange = { onValueChange(it.toLong()) },
+                onValueChangeFinished = onValueChangeFinished,
+                thumb = { Spacer(modifier = Modifier.size(0.dp)) },
+                track = { sliderState ->
+                    PlayerSliderTrack(
+                        sliderState = sliderState,
+                        colors = sliderColors,
+                        trackHeight = 6.dp
+                    )
+                },
+                colors = sliderColors,
+                modifier = modifier
+            )
         }
     }
 }

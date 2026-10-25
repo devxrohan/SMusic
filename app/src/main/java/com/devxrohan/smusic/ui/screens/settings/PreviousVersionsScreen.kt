@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.screens.settings
 
+import com.devxrohan.smusic.ui.utils.bottomSafeArea
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -34,6 +35,7 @@ import androidx.navigation.NavController
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.update.GitHubRelease
 import com.devxrohan.smusic.update.GitHubReleaseFetcher
+import com.devxrohan.smusic.update.formatReleaseNotes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -96,7 +98,7 @@ fun PreviousVersionsScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(top = padding.calculateTopPadding())
         ) {
             when {
                 loading -> {
@@ -111,7 +113,7 @@ fun PreviousVersionsScreen(
                 }
                 else -> {
                     LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
+                        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + bottomSafeArea()),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(releases, key = { it.tag_name }) { release ->
@@ -149,7 +151,7 @@ fun PreviousVersionsScreen(
                                                         shape = RoundedCornerShape(6.dp),
                                                     ) {
                                                         Text(
-                                                            text = "Pre-release",
+                                                            text = stringResource(R.string.ui_pre_release),
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = MaterialTheme.colorScheme.tertiary,
                                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -187,7 +189,7 @@ fun PreviousVersionsScreen(
                                             if (!release.body.isNullOrBlank()) {
                                                 Spacer(modifier = Modifier.height(12.dp))
                                                 Text(
-                                                    text = release.body,
+                                                    text = formatReleaseNotes(release.body),
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurface,
                                                 )

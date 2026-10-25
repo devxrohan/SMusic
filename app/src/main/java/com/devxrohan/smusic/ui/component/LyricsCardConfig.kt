@@ -20,27 +20,27 @@ enum class LyricsLayoutStyle(
 ) {
     GlassCard(
         displayName = "Glass Card",
-        description = "Panel de vidrio líquido",
+        description = "Liquid glass panel",
     ),
     Minimal(
         displayName = "Minimal",
-        description = "Limpio y sin distracciones",
+        description = "Clean and distraction-free",
     ),
     CoverFocused(
         displayName = "Cover Focus",
-        description = "Portada del álbum destacada",
+        description = "Highlighted album cover",
     ),
     Centered(
-        displayName = "Centrado",
-        description = "Letra como protagonista",
+        displayName = "Centered",
+        description = "Lyrics take center stage",
     ),
     BlurWash(
         displayName = "Blur Wash",
-        description = "Fondo ultra difuminado",
+        description = "Ultra-blurred background",
     ),
     StreamingModern(
         displayName = "Streaming",
-        description = "Estilo app de música moderna",
+        description = "Modern music app style",
     ),
 }
 

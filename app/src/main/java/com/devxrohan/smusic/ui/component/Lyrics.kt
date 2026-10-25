@@ -1,5 +1,16 @@
 package com.devxrohan.smusic.ui.component
 
+import com.devxrohan.smusic.constants.AiProviderKey
+import com.devxrohan.smusic.constants.AutoTranslateKey
+import com.devxrohan.smusic.constants.CustomPromptKey
+import com.devxrohan.smusic.constants.DeeplApiKey
+import com.devxrohan.smusic.constants.OpenRouterApiKey
+import com.devxrohan.smusic.constants.OpenRouterBaseUrlKey
+import com.devxrohan.smusic.constants.OpenRouterModelKey
+import com.devxrohan.smusic.constants.ReplaceOriginalLyricsWithTranslationKey
+import com.devxrohan.smusic.constants.TranslateLanguageKey
+import com.devxrohan.smusic.constants.TranslateModeKey
+import com.devxrohan.smusic.lyrics.LyricsTranslationHelper
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.Configuration
@@ -251,6 +262,18 @@ fun Lyrics(
 
     val playerBackground = PlayerBackgroundStyle.DEFAULT
 
+    val targetLanguage by rememberPreference(TranslateLanguageKey, defaultValue = "auto")
+    val autoTranslate by rememberPreference(AutoTranslateKey, defaultValue = false)
+    val aiProvider by rememberPreference(AiProviderKey, defaultValue = "Puter")
+    val openRouterApiKey by rememberPreference(OpenRouterApiKey, defaultValue = "")
+    val deeplApiKey by rememberPreference(DeeplApiKey, defaultValue = "")
+    val openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, defaultValue = "https://api.puter.com/v1/chat/completions")
+    val openRouterModel by rememberPreference(OpenRouterModelKey, defaultValue = "gpt-4o-mini")
+    val translateMode by rememberPreference(TranslateModeKey, defaultValue = "Literal")
+    val customPrompt by rememberPreference(CustomPromptKey, defaultValue = "")
+    val replaceOriginalLyrics by rememberPreference(ReplaceOriginalLyricsWithTranslationKey, defaultValue = false)
+    val translationVersion by LyricsTranslationHelper.translationVersion.collectAsState()
+
     val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
     val isSystemInDarkTheme = isSystemInDarkTheme()
     val useDarkTheme = remember(darkTheme, isSystemInDarkTheme) {
@@ -360,6 +383,51 @@ fun Lyrics(
         initialScrollDone = false
         shouldScrollToFirstLine = true
         isAutoScrollEnabled = true
+    }
+
+    DisposableEffect(lines) {
+        LyricsTranslationHelper.registerLyrics(lines)
+        onDispose {
+            LyricsTranslationHelper.unregisterLyrics(lines)
+        }
+    }
+
+    LaunchedEffect(currentSongId) {
+        currentSongId?.let { LyricsTranslationHelper.onSongChanged(it) }
+    }
+
+    // ── AI Lyrics Translation Sync (same flow as AirBeats) ──
+    LaunchedEffect(lines, currentSongId, targetLanguage, translationVersion, autoTranslate) {
+        val songId = currentSongId ?: return@LaunchedEffect
+        if (lines.isEmpty()) return@LaunchedEffect
+
+        if (autoTranslate) {
+            val hasLoaded = LyricsTranslationHelper.loadTranslationsFromCache(
+                lyrics = lines,
+                context = context,
+                songId = songId,
+                targetLanguageCode = targetLanguage
+            )
+
+            if (!hasLoaded && !LyricsTranslationHelper.isTranslating()) {
+                val key = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
+                if (key.isNotBlank() || aiProvider == "Puter" || aiProvider == "Custom") {
+                    LyricsTranslationHelper.translateLyrics(
+                        lyrics = lines,
+                        targetLanguageCode = targetLanguage,
+                        apiKey = key,
+                        baseUrl = openRouterBaseUrl,
+                        model = openRouterModel,
+                        mode = translateMode,
+                        customPrompt = customPrompt.takeIf { it.isNotBlank() },
+                        provider = aiProvider,
+                        context = context,
+                        songId = songId,
+                        scope = scope
+                    )
+                }
+            }
+        }
     }
 
     val isSynced = remember(lyrics) {
@@ -884,7 +952,7 @@ fun Lyrics(
                                             else -> R.drawable.repeat
                                         }
                                     ),
-                                    contentDescription = "Repeat",
+                                    contentDescription = stringResource(R.string.ui_repeat),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(24.dp)
                                 )
@@ -897,7 +965,7 @@ fun Lyrics(
                             ) {
                                 Icon(
                                     painter = painterResource(R.drawable.skip_previous),
-                                    contentDescription = "Previous",
+                                    contentDescription = stringResource(R.string.ui_previous),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(32.dp)
                                 )
@@ -934,7 +1002,7 @@ fun Lyrics(
                             ) {
                                 Icon(
                                     painter = painterResource(R.drawable.skip_next),
-                                    contentDescription = "Next",
+                                    contentDescription = stringResource(R.string.next),
                                     tint = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(32.dp)
                                 )
@@ -949,7 +1017,7 @@ fun Lyrics(
                                         if (currentSong?.song?.liked == true) R.drawable.favorite
                                         else R.drawable.favorite_border
                                     ),
-                                    contentDescription = "Like",
+                                    contentDescription = stringResource(R.string.action_like),
                                     tint = if (currentSong?.song?.liked == true)
                                         MaterialTheme.colorScheme.error
                                     else MaterialTheme.colorScheme.onSurface,
@@ -1262,6 +1330,10 @@ fun Lyrics(
                                         1.0f to expressiveAccent.copy(alpha = if (fill >= 1f) 1f else 0.3f)
                                     )
 
+                                    val translatedText by item.translatedTextFlow.collectAsState()
+                                    val showDirectTranslation = replaceOriginalLyrics && !translatedText.isNullOrBlank()
+                                    val displayText = if (showDirectTranslation) translatedText!! else item.text
+
                                     val styledText = buildAnnotatedString {
                                         withStyle(
                                             style = SpanStyle(
@@ -1273,7 +1345,7 @@ fun Lyrics(
                                                 brush = glowBrush
                                             )
                                         ) {
-                                            append(item.text)
+                                            append(displayText)
                                         }
                                     }
 
@@ -1295,6 +1367,10 @@ fun Lyrics(
                                             }
                                     )
                                 } else {
+                                    val translatedText by item.translatedTextFlow.collectAsState()
+                                    val showDirectTranslation = replaceOriginalLyrics && !translatedText.isNullOrBlank()
+                                    val displayText = if (showDirectTranslation) translatedText!! else item.text
+
                                     // Línea inactiva con color expresivo
                                     val lineColor = if (isFullscreen) {
                                         MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
@@ -1303,7 +1379,7 @@ fun Lyrics(
                                     }
 
                                     Text(
-                                        text = item.text,
+                                        text = displayText,
                                         fontSize = if (isFullscreen) 25.sp else 24.sp,
                                         color = animateColorAsState(
                                             targetValue = lineColor,
@@ -1311,6 +1387,23 @@ fun Lyrics(
                                         ).value,
                                         textAlign = TextAlign.Center,
                                         fontWeight = FontWeight.Bold,
+                                    )
+                                }
+
+                                // ── AI Lyrics Translation (subtitle - only if NOT replacing original) ──
+                                val subtitleTranslation by item.translatedTextFlow.collectAsState()
+                                if (!(replaceOriginalLyrics && !subtitleTranslation.isNullOrBlank()) && !subtitleTranslation.isNullOrBlank()) {
+                                    Text(
+                                        text = subtitleTranslation!!,
+                                        fontSize = if (isFullscreen) 16.sp else 15.sp,
+                                        color = if (isActiveLine) {
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                                        },
+                                        textAlign = TextAlign.Center,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(top = 4.dp)
                                     )
                                 }
                             }
@@ -1486,7 +1579,7 @@ fun Lyrics(
                                 )
 
                                 Text(
-                                    text = "Las letras no están disponibles para esta canción",
+                                    text = stringResource(R.string.ui_lyrics_are_not_available_for_this),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
@@ -1524,18 +1617,6 @@ fun Lyrics(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = { showLyrics = !showLyrics }
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.close),
-                                contentDescription = null,
-                                tint = textColor
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
                         IconButton(
                             onClick = {
                                 menuState.show {

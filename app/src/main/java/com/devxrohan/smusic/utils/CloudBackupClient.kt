@@ -103,6 +103,56 @@ class CloudBackupClient {
             }.getOrDefault(false)
         }
 
+    /** Uploads [file] to an arbitrary cloud path (used for the per-device automatic backup). */
+    suspend fun uploadFile(cloudPath: String, file: File): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url("$BASE_URL/upload?file=${java.net.URLEncoder.encode(cloudPath, "UTF-8")}")
+                    .addHeader("X-API-Key", API_KEY)
+                    .post(file.asRequestBody("application/octet-stream".toMediaType()))
+                    .build()
+                client.newCall(request).execute().use { it.isSuccessful }
+            }.getOrDefault(false)
+        }
+
+    /** Downloads [cloudPath] into [destFile]; false when it does not exist or is empty. */
+    suspend fun downloadFile(cloudPath: String, destFile: File): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url("$BASE_URL/download?file=${java.net.URLEncoder.encode(cloudPath, "UTF-8")}&_t=${System.currentTimeMillis()}")
+                    .header("Cache-Control", "no-cache")
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@runCatching false
+                    val body = response.body ?: return@runCatching false
+                    val tmp = File(destFile.parentFile, "${destFile.name}.download")
+                    FileOutputStream(tmp).use { out -> body.byteStream().use { it.copyTo(out) } }
+                    if (tmp.length() > 0L) {
+                        destFile.delete()
+                        tmp.renameTo(destFile)
+                    } else {
+                        tmp.delete()
+                        false
+                    }
+                }
+            }.getOrDefault(false)
+        }
+
+    suspend fun deleteFile(cloudPath: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url("$BASE_URL/delete?file=${java.net.URLEncoder.encode(cloudPath, "UTF-8")}")
+                    .addHeader("X-API-Key", API_KEY)
+                    .post("".toRequestBody(null))
+                    .build()
+                client.newCall(request).execute().use { it.isSuccessful }
+            }.getOrDefault(false)
+        }
+
     private companion object {
         val BASE_URL = com.devxrohan.smusic.BuildConfig.STATS_BASE_URL
         val API_KEY = com.devxrohan.smusic.BuildConfig.STATS_API_KEY

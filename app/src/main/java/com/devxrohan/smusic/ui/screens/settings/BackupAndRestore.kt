@@ -5,6 +5,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
+import android.widget.Toast
+import androidx.compose.runtime.collectAsState
+import com.devxrohan.smusic.utils.AutoBackupManager
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -126,6 +129,40 @@ fun BackupAndRestore(
     // Automatic cloud backup removed — always disabled now.
     val enableCloudUpload = false
 
+    // Device / Android OS backup state
+    LaunchedEffect(Unit) { viewModel.loadOsBackupState(context) }
+    val lastOsBackupTime by viewModel.lastOsBackupTime.collectAsState()
+    val isBackingUp by viewModel.isBackingUp.collectAsState()
+    val isRestoring by viewModel.isRestoring.collectAsState()
+    val backupSizeString by viewModel.backupSizeString.collectAsState()
+    val isAutoBackupToStorage by viewModel.isAutoBackupToStorage.collectAsState()
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showRestoreConfirmDialog by remember { mutableStateOf(false) }
+    var showStorageRestoreConfirmDialog by remember { mutableStateOf(false) }
+
+    val justNowText = stringResource(R.string.backup_time_just_now)
+    val notYetText = stringResource(R.string.backup_not_yet)
+    val lastBackupPrefix = stringResource(R.string.last_backup_prefix)
+    val todayAtFormat = stringResource(R.string.backup_time_today)
+    val yesterdayAtFormat = stringResource(R.string.backup_time_yesterday)
+    val formattedLastBackup = remember(lastOsBackupTime) {
+        if (lastOsBackupTime <= 0L) {
+            null
+        } else {
+            val diff = System.currentTimeMillis() - lastOsBackupTime
+            val ldt = java.time.LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(lastOsBackupTime), java.time.ZoneId.systemDefault()
+            )
+            val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+            when {
+                diff < 60_000L -> justNowText
+                java.time.LocalDate.now() == ldt.toLocalDate() -> todayAtFormat.format(ldt.format(timeFormatter))
+                java.time.LocalDate.now().minusDays(1) == ldt.toLocalDate() -> yesterdayAtFormat.format(ldt.format(timeFormatter))
+                else -> ldt.format(DateTimeFormatter.ofPattern("MMM d, yyyy · h:mm a"))
+            }
+        }
+    }
+
     // Cache stats
     var playerCacheSize by remember { mutableLongStateOf(tryOrNull { playerCache?.cacheSpace } ?: 0L) }
     var isClearing by remember { mutableStateOf(false) }
@@ -179,6 +216,46 @@ fun BackupAndRestore(
             }
         }
 
+    val backupCacheLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+            if (uri != null) viewModel.backupCache(context, uri)
+        }
+
+    val restoreCacheLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) viewModel.restoreCache(context, uri)
+        }
+
+    val storagePermissionGrantedText = stringResource(R.string.backup_storage_permission_granted)
+    val storagePermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            if (results.values.any { it }) {
+                Toast.makeText(context, storagePermissionGrantedText, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    // Opens the "all files access" screen (Android 11+) or asks for the legacy storage permission.
+    fun requestStorageAccess() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            try {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                )
+            } catch (_: Exception) {
+                context.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else {
+            storagePermissionLauncher.launch(
+                arrayOf(
+                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                )
+            )
+        }
+    }
+
     val importPlaylistFromCsv =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri == null) return@rememberLauncherForActivityResult
@@ -207,6 +284,99 @@ fun BackupAndRestore(
         scrollBehavior = scrollBehavior,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Android OS / device backup (same options as AirBeats)
+        SettingsGeneralCategory(
+            title = stringResource(R.string.android_os_backup_category),
+            items = listOf(
+                {PreferenceEntry(
+                    title = { Text(stringResource(R.string.backup_now_everything)) },
+                    icon = { Icon(painterResource(R.drawable.backup), null) },
+                    description = when {
+                        isBackingUp -> stringResource(R.string.backup_status_syncing)
+                        formattedLastBackup != null -> "$lastBackupPrefix$formattedLastBackup · $backupSizeString"
+                        else -> notYetText
+                    },
+                    isEnabled = !isBackingUp && !isRestoring,
+                    onClick = { viewModel.backupNow(context) }
+                )},
+                {PreferenceEntry(
+                    title = { Text(stringResource(R.string.backup_restore_action)) },
+                    icon = { Icon(painterResource(R.drawable.restore), null) },
+                    description = stringResource(R.string.android_os_backup_subtitle),
+                    isEnabled = !isBackingUp && !isRestoring,
+                    onClick = { showRestoreConfirmDialog = true }
+                )},
+                {PreferenceEntry(
+                    title = { Text(stringResource(R.string.backup_delete_action)) },
+                    icon = { Icon(painterResource(R.drawable.delete), null) },
+                    description = stringResource(R.string.backup_delete_confirm_desc),
+                    isEnabled = !isBackingUp && !isRestoring,
+                    onClick = { showDeleteConfirmDialog = true }
+                )},
+                {PreferenceEntry(
+                    title = { Text(stringResource(R.string.backup_device_settings)) },
+                    icon = { Icon(painterResource(R.drawable.info), null) },
+                    description = stringResource(R.string.backup_scope_title) + ": " + listOf(
+                        R.string.backup_item_playlists,
+                        R.string.backup_item_stats,
+                        R.string.backup_item_library,
+                        R.string.backup_item_profile,
+                        R.string.backup_item_covers,
+                        R.string.backup_item_settings,
+                    ).joinToString(" • ") { context.getString(it) },
+                    onClick = { viewModel.openDeviceBackupSettings(context) }
+                )}
+            )
+        )
+
+        SettingsGeneralCategory(
+            title = stringResource(R.string.backup_storage_category),
+            items = listOf(
+                {SwitchPreference(
+                    title = { Text(stringResource(R.string.backup_storage_auto_title)) },
+                    description = stringResource(R.string.backup_storage_auto_desc),
+                    icon = { Icon(painterResource(R.drawable.save_to_storage), null) },
+                    checked = isAutoBackupToStorage,
+                    onCheckedChange = { enabled ->
+                        if (enabled && !AutoBackupManager.hasStoragePermission(context)) requestStorageAccess()
+                        viewModel.setAutoBackupToStorage(context, enabled)
+                    }
+                )},
+                {PreferenceEntry(
+                    title = { Text(stringResource(R.string.backup_storage_now_title)) },
+                    icon = { Icon(painterResource(R.drawable.backup), null) },
+                    description = stringResource(R.string.backup_storage_now_desc),
+                    onClick = {
+                        if (!AutoBackupManager.hasStoragePermission(context)) requestStorageAccess()
+                        viewModel.backupToStorageNow(context) { success ->
+                            Toast.makeText(
+                                context,
+                                if (success) R.string.backup_storage_saved else R.string.backup_storage_failed,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                )},
+                {PreferenceEntry(
+                    title = { Text(stringResource(R.string.backup_storage_restore_title)) },
+                    icon = { Icon(painterResource(R.drawable.restore), null) },
+                    description = stringResource(R.string.backup_storage_restore_desc),
+                    onClick = {
+                        if (!AutoBackupManager.hasStoragePermission(context)) {
+                            requestStorageAccess()
+                        } else {
+                            val file = AutoBackupManager.findStorageBackupFile()
+                            if (file != null && file.exists() && file.length() > 0L) {
+                                showStorageRestoreConfirmDialog = true
+                            } else {
+                                Toast.makeText(context, R.string.backup_storage_not_found, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                )}
+            )
+        )
+
         SettingsGeneralCategory(
             title = stringResource(R.string.backup_restore),
             items = listOf(
@@ -233,6 +403,23 @@ fun BackupAndRestore(
                         restoreLauncher.launch(arrayOf("application/octet-stream"))
                     }
                 )},
+                {PreferenceEntry(
+                    title = { Text(stringResource(R.string.backup_cached_songs)) },
+                    icon = { Icon(painterResource(R.drawable.cached), null) },
+                    description = stringResource(R.string.backup_cached_songs_desc),
+                    onClick = {
+                        val formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+                        backupCacheLauncher.launch("SMusic_Cache_${LocalDateTime.now().format(formatter)}.smusiccache")
+                    }
+                )},
+                {PreferenceEntry(
+                    title = { Text(stringResource(R.string.restore_cached_songs)) },
+                    icon = { Icon(painterResource(R.drawable.restore), null) },
+                    description = stringResource(R.string.restore_cached_songs_desc),
+                    onClick = {
+                        restoreCacheLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                    }
+                )},
                 {AnimatedVisibility(
                     visible = uploadStatus != null,
                     enter = fadeIn() + expandVertically(),
@@ -254,6 +441,50 @@ fun BackupAndRestore(
     }
 
     // Dialogs
+    if (showRestoreConfirmDialog) {
+        MinimalConfirmDialog(
+            icon = painterResource(R.drawable.restore),
+            title = stringResource(R.string.backup_restore_confirm_title),
+            message = stringResource(R.string.backup_restore_confirm_desc),
+            confirmText = stringResource(R.string.backup_restore_action),
+            onConfirm = {
+                showRestoreConfirmDialog = false
+                viewModel.restoreFromLatestBackup(context)
+            },
+            onDismiss = { showRestoreConfirmDialog = false }
+        )
+    }
+
+    if (showStorageRestoreConfirmDialog) {
+        MinimalConfirmDialog(
+            icon = painterResource(R.drawable.restore),
+            title = stringResource(R.string.backup_storage_restore_confirm_title),
+            message = stringResource(R.string.backup_storage_restore_confirm_desc),
+            confirmText = stringResource(R.string.backup_restore_action),
+            onConfirm = {
+                showStorageRestoreConfirmDialog = false
+                viewModel.restoreFromStorageNow(context) { success ->
+                    if (!success) Toast.makeText(context, R.string.restore_failed, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showStorageRestoreConfirmDialog = false }
+        )
+    }
+
+    if (showDeleteConfirmDialog) {
+        MinimalConfirmDialog(
+            icon = painterResource(R.drawable.delete),
+            title = stringResource(R.string.backup_delete_confirm_title),
+            message = stringResource(R.string.backup_delete_confirm_desc),
+            confirmText = stringResource(R.string.backup_delete_action),
+            onConfirm = {
+                showDeleteConfirmDialog = false
+                viewModel.deleteBackup(context)
+            },
+            onDismiss = { showDeleteConfirmDialog = false }
+        )
+    }
+
     if (showVisitorDataDialog) {
         MinimalInfoDialog(
             icon = painterResource(R.drawable.info),

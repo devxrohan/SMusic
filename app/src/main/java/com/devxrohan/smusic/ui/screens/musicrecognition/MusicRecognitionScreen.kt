@@ -7,6 +7,8 @@
 
 package com.devxrohan.smusic.ui.screens.musicrecognition
 
+import com.devxrohan.smusic.ui.utils.bottomSafeArea
+
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -127,7 +129,6 @@ import com.devxrohan.smusic.R
 import com.devxrohan.smusic.shazamkit.Shazam
 import com.devxrohan.smusic.shazamkit.ShazamSignatureGenerator
 import com.devxrohan.smusic.shazamkit.models.RecognitionResult
-import com.devxrohan.smusic.ui.utils.appBarScrollBehavior
 
 @SuppressLint("LocalContextGetResourceValueCall", "UnrememberedGetBackStackEntry")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -212,7 +213,7 @@ fun MusicRecognitionScreen(
         startOrRequestPermission()
     }
 
-    val scrollBehavior = appBarScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val configuration = LocalConfiguration.current
     val useWideContent = configuration.screenWidthDp >= 600
 
@@ -346,7 +347,9 @@ fun MusicRecognitionScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                // Keep the final content scrollable above the global bottom area
+                // in both floating and docked navigation modes.
+                Spacer(modifier = Modifier.height(20.dp + bottomSafeArea()))
             }
         }
     }

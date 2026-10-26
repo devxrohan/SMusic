@@ -17,6 +17,7 @@ val ShowGalaxySliderKey = booleanPreferencesKey("showGalaxySlider")
 val GridItemsSizeKey = stringPreferencesKey("gridItemSize")
 val SliderStyleKey = stringPreferencesKey("sliderStyle")
 val PlayerScreenStyleKey = stringPreferencesKey("playerScreenStyle")
+val LyricsScreenStyleKey = stringPreferencesKey("lyricsScreenStyle")
 val HideVideoKey = booleanPreferencesKey("hideVideo")
 
 val ColourfullPlayerColorKey = intPreferencesKey("colourfullPlayerColor")
@@ -25,6 +26,11 @@ enum class SliderStyle {
     DEFAULT,
     SQUIGGLY,
     SLIM,
+}
+
+enum class LyricsScreenStyle {
+    LYRICS_2,
+    CLASSIC,
 }
 
 enum class PlayerScreenStyle {
@@ -50,6 +56,15 @@ val ContentLanguageKey = stringPreferencesKey("contentLanguage")
 val ContentCountryKey = stringPreferencesKey("contentCountry")
 val EnableKugouKey = booleanPreferencesKey("enableKugou")
 val EnableLrcLibKey = booleanPreferencesKey("enableLrclib")
+val EnableSimpMusicLyricsKey = booleanPreferencesKey("enableSimpMusic")
+val EnableUnisonLyricsKey = booleanPreferencesKey("enableUnison")
+val EnableYouLyLyricsKey = booleanPreferencesKey("enableYouLy")
+val EnableMegalobizLyricsKey = booleanPreferencesKey("enableMegalobiz")
+val EnablePaxsenixLyricsKey = booleanPreferencesKey("enablePaxsenix")
+val EnablePortatoLyricsKey = booleanPreferencesKey("enablePortato")
+val EnableBetterLyricsKey = booleanPreferencesKey("enableBetterLyrics")
+val EnableYouTubeSubtitleLyricsKey = booleanPreferencesKey("enableYouTubeSubtitles")
+val EnableYouTubeMusicLyricsKey = booleanPreferencesKey("enableYouTubeMusicLyrics")
 val MusicProviderKey = stringPreferencesKey("musicProvider")
 val HideExplicitKey = booleanPreferencesKey("hideExplicit")
 val LastNewReleaseCheckKey = longPreferencesKey("last_new_release_check")
@@ -57,6 +72,20 @@ val SkippedUpdateVersionCodeKey = intPreferencesKey("skipped_update_version_code
 val EnableUpdateNotificationKey = booleanPreferencesKey("enable_update_notification")
 val LastNotifiedVersionKey = stringPreferencesKey("last_notified_version")
 val LastUpdateCheckKey = longPreferencesKey("last_update_check")
+/** "Later" on the update popup: the popup stays hidden until this epoch-millis time has passed. */
+val UpdateSnoozeUntilKey = longPreferencesKey("update_snooze_until")
+/** JSON of the newest known-but-not-installed update. Drives the bell badge and the persistent notification. */
+val PendingUpdateJsonKey = stringPreferencesKey("pending_update_json")
+/** When the persistent update notification was last (re)posted. */
+/** Last time the background pipeline actually asked GitHub for a release (GitHub API allows only 60 anonymous requests/hour per IP). */
+val LastUpdateFetchKey = longPreferencesKey("last_update_fetch")
+/** Version whose "update available" the user has seen (swiped the notification, opened the bell, or opened the update page). Hides the bell badge. */
+val SeenUpdateVersionKey = stringPreferencesKey("seen_update_version")
+/** Announcements delivered by Firebase push (kept apart so the Worker refresh does not wipe them). */
+val PushAnnouncementsKey = stringPreferencesKey("push_announcements")
+/** The one-time notification permission prompt for installs that predate the onboarding gate has been shown. */
+val NotificationPermissionAskedKey = booleanPreferencesKey("notification_permission_asked")
+val UpdateNotifiedAtKey = longPreferencesKey("update_notified_at")
 val AnnouncementsCacheKey = stringPreferencesKey("announcements_cache_json")
 val SeenAnnouncementIdsKey = stringPreferencesKey("seen_announcement_ids")
 val minPlaybackDurKey = intPreferencesKey("minPlaybackDur")
@@ -91,11 +120,6 @@ val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")
 
 val DisableLoadMoreWhenRepeatAllKey = booleanPreferencesKey("disableLoadMoreWhenRepeatAll")
-val ScrobbleDelayPercentKey = floatPreferencesKey("scrobbleDelayPercent")
-val ScrobbleMinSongDurationKey = intPreferencesKey("scrobbleMinSongDuration")
-val ScrobbleDelaySecondsKey = intPreferencesKey("scrobbleDelaySeconds")
-val EnableLastFMScrobblingKey = booleanPreferencesKey("enableLastFMScrobbling")
-val LastFMUseNowPlaying = booleanPreferencesKey("lastFMUseNowPlaying")
 val AudioOffload = booleanPreferencesKey("audioOffload")
 
 val RotateBackgroundKey = booleanPreferencesKey("rotate_background")
@@ -134,6 +158,17 @@ val LyricsRomanizeKoreanKey = booleanPreferencesKey("lyricsRomanizeKoreanKey")
 val AppFontKey = stringPreferencesKey("appFont")
 val ThemePresetKey = stringPreferencesKey("themePreset")
 val NavBarScaleKey = floatPreferencesKey("navBarScale")
+val NavBarStyleKey = stringPreferencesKey("navBarStyle")
+val HomeHeaderStyleKey = stringPreferencesKey("homeHeaderStyle")
+val QuickPicksCardWidthKey = floatPreferencesKey("quickPicksCardWidth")
+val QuickPicksCardHeightKey = floatPreferencesKey("quickPicksCardHeight")
+
+enum class HomeHeaderStyle { SMUSIC, BITCHORD, NONE }
+
+enum class NavBarStyle {
+    FLOATING,
+    WITHOUT_FLOATING
+}
 
 val ArtistViewTypeKey = stringPreferencesKey("artistViewType")
 val AlbumViewTypeKey = stringPreferencesKey("albumViewType")
@@ -296,6 +331,15 @@ enum class QuickPicks {
 enum class PreferredLyricsProvider {
     LRCLIB,
     KUGOU,
+    SIMP_MUSIC,
+    YOUTUBE_SUBTITLES,
+    PAXSENIX,
+    UNISON,
+    BETTER_LYRICS,
+    PORTATO,
+    YOULY,
+    MEGALOBIZ,
+    YOUTUBE_MUSIC,
 }
 
 enum class PlayerBackgroundStyle {
@@ -342,11 +386,41 @@ val VisitorDataKey = stringPreferencesKey("visitorData")
 val DataSyncIdKey = stringPreferencesKey("dataSyncId")
 val AccountPhotoUrlKey = stringPreferencesKey("account_photo_url")
 val InnerTubeCookieKey = stringPreferencesKey("innerTubeCookie")
+/** Deprecated: the Guest/YouTube split was removed (one unified profile). Kept only so old installs can clean it up. */
+val AccountModeKey = stringPreferencesKey("accountMode")
 val LastBackupTimestampKey = longPreferencesKey("last_backup_timestamp")
 val AccountNameKey = stringPreferencesKey("accountName")
 val AccountEmailKey = stringPreferencesKey("accountEmail")
 val AccountChannelHandleKey = stringPreferencesKey("accountChannelHandle")
 val UseLoginForBrowse = booleanPreferencesKey("useLoginForBrowse")
+
+
+// --- Discord account / Rich Presence integration (ported from SMusic) ---
+// DiscordTokenKey stores the user's Discord account token, used only to open an authenticated
+// Gateway WebSocket connection for Rich Presence (there is no separate "login screen" OAuth flow
+// in the reference implementation beyond entering/validating this token).
+val DiscordTokenKey = stringPreferencesKey("discordToken")
+val DiscordInfoDismissedKey = booleanPreferencesKey("discordInfoDismissed")
+val DiscordUsernameKey = stringPreferencesKey("discordUsername")
+val DiscordNameKey = stringPreferencesKey("discordName")
+val EnableDiscordRPCKey = booleanPreferencesKey("discordRPCEnable")
+val DiscordUseDetailsKey = booleanPreferencesKey("discordUseDetails")
+
+// --- AI integration (ported from SMusic) ---
+// No AI provider API key is bundled — the person supplies their own (OpenRouter, Claude, or any
+// OpenAI-compatible endpoint), exactly as SMusic requires. Nothing fabricated here.
+val AiProviderKey = stringPreferencesKey("aiProvider")
+val OpenRouterApiKey = stringPreferencesKey("openRouterApiKey")
+val OpenRouterBaseUrlKey = stringPreferencesKey("openRouterBaseUrl")
+val OpenRouterModelKey = stringPreferencesKey("openRouterModel")
+val DeeplApiKey = stringPreferencesKey("deeplApiKey")
+val EnableAiTranslationKey = booleanPreferencesKey("enableAiTranslation")
+
+// Voice assistant preferences
+val EnableVoiceAssistantKey = booleanPreferencesKey("enable_voice_assistant")
+val VoiceAssistantAutoStartOnBootKey = booleanPreferencesKey("voice_auto_start_boot")
+val VoiceAssistantDirectCommandsKey = booleanPreferencesKey("voice_direct_commands")
+val VoiceAssistantTtsFeedbackKey = booleanPreferencesKey("voice_tts_feedback")
 val DisableBlurKey = booleanPreferencesKey("disableBlur")
 
 val LanguageCodeToName =
@@ -461,3 +535,61 @@ val CountryCodeToName =
         "US" to "United States", "UY" to "Uruguay", "VE" to "Venezuela (Bolivarian Republic)",
         "VN" to "Vietnam", "YE" to "Yemen", "ZW" to "Zimbabwe",
     )
+
+/** Fade duration at track boundaries; 0 disables the transition fade. */
+val CrossfadeDurationKey = intPreferencesKey("crossfadeDurationSeconds")
+val AudioStudioBassKey = intPreferencesKey("audioStudioBassStrength")
+val AudioStudioVirtualizerKey = intPreferencesKey("audioStudioVirtualizerStrength")
+val AudioStudioReverbKey = intPreferencesKey("audioStudioReverbPreset")
+val AudioStudioEnabledKey = booleanPreferencesKey("audioStudioEnabled")
+val AiListeningNotificationsKey = booleanPreferencesKey("aiListeningNotifications")
+val AutoMixBetaKey = booleanPreferencesKey("autoMixBetaEnabled")
+
+// Full AI provider and lyrics-translation settings.
+
+val TranslateLanguageKey = stringPreferencesKey("translateLanguage")
+val TranslateModeKey = stringPreferencesKey("translateMode")
+val CustomPromptKey = stringPreferencesKey("customPrompt")
+val AutoTranslateKey = booleanPreferencesKey("autoTranslate")
+val ReplaceOriginalLyricsWithTranslationKey = booleanPreferencesKey("replaceOriginalLyricsWithTranslation")
+val DeeplFormalityKey = stringPreferencesKey("deeplFormality")
+val AiRecommendationsKey = booleanPreferencesKey("aiRecommendations")
+val AiTranslationLanguages = linkedMapOf(
+    "auto" to "Auto (Hindi \u21c4 English)",
+    "hi-Latn" to "Hinglish (Hindi in English)",
+    "en" to "English (US)", "en-GB" to "English (UK)", "hi" to "Hindi",
+    "es" to "Spanish", "fr" to "French", "de" to "German", "ja" to "Japanese",
+    "ko" to "Korean", "zh" to "Chinese", "ar" to "Arabic", "ru" to "Russian",
+    "pt" to "Portuguese", "it" to "Italian", "tr" to "Turkish", "ur" to "Urdu",
+    "pa" to "Punjabi", "bn" to "Bengali", "mr" to "Marathi", "gu" to "Gujarati",
+    "ta" to "Tamil", "te" to "Telugu", "kn" to "Kannada", "ml" to "Malayalam",
+    "id" to "Indonesian", "ms" to "Malay", "vi" to "Vietnamese", "th" to "Thai",
+    "pl" to "Polish", "nl" to "Dutch", "sv" to "Swedish", "no" to "Norwegian",
+    "da" to "Danish", "fi" to "Finnish", "el" to "Greek", "he" to "Hebrew",
+    "fa" to "Persian", "ro" to "Romanian", "hu" to "Hungarian", "cs" to "Czech",
+    "sk" to "Slovak", "uk" to "Ukrainian", "bg" to "Bulgarian", "hr" to "Croatian",
+    "sr" to "Serbian", "sl" to "Slovenian", "et" to "Estonian", "lv" to "Latvian",
+    "lt" to "Lithuanian", "fil" to "Filipino", "sw" to "Swahili", "af" to "Afrikaans"
+)
+
+/** Prefer a matching JioSaavn high-quality stream for YouTube catalog tracks; fall back to YouTube when unavailable. */
+val PrioritizeJioSaavn320Key = booleanPreferencesKey("prioritizeJioSaavn320")
+
+// Audio FX & DJ Studio preferences (kept separate from device DSP and normalization).
+val BypassAllAudioEffectsKey = booleanPreferencesKey("bypass_all_audio_effects")
+val AudioFxAndDjEnabledKey = booleanPreferencesKey("audio_fx_and_dj_enabled")
+val AudioBoostEnabledKey = booleanPreferencesKey("audio_boost_enabled")
+val AudioBoostPercentKey = intPreferencesKey("audio_boost_percent")
+val EchoEnabledKey = booleanPreferencesKey("echo_enabled")
+val EchoDelayMsKey = intPreferencesKey("echo_delay_ms")
+val EchoFeedbackKey = floatPreferencesKey("echo_feedback")
+val EchoWetMixKey = floatPreferencesKey("echo_wet_mix")
+val EchoPingPongKey = booleanPreferencesKey("echo_ping_pong")
+val DjFilterSweepKey = floatPreferencesKey("dj_filter_sweep")
+val DjFlangerEnabledKey = booleanPreferencesKey("dj_flanger_enabled")
+val DjFlangerRateKey = floatPreferencesKey("dj_flanger_rate")
+val DjFlangerDepthKey = floatPreferencesKey("dj_flanger_depth")
+val DjSaturationKey = floatPreferencesKey("dj_saturation")
+val DjTurntableLinkedKey = booleanPreferencesKey("dj_turntable_linked")
+val DjTempoSpeedKey = floatPreferencesKey("dj_tempo_speed")
+val DjPitchKey = floatPreferencesKey("dj_pitch")

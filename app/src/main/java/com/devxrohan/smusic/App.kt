@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.Context
 import android.os.Build
 import android.widget.Toast
-import com.devxrohan.smusic.ui.component.LocaleAwareApplication
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.initializeCache
 import android.widget.Toast.LENGTH_SHORT
@@ -55,17 +54,74 @@ import java.util.Locale
 import javax.inject.Inject
 
 @HiltAndroidApp
-class App : LocaleAwareApplication(), ImageLoaderFactory {
+class App : android.app.Application(), ImageLoaderFactory {
     @Inject
     lateinit var database: MusicDatabase
 
     @Inject
     lateinit var namePreferenceManager: NamePreferenceManager
 
+    override fun attachBaseContext(base: android.content.Context) {
+        super.attachBaseContext(base)
+        // A restored backup is moved into place here, before the database / DataStore / SharedPreferences are opened.
+        if (!com.devxrohan.smusic.utils.AppBackup.isRestartProcess()) {
+            runCatching { com.devxrohan.smusic.utils.AppBackup.applyPendingRestore(base) }
+        }
+    }
+
     @OptIn(DelicateCoroutinesApi::class)
     override fun onCreate() {
         super.onCreate()
+        // The helper process that relaunches the app after a restore must not initialise anything.
+        if (com.devxrohan.smusic.utils.AppBackup.isRestartProcess()) return
         instance = this
+        com.devxrohan.smusic.utils.AppBackup.cancelRestartFallback(this)
+        runCatching { com.devxrohan.smusic.utils.AppBackup.finishPendingRestore(this) }
+
+        // Restore a snapshot that Android's OS backup (or Downloads/SMusic, Documents/SMusic) brought back. Once per install.
+        runCatching { com.devxrohan.smusic.utils.AutoBackupManager.checkAndRestoreOnOpen(this) }
+        GlobalScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(8_000)
+            runCatching { com.devxrohan.smusic.utils.AutoBackupManager.resetRestartAttempts(this@App) }
+        }
+
+        // Keep the automatic backups fresh: Documents/SMusic when the app opens, the OS/device snapshot when it closes.
+        registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+            private var startedActivities = 0
+            override fun onActivityStarted(activity: android.app.Activity) {
+                if (startedActivities == 0) {
+                    GlobalScope.launch(Dispatchers.IO) {
+                        runCatching {
+                            com.devxrohan.smusic.utils.AutoBackupManager.performAutoBackupToStorageIfEnabled(this@App, database)
+                        }
+                    }
+                }
+                startedActivities++
+            }
+
+            override fun onActivityStopped(activity: android.app.Activity) {
+                startedActivities--
+                if (startedActivities <= 0 && !activity.isChangingConfigurations) {
+                    GlobalScope.launch(Dispatchers.IO) {
+                        runCatching {
+                            val manager = com.devxrohan.smusic.utils.AutoBackupManager
+                            if (manager.createAutoBackup(this@App, database, notifyBackupManager = true) &&
+                                getSharedPreferences("backup_settings", Context.MODE_PRIVATE)
+                                    .getBoolean("enable_cloud_upload", true)
+                            ) {
+                                manager.uploadToCloud(this@App, manager.getAutoBackupFile(this@App))
+                            }
+                        }
+                    }
+                }
+            }
+
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
 
         // Clean up any leftover downloaded-update APK — by the time the app
         // is running again, either the install succeeded (new version now
@@ -86,6 +142,16 @@ class App : LocaleAwareApplication(), ImageLoaderFactory {
             isReady.value = true
         }
         Timber.plant(com.devxrohan.smusic.utils.GlobalLogTree())
+        // Debug builds only: log per request whether the YouTube account is attached (booleans only, no secrets).
+        if (com.devxrohan.smusic.BuildConfig.DEBUG) {
+            com.devxrohan.smusic.innertube.YouTube.authTrace = { Timber.tag("AuthTrace").v(it) }
+        }
+
+        // Keep update notifications alive even when SMusic is not open.
+        // The worker uses the same multi-network GitHub fallbacks as the foreground checker.
+        runCatching {
+            com.devxrohan.smusic.update.AppNotificationManager.schedulePeriodicCheck(this)
+        }.onFailure { Timber.w(it, "Could not schedule update check worker") }
 
         try {
             Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -178,6 +244,25 @@ class App : LocaleAwareApplication(), ImageLoaderFactory {
             }
         }
 
+        runCatching {
+            val pulseRequest = androidx.work.PeriodicWorkRequestBuilder<com.devxrohan.smusic.worker.PulseRefreshWorker>(6, java.util.concurrent.TimeUnit.HOURS)
+                .setConstraints(
+                    androidx.work.Constraints.Builder()
+                        .setRequiresBatteryNotLow(true)
+                        .build()
+                )
+                .build()
+            androidx.work.WorkManager.getInstance(this@App).enqueueUniquePeriodicWork(
+                "PulseRefreshWorker",
+                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                pulseRequest,
+            )
+        }.onFailure { Timber.w(it, "Could not schedule Pulse background refresh") }
+
+        // Start Explore (list + artwork + pictures) right away so it is ready before the user opens it.
+        // YouTube locale / proxy / login-for-browse are configured above; visitorData is awaited inside.
+        com.devxrohan.smusic.utils.ExplorePrefetcher.start(this)
+
         GlobalScope.launch {
             dataStore.data
                 .map { it[VisitorDataKey] }
@@ -221,15 +306,22 @@ class App : LocaleAwareApplication(), ImageLoaderFactory {
         }
         GlobalScope.launch {
             dataStore.data
-                .map { it[InnerTubeCookieKey] }
+                .map { prefs ->
+                    prefs[InnerTubeCookieKey].orEmpty().takeIf { raw ->
+                        raw.isNotBlank() && runCatching {
+                            "SAPISID" in com.devxrohan.smusic.innertube.utils.parseCookieString(raw)
+                        }.getOrDefault(false)
+                    }
+                }
                 .distinctUntilChanged()
                 .collect { cookie ->
                     try {
+                        // A missing/invalid cookie means anonymous browsing, never an empty pseudo-session.
                         YouTube.cookie = cookie
                     } catch (e: Exception) {
-                        // we now allow user input now, here be the demons. This serves as a last ditch effort to avoid a crash loop
                         Timber.e("Could not parse cookie. Clearing existing cookie. %s", e.message)
                         forgetAccount(this@App)
+                        YouTube.cookie = null
                     }
                 }
         }
@@ -238,26 +330,31 @@ class App : LocaleAwareApplication(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader {
         val cacheSize = dataStore[MaxImageCacheSizeKey]
 
-        // will crash app if you set to 0 after cache starts being used
-        if (cacheSize == 0) {
-            return ImageLoader.Builder(this)
-                .crossfade(true)
-                .respectCacheHeaders(false)
-                .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-                .diskCachePolicy(CachePolicy.DISABLED)
-                .build()
-        }
-
-        return ImageLoader.Builder(this)
+        val builder = ImageLoader.Builder(this)
             .crossfade(true)
             .respectCacheHeaders(false)
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-            .diskCache(
+            // Keep frequently reused queue/album/player artwork in RAM.
+            .memoryCache {
+                coil.memory.MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .strongReferencesEnabled(true)
+                    .build()
+            }
+            .memoryCachePolicy(CachePolicy.ENABLED)
+
+        if (cacheSize == 0) {
+            return builder.diskCachePolicy(CachePolicy.DISABLED).build()
+        }
+
+        return builder
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("coil"))
                     .maxSizeBytes((cacheSize ?: 512) * 1024 * 1024L)
                     .build()
-            )
+            }
             .build()
     }
 

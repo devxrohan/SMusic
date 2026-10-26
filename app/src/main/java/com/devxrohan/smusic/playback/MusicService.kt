@@ -11,6 +11,9 @@ import android.database.SQLException
 import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.Equalizer
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Virtualizer
+import android.media.audiofx.PresetReverb
 import android.media.audiofx.LoudnessEnhancer
 import android.net.ConnectivityManager
 import android.os.Binder
@@ -69,12 +72,35 @@ import com.devxrohan.smusic.jossredconnect.JossRedClient
 import com.devxrohan.smusic.MainActivity
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.AudioNormalizationKey
+import com.devxrohan.smusic.constants.AudioFxAndDjEnabledKey
+import com.devxrohan.smusic.constants.BypassAllAudioEffectsKey
+import com.devxrohan.smusic.constants.AudioBoostEnabledKey
+import com.devxrohan.smusic.constants.AudioBoostPercentKey
+import com.devxrohan.smusic.constants.EchoEnabledKey
+import com.devxrohan.smusic.constants.EchoDelayMsKey
+import com.devxrohan.smusic.constants.EchoFeedbackKey
+import com.devxrohan.smusic.constants.EchoWetMixKey
+import com.devxrohan.smusic.constants.EchoPingPongKey
+import com.devxrohan.smusic.constants.DjFilterSweepKey
+import com.devxrohan.smusic.constants.DjFlangerEnabledKey
+import com.devxrohan.smusic.constants.DjFlangerRateKey
+import com.devxrohan.smusic.constants.DjFlangerDepthKey
+import com.devxrohan.smusic.constants.DjSaturationKey
+import com.devxrohan.smusic.constants.DjTurntableLinkedKey
+import com.devxrohan.smusic.constants.DjTempoSpeedKey
+import com.devxrohan.smusic.constants.DjPitchKey
 import com.devxrohan.smusic.constants.AudioQuality
 import com.devxrohan.smusic.constants.AudioQualityKey
 import com.devxrohan.smusic.constants.AutoLoadMoreKey
+import com.devxrohan.smusic.constants.AutoMixBetaKey
 import com.devxrohan.smusic.constants.AutoSkipNextOnErrorKey
 import com.devxrohan.smusic.constants.DisableLoadMoreWhenRepeatAllKey
 import com.devxrohan.smusic.constants.EqualizerEnabledKey
+import com.devxrohan.smusic.constants.CrossfadeDurationKey
+import com.devxrohan.smusic.constants.AudioStudioBassKey
+import com.devxrohan.smusic.constants.AudioStudioVirtualizerKey
+import com.devxrohan.smusic.constants.AudioStudioReverbKey
+import com.devxrohan.smusic.constants.AudioStudioEnabledKey
 import com.devxrohan.smusic.constants.HideExplicitKey
 import com.devxrohan.smusic.constants.HistoryDuration
 import com.devxrohan.smusic.constants.MediaSessionConstants.CommandToggleLike
@@ -116,6 +142,7 @@ import com.devxrohan.smusic.playback.queues.filterExplicit
 import com.devxrohan.smusic.utils.CoilBitmapLoader
 import com.devxrohan.smusic.utils.NetworkConnectivityObserver
 import com.devxrohan.smusic.utils.YTPlayerUtils
+import com.devxrohan.smusic.utils.isYouTubeAccountWriteBackAllowed
 import com.devxrohan.smusic.utils.isLowDataModeActive
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.enumPreference
@@ -171,6 +198,17 @@ data class EqualizerUiState(
     val maxBandLevel: Short = 1500,
 )
 
+data class AudioStudioUiState(
+    val available: Boolean = false,
+    val enabled: Boolean = false,
+    val bassStrength: Int = 0,
+    val spaceStrength: Int = 0,
+    val reverbPreset: Int = 0,
+    val bassSupported: Boolean = false,
+    val spaceSupported: Boolean = false,
+    val reverbSupported: Boolean = false,
+)
+
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @AndroidEntryPoint
 class MusicService :
@@ -179,6 +217,9 @@ class MusicService :
     PlaybackStatsListener.Callback {
     @Inject
     lateinit var database: MusicDatabase
+
+    @Inject
+    lateinit var pulseEngine: com.devxrohan.smusic.pulse.PulseEngine
 
     @Inject
     lateinit var lyricsHelper: LyricsHelper
@@ -246,10 +287,43 @@ class MusicService :
 
     private var isAudioEffectSessionOpened = false
     private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var loudnessEnhancerSessionId: Int = C.AUDIO_SESSION_ID_UNSET
+    private var queuePageLoadInProgress = false
     private var equalizer: Equalizer? = null
     private var equalizerSessionId: Int = C.AUDIO_SESSION_ID_UNSET
+    private var bassBoost: BassBoost? = null
+    private var virtualizer: Virtualizer? = null
+    private var presetReverb: PresetReverb? = null
+    private var studioSessionId: Int = C.AUDIO_SESSION_ID_UNSET
     val equalizerState = MutableStateFlow(EqualizerUiState())
+    val audioStudioState = MutableStateFlow(AudioStudioUiState())
+    val spatialAudioProcessor = SpatialAudioProcessor()
+    val eightDAudioProcessor = EightDAudioProcessor()
+    val djAudioProcessor = DjAudioProcessor()
+    val echoEnabled = MutableStateFlow(false)
+    val echoDelayMs = MutableStateFlow(280)
+    val echoFeedback = MutableStateFlow(0.40f)
+    val echoWetMix = MutableStateFlow(0.0f)
+    val echoPingPong = MutableStateFlow(false)
+    val djFilterSweep = MutableStateFlow(0.0f)
+    val djFlangerEnabled = MutableStateFlow(false)
+    val djFlangerRate = MutableStateFlow(0.5f)
+    val djFlangerDepth = MutableStateFlow(0.0f)
+    val djSaturation = MutableStateFlow(0.0f)
+    val djTempoSpeed = MutableStateFlow(1.0f)
+    val djPitch = MutableStateFlow(1.0f)
+    val djTurntableLinked = MutableStateFlow(false)
+    val audioFxAndDjEnabled = MutableStateFlow(false)
+    val bypassAllAudioEffects = MutableStateFlow(false)
+    val audioBoostEnabled = MutableStateFlow(false)
+    val audioBoostPercent = MutableStateFlow(100)
+    val visualizerManager by lazy { AudioVisualizerManager(scope) }
+    private var audioBoostEnhancer: LoudnessEnhancer? = null
+    private var audioBoostSessionId: Int = C.AUDIO_SESSION_ID_UNSET
+    private var transitionFadeJob: Job? = null
     private var lastPlaybackSpeed = 1.0f
+    private var discordRpc: com.devxrohan.smusic.utils.DiscordRPC? = null
+    private var discordUpdateJob: kotlinx.coroutines.Job? = null
     private var mediaController: MediaController? = null
 
     val automixItems = MutableStateFlow<List<MediaItem>>(emptyList())
@@ -259,6 +333,7 @@ class MusicService :
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate() {
         super.onCreate()
+        instance = this
         // Ensure the in-memory preference-cache (dataStore.get() below
         // reads from it, not from disk directly) is genuinely populated
         // before anything else in this service runs. MainActivity/App
@@ -304,6 +379,7 @@ class MusicService :
                     addListener(sleepTimer)
                     addAnalyticsListener(PlaybackStatsListener(false, this@MusicService))
                 }
+        loadAudioFxPreferences()
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupAudioFocus()
@@ -318,9 +394,9 @@ class MusicService :
                 .setSessionActivity(
                     PendingIntent.getActivity(
                         this,
-                        0,
-                        Intent(this, MainActivity::class.java),
-                        PendingIntent.FLAG_IMMUTABLE,
+                        101,
+                        Intent(this, MainActivity::class.java).setAction("com.devxrohan.smusic.OPEN_PLAYER"),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                     ),
                 ).setBitmapLoader(CoilBitmapLoader(this, scope))
                 .build()
@@ -359,14 +435,101 @@ class MusicService :
             player.volume = it
         }
 
+        // Sequential crossfade-style transitions: fade the outgoing track near its end,
+        // then ramp the incoming track back to the user's chosen volume. This is a
+        // device/source-safe fade, not overlapping dual-deck DJ mixing.
+        transitionFadeJob?.cancel()
+        transitionFadeJob = scope.launch {
+            while (isActive) {
+                try {
+                    val durationSeconds = dataStore.get(CrossfadeDurationKey, 0).coerceIn(0, 8)
+                    val durationMs = durationSeconds * 1000L
+                    val duration = player.duration
+                    val position = player.currentPosition
+                    if (durationMs > 0L && player.isPlaying && duration > 0L && duration != C.TIME_UNSET) {
+                        val remaining = duration - position
+                        if (remaining in 1..durationMs) {
+                            val factor = (remaining.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                            player.volume = playerVolume.value * factor
+                        }
+                    }
+                } catch (_: Exception) { }
+                delay(100)
+            }
+        }
+
         playerVolume.debounce(1000).collect(scope) { volume ->
             dataStore.edit { settings ->
                 settings[PlayerVolumeKey] = volume
             }
         }
 
+        dataStore.data.map { it[AutoMixBetaKey] ?: true }
+            .distinctUntilChanged()
+            .collect(scope) { enabled ->
+                if (!enabled) automixItems.value = emptyList()
+            }
+
         currentSong.debounce(1000).collect(scope) { song ->
             updateNotification()
+        }
+
+        // Discord Rich Presence (ported from SMusic utils/DiscordRPC.kt + MusicService wiring).
+        // One authoritative client per service instance: connects when a token is stored and the
+        // toggle is on, fully disconnects (closeRPC) when logged out or disabled so no stale
+        // Gateway session lingers. Guest/no-token users are completely unaffected — this never
+        // touches Pulse or playback source selection.
+        dataStore.data
+            .map { it[com.devxrohan.smusic.constants.DiscordTokenKey] to (it[com.devxrohan.smusic.constants.EnableDiscordRPCKey] ?: true) }
+            .debounce(300)
+            .distinctUntilChanged()
+            .collect(scope) { (token, enabled) ->
+                if (discordRpc?.isRpcRunning() == true) {
+                    discordRpc?.closeRPC()
+                }
+                discordRpc = null
+                if (!token.isNullOrEmpty() && enabled) {
+                    discordRpc = com.devxrohan.smusic.utils.DiscordRPC(this, token)
+                    if (player.playbackState == Player.STATE_READY && player.playWhenReady) {
+                        currentSong.value?.let {
+                            discordRpc?.updateSong(
+                                it,
+                                player.currentPosition,
+                                player.playbackParameters.speed,
+                                dataStore.get(com.devxrohan.smusic.constants.DiscordUseDetailsKey, false),
+                            )
+                        }
+                    }
+                }
+            }
+
+        dataStore.data
+            .map { it[com.devxrohan.smusic.constants.DiscordUseDetailsKey] ?: false }
+            .debounce(1000)
+            .distinctUntilChanged()
+            .collect(scope) { useDetails ->
+                if (player.playbackState == Player.STATE_READY && player.playWhenReady) {
+                    currentSong.value?.let { song ->
+                        discordUpdateJob?.cancel()
+                        discordUpdateJob = scope.launch {
+                            delay(1000)
+                            discordRpc?.updateSong(song, player.currentPosition, player.playbackParameters.speed, useDetails)
+                        }
+                    }
+                }
+            }
+
+        currentSong.debounce(500).collect(scope) { song ->
+            if (song != null && player.playbackState == Player.STATE_READY && player.playWhenReady) {
+                discordRpc?.updateSong(
+                    song,
+                    player.currentPosition,
+                    player.playbackParameters.speed,
+                    dataStore.get(com.devxrohan.smusic.constants.DiscordUseDetailsKey, false),
+                )
+            } else if (song == null) {
+                discordRpc?.stopActivity()
+            }
         }
 
         combine(
@@ -774,16 +937,8 @@ class MusicService :
                 player.prepare()
                 player.playWhenReady = playWhenReady
             }
-            if (isPermanentShuffle && player.mediaItemCount > 1) {
-                val shuffledIndices = IntArray(player.mediaItemCount) { it }
-                shuffledIndices.shuffle()
-                val currentIdx = player.currentMediaItemIndex
-                val currentPosInShuffled = shuffledIndices.indexOf(currentIdx)
-                if (currentPosInShuffled != -1) {
-                    shuffledIndices[currentPosInShuffled] = shuffledIndices[0]
-                    shuffledIndices[0] = currentIdx
-                }
-                player.setShuffleOrder(DefaultShuffleOrder(shuffledIndices, System.currentTimeMillis()))
+            if (isPermanentShuffle) {
+                refreshShuffleOrderIfNeeded()
             }
         }
     }
@@ -829,7 +984,7 @@ class MusicService :
     }
 
     fun getAutomix(playlistId: String) {
-        if (dataStore[SimilarContent] == true &&
+        if (dataStore.get(AutoMixBetaKey, true) && dataStore[SimilarContent] == true &&
             !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)) {
             scope.launch(SilentHandler) {
                 YouTube
@@ -838,10 +993,20 @@ class MusicService :
                         YouTube
                             .next(WatchEndpoint(playlistId = it.endpoint.playlistId))
                             .onSuccess {
-                                automixItems.value =
-                                    it.items.map { song ->
-                                        song.toMediaItem()
-                                    }
+                                val mixItems = it.items.map { song -> song.toMediaItem() }
+                                automixItems.value = mixItems
+                                // Pulse AutoMix: reorder by taste/session continuity; falls back to the original list.
+                                scope.launch(Dispatchers.IO) {
+                                    val ranked = pulseEngine.rankForRadio(
+                                        items = mixItems,
+                                        idOf = { mi -> mi.mediaId },
+                                        artistIdsOf = { mi -> mi.metadata?.artists?.mapNotNull { a -> a.id }.orEmpty() },
+                                        seedId = player.currentMediaItem?.mediaId,
+                                        seedArtistIds = player.currentMediaItem?.metadata?.artists
+                                            ?.mapNotNull { a -> a.id }.orEmpty(),
+                                    )
+                                    if (ranked !== mixItems) automixItems.value = ranked
+                                }
                             }
                     }
             }
@@ -960,6 +1125,9 @@ class MusicService :
         database.query {
             currentSong.value?.let {
                 update(it.song.toggleLike())
+                // Pulse: an explicit like is a strong positive (an unlike just clears it).
+                val likedNow = !it.song.liked
+                scope.launch(Dispatchers.IO) { pulseEngine.onFavorite(it, likedNow) }
             }
         }
     }
@@ -972,14 +1140,18 @@ class MusicService :
             return
         }
 
-        // Crear o recrear enhancer si es necesario
-        if (loudnessEnhancer == null) {
+        // The effect belongs to an audio session. Recreate it whenever ExoPlayer moves to a
+        // different session; otherwise normalization silently stops working after transitions.
+        if (loudnessEnhancer == null || loudnessEnhancerSessionId != audioSessionId) {
+            releaseLoudnessEnhancer()
             try {
                 loudnessEnhancer = LoudnessEnhancer(audioSessionId)
+                loudnessEnhancerSessionId = audioSessionId
                 Log.d(TAG, "LoudnessEnhancer created for sessionId=$audioSessionId")
             } catch (e: Exception) {
                 reportException(e)
                 loudnessEnhancer = null
+                loudnessEnhancerSessionId = C.AUDIO_SESSION_ID_UNSET
                 return
             }
         }
@@ -1003,7 +1175,9 @@ class MusicService :
 
                     withContext(Dispatchers.Main) {
                         if (loudnessDb != null) {
-                            val targetGain = (-loudnessDb * 100).toInt()
+                            // YouTube loudnessDb is the measured track loudness. Normalize toward
+                            // a practical -14 LUFS-like target instead of boosting every negative value.
+                            val targetGain = ((-14.0 - loudnessDb) * 100.0).toInt()
                             val clampedGain = targetGain.coerceIn(MIN_GAIN_MB, MAX_GAIN_MB)
                             try {
                                 loudnessEnhancer?.setTargetGain(clampedGain)
@@ -1040,7 +1214,258 @@ class MusicService :
             Log.e(TAG, "Error releasing LoudnessEnhancer: ${e.message}")
         } finally {
             loudnessEnhancer = null
+            loudnessEnhancerSessionId = C.AUDIO_SESSION_ID_UNSET
         }
+    }
+
+    private fun loadAudioFxPreferences() {
+        scope.launch {
+            runCatching {
+                val p = dataStore.data.first()
+                bypassAllAudioEffects.value = p[BypassAllAudioEffectsKey] ?: false
+                audioFxAndDjEnabled.value = p[AudioFxAndDjEnabledKey] ?: false
+                audioBoostEnabled.value = p[AudioBoostEnabledKey] ?: false
+                audioBoostPercent.value = (p[AudioBoostPercentKey] ?: 100).coerceIn(100, 200)
+                echoEnabled.value = p[EchoEnabledKey] ?: false
+                echoDelayMs.value = (p[EchoDelayMsKey] ?: 280).coerceIn(20, 1000)
+                echoFeedback.value = (p[EchoFeedbackKey] ?: .40f).coerceIn(0f, .85f)
+                echoWetMix.value = (p[EchoWetMixKey] ?: 0f).coerceIn(0f, 1f)
+                echoPingPong.value = p[EchoPingPongKey] ?: false
+                djFilterSweep.value = (p[DjFilterSweepKey] ?: 0f).coerceIn(-1f, 1f)
+                djFlangerEnabled.value = p[DjFlangerEnabledKey] ?: false
+                djFlangerRate.value = (p[DjFlangerRateKey] ?: .5f).coerceIn(.1f, 4f)
+                djFlangerDepth.value = (p[DjFlangerDepthKey] ?: 0f).coerceIn(0f, 1f)
+                djSaturation.value = (p[DjSaturationKey] ?: 0f).coerceIn(0f, 1f)
+                djTempoSpeed.value = (p[DjTempoSpeedKey] ?: 1f).coerceIn(.5f, 2f)
+                djPitch.value = (p[DjPitchKey] ?: 1f).coerceIn(.5f, 2f)
+                djTurntableLinked.value = p[DjTurntableLinkedKey] ?: false
+                syncDjProcessor()
+                applyAudioFxEnableState()
+            }
+        }
+    }
+
+    private fun syncDjProcessor() {
+        djAudioProcessor.echoEnabled = echoEnabled.value
+        djAudioProcessor.echoDelayMs = echoDelayMs.value
+        djAudioProcessor.echoFeedback = echoFeedback.value
+        djAudioProcessor.echoWetMix = echoWetMix.value
+        djAudioProcessor.echoPingPong = echoPingPong.value
+        djAudioProcessor.filterSweep = djFilterSweep.value
+        djAudioProcessor.flangerEnabled = djFlangerEnabled.value
+        djAudioProcessor.flangerRate = djFlangerRate.value
+        djAudioProcessor.flangerDepth = djFlangerDepth.value
+        djAudioProcessor.saturation = djSaturation.value
+        djAudioProcessor.enabled = audioFxAndDjEnabled.value && !bypassAllAudioEffects.value
+        djAudioProcessor.bypass = bypassAllAudioEffects.value
+        spatialAudioProcessor.bypass = bypassAllAudioEffects.value
+        eightDAudioProcessor.bypass = bypassAllAudioEffects.value
+    }
+
+    private fun applyAudioFxEnableState() {
+        syncDjProcessor()
+        if (bypassAllAudioEffects.value) {
+            djAudioProcessor.resetFx()
+            spatialAudioProcessor.enabled = false
+            eightDAudioProcessor.enabled = false
+            runCatching { equalizer?.enabled = false }
+            equalizerState.value = equalizerState.value.copy(enabled = false)
+            runCatching { player.playbackParameters = androidx.media3.common.PlaybackParameters.DEFAULT }
+            djTempoSpeed.value = 1f
+            djPitch.value = 1f
+            djTurntableLinked.value = false
+            audioBoostEnabled.value = false
+            runCatching { audioBoostEnhancer?.enabled = false }
+        } else {
+            applyAudioBoost()
+            runCatching {
+                val eqEnabled = dataStore.get(EqualizerEnabledKey, false)
+                equalizer?.enabled = eqEnabled
+                equalizerState.value = equalizerState.value.copy(enabled = eqEnabled)
+            }
+        }
+    }
+
+    fun ensureVisualizer() {
+        visualizerManager.isPlaying = player.isPlaying
+        visualizerManager.start(player.audioSessionId)
+    }
+
+    fun setAudioBoostEnabled(enabled: Boolean) {
+        if (bypassAllAudioEffects.value && enabled) return
+        audioBoostEnabled.value = enabled
+        applyAudioBoost()
+        scope.launch { dataStore.edit { it[AudioBoostEnabledKey] = enabled } }
+    }
+
+    fun setAudioBoostPercent(percent: Int) {
+        val value = percent.coerceIn(100, 200)
+        audioBoostPercent.value = value
+        applyAudioBoost()
+        scope.launch { dataStore.edit { it[AudioBoostPercentKey] = value } }
+    }
+
+    private fun applyAudioBoost() {
+        if (!::player.isInitialized) return
+        val session = player.audioSessionId
+        if (session <= 0 || session == C.AUDIO_SESSION_ID_UNSET) return
+        runCatching {
+            if (audioBoostEnhancer == null || audioBoostSessionId != session) {
+                runCatching { audioBoostEnhancer?.release() }
+                audioBoostEnhancer = LoudnessEnhancer(session)
+                audioBoostSessionId = session
+            }
+            val enabled = audioBoostEnabled.value && !bypassAllAudioEffects.value && audioBoostPercent.value > 100
+            audioBoostEnhancer?.setTargetGain(((audioBoostPercent.value - 100) * 100).coerceIn(0, 10000))
+            audioBoostEnhancer?.enabled = enabled
+        }.onFailure { Timber.w(it, "Could not apply Audio FX master boost") }
+    }
+
+    private fun persistFx(block: suspend androidx.datastore.preferences.core.MutablePreferences.() -> Unit) {
+        scope.launch { dataStore.edit { block(it) } }
+    }
+
+    fun setEchoEnabled(v: Boolean) { echoEnabled.value=v; djAudioProcessor.echoEnabled=v; persistFx { this[EchoEnabledKey]=v } }
+    fun setEchoDelayMs(v: Int) { val x=v.coerceIn(20,1000); echoDelayMs.value=x; djAudioProcessor.echoDelayMs=x; persistFx { this[EchoDelayMsKey]=x } }
+    fun setEchoFeedback(v: Float) { val x=v.coerceIn(0f,.85f); echoFeedback.value=x; djAudioProcessor.echoFeedback=x; persistFx { this[EchoFeedbackKey]=x } }
+    fun setEchoWetMix(v: Float) { val x=v.coerceIn(0f,1f); echoWetMix.value=x; djAudioProcessor.echoWetMix=x; persistFx { this[EchoWetMixKey]=x } }
+    fun setEchoPingPong(v: Boolean) { echoPingPong.value=v; djAudioProcessor.echoPingPong=v; persistFx { this[EchoPingPongKey]=v } }
+    fun setDjFilterSweep(v: Float) { val x=v.coerceIn(-1f,1f); djFilterSweep.value=x; djAudioProcessor.filterSweep=x; persistFx { this[DjFilterSweepKey]=x } }
+    fun setDjFlangerEnabled(v: Boolean) { djFlangerEnabled.value=v; djAudioProcessor.flangerEnabled=v; persistFx { this[DjFlangerEnabledKey]=v } }
+    fun setDjFlangerRate(v: Float) { val x=v.coerceIn(.1f,4f); djFlangerRate.value=x; djAudioProcessor.flangerRate=x; persistFx { this[DjFlangerRateKey]=x } }
+    fun setDjFlangerDepth(v: Float) { val x=v.coerceIn(0f,1f); djFlangerDepth.value=x; djAudioProcessor.flangerDepth=x; persistFx { this[DjFlangerDepthKey]=x } }
+    fun setDjSaturation(v: Float) { val x=v.coerceIn(0f,1f); djSaturation.value=x; djAudioProcessor.saturation=x; persistFx { this[DjSaturationKey]=x } }
+    fun setDjTempoAndPitch(speed: Float, pitch: Float) {
+        val sp=speed.coerceIn(.5f,2f); val pi=pitch.coerceIn(.5f,2f)
+        djTempoSpeed.value=sp; djPitch.value=pi
+        if (::player.isInitialized && !bypassAllAudioEffects.value) player.playbackParameters=androidx.media3.common.PlaybackParameters(sp,pi)
+        persistFx { this[DjTempoSpeedKey]=sp; this[DjPitchKey]=pi }
+    }
+    fun setDjTurntableLinked(v: Boolean) { djTurntableLinked.value=v; if(v) setDjTempoAndPitch(djTempoSpeed.value,djTempoSpeed.value); persistFx { this[DjTurntableLinkedKey]=v } }
+    fun setAudioFxAndDjEnabled(v: Boolean) { audioFxAndDjEnabled.value=v; djAudioProcessor.enabled=v && !bypassAllAudioEffects.value; if(!v) resetAudioFx(); persistFx { this[AudioFxAndDjEnabledKey]=v } }
+    fun setBypassAllAudioEffects(v: Boolean) { bypassAllAudioEffects.value=v; applyAudioFxEnableState(); persistFx { this[BypassAllAudioEffectsKey]=v } }
+    fun resetDjFx() {
+        setEchoEnabled(false); setEchoDelayMs(280); setEchoFeedback(.40f); setEchoWetMix(0f); setEchoPingPong(false)
+        setDjFilterSweep(0f); setDjFlangerEnabled(false); setDjFlangerRate(.5f); setDjFlangerDepth(0f); setDjSaturation(0f)
+        setDjTurntableLinked(false); setDjTempoAndPitch(1f,1f); djAudioProcessor.resetFx()
+    }
+    fun applyDjPreset(preset: DjPreset) {
+        if (bypassAllAudioEffects.value) return
+        when (preset) {
+            DjPreset.DEFAULT -> resetDjFx()
+            DjPreset.CLUB_BOOTH -> { setEchoEnabled(true); setEchoDelayMs(180); setEchoFeedback(.30f); setEchoWetMix(.35f); setEchoPingPong(true); setDjFilterSweep(-.15f); setDjSaturation(.20f); setAudioBoostPercent(130); setAudioBoostEnabled(true); setDjTempoAndPitch(1f,1f) }
+            DjPreset.SLOWED_REVERB -> { setEchoEnabled(true); setEchoDelayMs(380); setEchoFeedback(.55f); setEchoWetMix(.50f); setEchoPingPong(true); setDjFilterSweep(-.25f); setDjSaturation(.15f); setDjTurntableLinked(true); setDjTempoAndPitch(.85f,.85f) }
+            DjPreset.NIGHTCORE -> { setEchoEnabled(false); setDjFilterSweep(.20f); setDjSaturation(.10f); setDjTurntableLinked(true); setDjTempoAndPitch(1.25f,1.25f) }
+            DjPreset.BASS_BOMB -> { setEchoEnabled(false); setDjFilterSweep(-.35f); setDjSaturation(.40f); setAudioBoostPercent(160); setAudioBoostEnabled(true); setDjTempoAndPitch(1f,1f) }
+            DjPreset.LOFI_VINYL -> { setEchoEnabled(true); setEchoDelayMs(120); setEchoFeedback(.25f); setEchoWetMix(.30f); setEchoPingPong(false); setDjFilterSweep(-.50f); setDjSaturation(.35f); setDjFlangerEnabled(true); setDjFlangerRate(.2f); setDjFlangerDepth(.25f); setDjTempoAndPitch(.95f,.95f) }
+            DjPreset.SPACE_ECHO -> { setEchoEnabled(true); setEchoDelayMs(450); setEchoFeedback(.65f); setEchoWetMix(.60f); setEchoPingPong(true); setDjFilterSweep(0f); setDjFlangerEnabled(true); setDjFlangerRate(.4f); setDjFlangerDepth(.35f); setDjSaturation(.10f); setDjTempoAndPitch(1f,1f) }
+        }
+    }
+    fun resetAudioFx() { setAudioBoostPercent(100); setAudioBoostEnabled(false); resetEqualizer(); resetDjFx(); djAudioProcessor.enabled=false }
+
+    fun ensureAudioStudioEffects() = setupAudioStudioEffects()
+
+    private fun setupAudioStudioEffects() {
+        val sessionId = player.audioSessionId
+        if (sessionId == C.AUDIO_SESSION_ID_UNSET || sessionId <= 0) {
+            audioStudioState.value = audioStudioState.value.copy(available = false)
+            return
+        }
+        if (studioSessionId == sessionId && (bassBoost != null || virtualizer != null || presetReverb != null)) return
+        releaseAudioStudioEffects()
+        val enabled = dataStore.get(AudioStudioEnabledKey, false)
+        val bass = dataStore.get(AudioStudioBassKey, 0).coerceIn(0, 1000)
+        val space = dataStore.get(AudioStudioVirtualizerKey, 0).coerceIn(0, 1000)
+        val reverb = dataStore.get(AudioStudioReverbKey, 0).coerceIn(0, 6)
+        var bassSupported = false
+        var spaceSupported = false
+        var reverbSupported = false
+        try {
+            bassBoost = BassBoost(0, sessionId).also {
+                bassSupported = it.strengthSupported
+                if (bassSupported) it.setStrength(bass.toShort())
+                it.enabled = enabled && bassSupported && bass > 0
+            }
+        } catch (e: Exception) { reportException(e); bassBoost = null }
+        try {
+            virtualizer = Virtualizer(0, sessionId).also {
+                spaceSupported = it.strengthSupported
+                if (spaceSupported) it.setStrength(space.toShort())
+                it.enabled = enabled && spaceSupported && space > 0
+            }
+        } catch (e: Exception) { reportException(e); virtualizer = null }
+        try {
+            presetReverb = PresetReverb(0, sessionId).also {
+                it.preset = reverb.toShort()
+                reverbSupported = true
+                it.enabled = enabled && reverb > 0
+            }
+        } catch (e: Exception) { reportException(e); presetReverb = null }
+        studioSessionId = sessionId
+        audioStudioState.value = AudioStudioUiState(
+            available = bassBoost != null || virtualizer != null || presetReverb != null,
+            enabled = enabled,
+            bassStrength = bass,
+            spaceStrength = space,
+            reverbPreset = reverb,
+            bassSupported = bassSupported,
+            spaceSupported = spaceSupported,
+            reverbSupported = reverbSupported,
+        )
+    }
+
+    fun setAudioStudioEnabled(enabled: Boolean) {
+        setupAudioStudioEffects()
+        runCatching {
+            bassBoost?.enabled = enabled && audioStudioState.value.bassSupported && audioStudioState.value.bassStrength > 0
+            virtualizer?.enabled = enabled && audioStudioState.value.spaceSupported && audioStudioState.value.spaceStrength > 0
+            presetReverb?.enabled = enabled && audioStudioState.value.reverbSupported && audioStudioState.value.reverbPreset > 0
+        }.onFailure(::reportException)
+        audioStudioState.value = audioStudioState.value.copy(enabled = enabled)
+        scope.launch { dataStore.edit { it[AudioStudioEnabledKey] = enabled } }
+    }
+
+    fun setAudioStudioBass(strength: Int) {
+        setupAudioStudioEffects()
+        val value = strength.coerceIn(0, 1000)
+        runCatching {
+            bassBoost?.setStrength(value.toShort())
+            bassBoost?.enabled = audioStudioState.value.enabled && value > 0
+        }.onFailure(::reportException)
+        audioStudioState.value = audioStudioState.value.copy(bassStrength = value)
+        scope.launch { dataStore.edit { it[AudioStudioBassKey] = value } }
+    }
+
+    fun setAudioStudioSpace(strength: Int) {
+        setupAudioStudioEffects()
+        val value = strength.coerceIn(0, 1000)
+        runCatching {
+            virtualizer?.setStrength(value.toShort())
+            virtualizer?.enabled = audioStudioState.value.enabled && value > 0
+        }.onFailure(::reportException)
+        audioStudioState.value = audioStudioState.value.copy(spaceStrength = value)
+        scope.launch { dataStore.edit { it[AudioStudioVirtualizerKey] = value } }
+    }
+
+    fun setAudioStudioReverb(preset: Int) {
+        setupAudioStudioEffects()
+        val value = preset.coerceIn(0, 6)
+        runCatching {
+            presetReverb?.preset = value.toShort()
+            presetReverb?.enabled = audioStudioState.value.enabled && value > 0
+        }.onFailure(::reportException)
+        audioStudioState.value = audioStudioState.value.copy(reverbPreset = value)
+        scope.launch { dataStore.edit { it[AudioStudioReverbKey] = value } }
+    }
+
+    private fun releaseAudioStudioEffects() {
+        runCatching { bassBoost?.release() }
+        runCatching { virtualizer?.release() }
+        runCatching { presetReverb?.release() }
+        bassBoost = null
+        virtualizer = null
+        presetReverb = null
+        studioSessionId = C.AUDIO_SESSION_ID_UNSET
     }
 
     private fun equalizerBandKey(index: Int) = intPreferencesKey("equalizerBand$index")
@@ -1188,6 +1613,19 @@ class MusicService :
         )
     }
 
+    private fun refreshShuffleOrderIfNeeded() {
+        if (!player.shuffleModeEnabled || player.mediaItemCount <= 1) return
+        val currentIdx = player.currentMediaItemIndex
+        val indices = IntArray(player.mediaItemCount) { it }
+        indices.shuffle()
+        val currentPos = indices.indexOf(currentIdx)
+        if (currentPos >= 0) {
+            indices[currentPos] = indices[0]
+            indices[0] = currentIdx
+        }
+        player.setShuffleOrder(DefaultShuffleOrder(indices, System.currentTimeMillis()))
+    }
+
     override fun onMediaItemTransition(
         mediaItem: MediaItem?,
         reason: Int,
@@ -1196,22 +1634,46 @@ class MusicService :
 
         setupLoudnessEnhancer()
         setupEqualizer()
+        setupAudioStudioEffects()
+        player.volume = playerVolume.value
+        val fadeSeconds = dataStore.get(CrossfadeDurationKey, 0).coerceIn(0, 8)
+        if (fadeSeconds > 0 && player.isPlaying) {
+            val targetVolume = playerVolume.value
+            player.volume = 0f
+            scope.launch {
+                val steps = 8
+                repeat(steps) { step ->
+                    delay(75L)
+                    player.volume = targetVolume * ((step + 1).toFloat() / steps)
+                }
+            }
+        }
 
         // Resetear errores consecutivos cuando hay transición exitosa
         consecutivePlaybackErr = 0
 
-        // Auto cargar más canciones
+        // Pulse-aware auto pagination. Keep the old setting, but make it reliable: load before the
+        // last few items, guard against concurrent requests, and allow Pulse queues to synthesize
+        // seed-aware similar content when the provider's short page is exhausted.
         if (dataStore.get(AutoLoadMoreKey, true) &&
             reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
-            player.mediaItemCount - player.currentMediaItemIndex <= 5 &&
+            player.mediaItemCount - player.currentMediaItemIndex <= 8 &&
             currentQueue.hasNextPage() &&
-            !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)
+            !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL) &&
+            !queuePageLoadInProgress
         ) {
+            queuePageLoadInProgress = true
             scope.launch(SilentHandler) {
-                val mediaItems =
-                    currentQueue.nextPage().filterExplicit(dataStore.get(HideExplicitKey, false))
-                if (player.playbackState != STATE_IDLE) {
-                    player.addMediaItems(mediaItems.drop(1))
+                try {
+                    val mediaItems = currentQueue.nextPage()
+                        .filterExplicit(dataStore.get(HideExplicitKey, false))
+                        .distinctBy { it.mediaId }
+                    if (mediaItems.isNotEmpty() && player.playbackState != STATE_IDLE) {
+                        player.addMediaItems(mediaItems)
+                        refreshShuffleOrderIfNeeded()
+                    }
+                } finally {
+                    queuePageLoadInProgress = false
                 }
             }
         }
@@ -1484,7 +1946,50 @@ class MusicService :
                 }
             }
 
-            // Intentar YouTube primero (fuente principal)
+            // Optional JioSaavn-first mode for catalogue tracks. This is a best-effort
+            // title/artist match; if no reliable match or stream is available, continue with YouTube.
+            val preferSaavn = runBlocking(Dispatchers.IO) {
+                dataStore.data.map { it[com.devxrohan.smusic.constants.PrioritizeJioSaavn320Key] ?: false }.first()
+            }
+            if (preferSaavn && !mediaId.startsWith("JS:")) {
+                runCatching {
+                    val localSong = database.getSongById(mediaId)
+                    if (localSong != null) {
+                        val artistName = localSong.artists.joinToString(" ") { it.name }
+                        val query = "${localSong.title} $artistName".trim()
+                        val candidates = runBlocking(Dispatchers.IO) {
+                            com.devxrohan.smusic.jiosaavn.JioSaavnApi.searchSongs(query).getOrDefault(emptyList())
+                        }
+                        val normalizedTitle = localSong.title.lowercase().replace(Regex("[^a-z0-9]"), "")
+                        val match = candidates.firstOrNull { candidate ->
+                            val candidateTitle = candidate.title.lowercase().replace(Regex("[^a-z0-9]"), "")
+                            candidateTitle == normalizedTitle || candidateTitle.contains(normalizedTitle) || normalizedTitle.contains(candidateTitle)
+                        } ?: candidates.firstOrNull()
+                        val saavnUrl = match?.let { candidate ->
+                            runBlocking(Dispatchers.IO) { com.devxrohan.smusic.jiosaavn.JioSaavnApi.getStreamUrl(candidate.id) }
+                        }
+                        if (!saavnUrl.isNullOrBlank()) {
+                            val streamReachable = runCatching {
+                                OkHttpClient.Builder().connectTimeout(2, TimeUnit.SECONDS).readTimeout(2, TimeUnit.SECONDS).build()
+                                    .newCall(Request.Builder().url(saavnUrl).head().build()).execute().use { it.isSuccessful }
+                            }.getOrDefault(false)
+                            if (streamReachable) {
+                                Timber.i("Using reachable JioSaavn-priority stream for $mediaId; YouTube remains fallback")
+                                songUrlCache[mediaId] = CachedSongUrl(
+                                    url = saavnUrl,
+                                    expiresAt = System.currentTimeMillis() + 20 * 60 * 1000L,
+                                    contentLength = null,
+                                )
+                                scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+                                return@Factory dataSpec.withUri(saavnUrl.toUri())
+                            }
+                            Timber.w("JioSaavn returned an unreachable stream for $mediaId; continuing with YouTube")
+                        }
+                    }
+                }.onFailure { Timber.w(it, "JioSaavn priority lookup failed; continuing with YouTube") }
+            }
+
+            // YouTube remains the fallback/source of truth when JioSaavn cannot resolve the track.
             val ytLogTag = "YouTube"
             try {
                 val effectiveAudioQuality = if (this@MusicService.isLowDataModeActive()) AudioQuality.LOW else audioQuality
@@ -1524,20 +2029,31 @@ class MusicService :
 
                 val format = playbackData.format
 
-                database.query {
-                    upsert(
-                        FormatEntity(
-                            id = mediaId,
-                            itag = format.itag,
-                            mimeType = format.mimeType.split(";")[0],
-                            codecs = format.mimeType.split("codecs=")[1].removeSurrounding("\""),
-                            bitrate = format.bitrate,
-                            sampleRate = format.audioSampleRate,
-                            contentLength = format.contentLength!!,
-                            loudnessDb = playbackData.audioConfig?.loudnessDb,
-                            playbackUrl = playbackData.streamUrl
-                        )
-                    )
+                // Some valid YouTube audio formats omit contentLength or the optional codecs
+                // parameter. Playback must not crash just because metadata is incomplete; only
+                // persist a cache-format row when all required database fields are available.
+                val contentLength = format.contentLength
+                val mimeType = format.mimeType.substringBefore(';')
+                val codecs = Regex("codecs\\s*=\\s*\"?([^;\"]+)\"?", RegexOption.IGNORE_CASE)
+                    .find(format.mimeType)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+                if (contentLength != null && contentLength > 0L && codecs.isNotBlank()) {
+                    runCatching {
+                        database.query {
+                            upsert(
+                                FormatEntity(
+                                    id = mediaId,
+                                    itag = format.itag,
+                                    mimeType = mimeType,
+                                    codecs = codecs,
+                                    bitrate = format.bitrate,
+                                    sampleRate = format.audioSampleRate,
+                                    contentLength = contentLength,
+                                    loudnessDb = playbackData.audioConfig?.loudnessDb,
+                                    playbackUrl = playbackData.streamUrl
+                                )
+                            )
+                        }
+                    }.onFailure { Timber.tag(ytLogTag).w(it, "Skipping incomplete YouTube format cache metadata") }
                 }
                 scope.launch(Dispatchers.IO) { recoverSong(mediaId, playbackData) }
 
@@ -1649,12 +2165,17 @@ class MusicService :
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessorChain(
                     DefaultAudioSink.DefaultAudioProcessorChain(
-                        emptyArray(),
+                        arrayOf(djAudioProcessor, spatialAudioProcessor, eightDAudioProcessor),
                         SilenceSkippingAudioProcessor(2_000_000, 20_000, 256),
                         SonicAudioProcessor(),
                     ),
                 ).build()
         }
+
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        visualizerManager.isPlaying = isPlaying
+        if (isPlaying && ::player.isInitialized) visualizerManager.start(player.audioSessionId)
+    }
 
     override fun onPlaybackStatsReady(
         eventTime: AnalyticsListener.EventTime,
@@ -1662,6 +2183,13 @@ class MusicService :
     ) {
         val mediaItem =
             eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
+
+        // Pulse learns from every finished playback (including early skips), but honours "pause listen history".
+        if (playbackStats.totalPlayTimeMs > 0 && !dataStore.get(PauseListenHistoryKey, false)) {
+            val pulseSongId = mediaItem.mediaId
+            val pulsePlayTime = playbackStats.totalPlayTimeMs
+            scope.launch(Dispatchers.IO) { pulseEngine.onPlaybackFinished(pulseSongId, pulsePlayTime) }
+        }
 
         if (playbackStats.totalPlayTimeMs >= (
                     dataStore[HistoryDuration]?.times(1000f)
@@ -1683,16 +2211,22 @@ class MusicService :
                 }
             }
             val PauseRemoteListenHistoryKey = booleanPreferencesKey("pauseRemoteListenHistory")
+            // Remote YouTube history is account-only. Guest playback continues to
+            // populate SMusic's local history but never writes to an anonymous session.
             if (!dataStore.get(PauseRemoteListenHistoryKey, false)) {
                 scope.launch(Dispatchers.IO) {
-                    val playbackUrl = database.format(mediaItem.mediaId).first()?.playbackUrl
-                        ?: YTPlayerUtils.playerResponseForMetadata(mediaItem.mediaId, null)
-                            .getOrNull()?.playbackTracking?.videostatsPlaybackUrl?.baseUrl
-                    playbackUrl?.let {
+                    if (!isYouTubeAccountWriteBackAllowed()) return@launch
+                    val signatureTimestamp = YTPlayerUtils.signatureTimestampForHistory(mediaItem.mediaId)
+                    val playbackUrl = YTPlayerUtils.playerResponseForMetadata(
+                        mediaItem.mediaId,
+                        null,
+                        signatureTimestamp = signatureTimestamp,
+                        setLogin = true,
+                    ).getOrNull()?.playbackTracking?.videostatsPlaybackUrl?.baseUrl
+                    // Recheck the account immediately before sending the history ping.
+                    if (playbackUrl != null && isYouTubeAccountWriteBackAllowed()) {
                         YouTube.registerPlayback(null, playbackUrl)
-                            .onFailure {
-                                reportException(it)
-                            }
+                            .onFailure { reportException(it) }
                     }
                 }
             }
@@ -1774,6 +2308,7 @@ class MusicService :
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onDestroy() {
+        if (instance === this) instance = null
         // Must be first — without cancelling this, the periodic queue-save
         // loops (10s/30s intervals) and any other scope-launched coroutine
         // keep running in the background indefinitely, since their
@@ -1781,12 +2316,22 @@ class MusicService :
         // cancelled. This was the real cause of battery drain persisting
         // even after the service was "destroyed".
         scope.cancel()
+        if (discordRpc?.isRpcRunning() == true) {
+            discordRpc?.closeRPC()
+        }
+        discordRpc = null
         if (dataStore.get(PersistentQueueKey, true)) {
             saveQueueToDisk()
         }
         abandonAudioFocus()
         releaseLoudnessEnhancer()
         releaseEqualizer()
+        releaseAudioStudioEffects()
+        runCatching { audioBoostEnhancer?.release() }
+        audioBoostEnhancer = null
+        audioBoostSessionId = C.AUDIO_SESSION_ID_UNSET
+        runCatching { visualizerManager.stop() }
+        transitionFadeJob?.cancel()
         mediaController?.release()
         mediaController = null
         mediaSession.release()
@@ -1920,11 +2465,16 @@ class MusicService :
     }
 
     companion object {
+        @Volatile
+        var instance: MusicService? = null
+            private set
+
         const val ROOT = "root"
         const val SONG = "song"
         const val ARTIST = "artist"
         const val ALBUM = "album"
         const val PLAYLIST = "playlist"
+        const val HISTORY = "history"
 
         const val CHANNEL_ID = "music_channel_01"
         const val NOTIFICATION_ID = 888

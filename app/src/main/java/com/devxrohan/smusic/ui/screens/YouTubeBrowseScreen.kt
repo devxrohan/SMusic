@@ -269,6 +269,9 @@ fun YouTubeBrowseScreen(
             }
         }
     }
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+    ) {
     TopAppBar(
         title = { Text(browseResult?.title.orEmpty(), fontWeight = FontWeight.Bold) },
         navigationIcon = {
@@ -284,4 +287,5 @@ fun YouTubeBrowseScreen(
             }
         },
     )
+    }
 }

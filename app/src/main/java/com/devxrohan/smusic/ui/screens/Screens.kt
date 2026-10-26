@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.screens
 
+import android.net.Uri
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
@@ -28,16 +29,16 @@ sealed class Screens(
 
     data object Library : Screens(
         titleId = R.string.filter_library,
-        iconIdInactive = R.drawable.library_music_outlined,
-        iconIdActive = R.drawable.library_music_filled,
+        iconIdInactive = R.drawable.custom_media_library,
+        iconIdActive = R.drawable.custom_media_library,
         route = "library"
     )
 
     data object Search : Screens(
         titleId = R.string.search,
-        iconIdInactive = R.drawable.search, // Replace with outlined if available
-        iconIdActive = R.drawable.search, // Replace with filled if available
-        route = "search_home"
+        iconIdInactive = R.drawable.custom_search,
+        iconIdActive = R.drawable.custom_search,
+        route = "search/{query}"
     )
 
     data object Settings : Screens(
@@ -49,5 +50,9 @@ sealed class Screens(
 
     companion object {
         val MainScreens = listOf(Home, Search, Explore, Library)
+
+        /** Builds the concrete Search destination from a user query. */
+        fun SearchRoute(query: String = ""): String =
+            "search/${Uri.encode(query)}"
     }
 }

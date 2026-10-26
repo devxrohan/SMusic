@@ -7,23 +7,35 @@
 
 package com.devxrohan.smusic.ui.screens
 
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +47,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,9 +110,9 @@ fun HistoryScreen(
     val database = LocalDatabase.current
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
-    val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isPlaying.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val playerConnection = LocalPlayerConnection.current
+    val isPlaying = playerConnection?.isPlaying?.collectAsState()?.value ?: false
+    val mediaMetadata = playerConnection?.mediaMetadata?.collectAsState()?.value
 
     var selection by remember {
         mutableStateOf(false)
@@ -127,10 +142,18 @@ fun HistoryScreen(
     val historySource by viewModel.historySource.collectAsState()
     val events by viewModel.events.collectAsState()
     val historyPage by viewModel.historyPage
+    val remoteHistoryLoading by viewModel.historyLoading.collectAsState()
+    val remoteHistoryError by viewModel.historyError.collectAsState()
 
     val innerTubeCookie by rememberPreference(InnerTubeCookieKey, "")
     val isLoggedIn = remember(innerTubeCookie) {
         "SAPISID" in parseCookieString(innerTubeCookie)
+    }
+    LaunchedEffect(isLoggedIn) {
+        // Local history (everything played on this device, always kept) is the default view; the
+        // connected YouTube Music history is one tap away.
+        if (isLoggedIn) viewModel.fetchRemoteHistory()
+        if (!isLoggedIn) viewModel.historySource.value = HistorySource.LOCAL
     }
 
     fun dateAgoToString(dateAgo: DateAgo): String {
@@ -180,9 +203,10 @@ fun HistoryScreen(
         }
     }
 
-    val wrappedItemsMap = remember(filteredEvents) {
-        filteredEvents.mapValues { (_, events) ->
-            events.map { WrappedHistoryItem(it) }.toMutableStateList()
+    // Built off the main thread: thousands of wrapper objects must not be created during composition.
+    val wrappedItemsMap by produceState<Map<DateAgo, List<WrappedHistoryItem>>>(emptyMap(), filteredEvents) {
+        value = withContext(Dispatchers.Default) {
+            filteredEvents.mapValues { (_, events) -> events.map { WrappedHistoryItem(it) } }
         }
     }
 
@@ -208,9 +232,7 @@ fun HistoryScreen(
                     chips = if (isLoggedIn) listOf(
                         HistorySource.LOCAL to stringResource(R.string.local_history),
                         HistorySource.REMOTE to stringResource(R.string.remote_history),
-                    ) else {
-                        listOf(HistorySource.LOCAL to stringResource(R.string.local_history))
-                    },
+                    ) else listOf(HistorySource.LOCAL to stringResource(R.string.local_history)),
                     currentValue = historySource,
                     onValueUpdate = {
                         viewModel.historySource.value = it
@@ -221,7 +243,59 @@ fun HistoryScreen(
                 )
             }
 
+            // Pulse lives as a content card here instead of competing with History's top-bar actions.
+            item(key = "history_pulse_card") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .clickable { navController.navigate("pulse") },
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.pulse_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = stringResource(R.string.pulse_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(R.drawable.chevron_right),
+                            contentDescription = null,
+                        )
+                    }
+                }
+            }
+
             if (historySource == HistorySource.REMOTE && isLoggedIn) {
+                if (remoteHistoryLoading) item(key = "remote_history_loading") {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CircularProgressIndicator()
+                        Text(stringResource(R.string.ui_loading_youtube_music_history), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (!remoteHistoryLoading && remoteHistoryError != null) item(key = "remote_history_error") {
+                    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), shape = RoundedCornerShape(18.dp)) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(stringResource(R.string.ui_history_couldnt_be_loaded), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(remoteHistoryError.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { viewModel.fetchRemoteHistory() }) { Text(stringResource(R.string.ui_try_again)) }
+                        }
+                    }
+                }
                 filteredRemoteContent?.forEach { section ->
                     stickyHeader {
                         NavigationTitle(
@@ -263,9 +337,9 @@ fun HistoryScreen(
                                 .combinedClickable(
                                     onClick = {
                                         if (song.id == mediaMetadata?.id) {
-                                            playerConnection.player.togglePlayPause()
+                                            playerConnection?.player?.togglePlayPause()
                                         } else {
-                                            playerConnection.playQueue(
+                                            playerConnection?.playQueue(
                                                 YouTubeQueue.radio(song.toMediaMetadata())
                                             )
                                         }
@@ -280,12 +354,11 @@ fun HistoryScreen(
                                         }
                                     }
                                 )
-                                .animateItem()
                         )
                     }
                 }
             } else {
-                filteredEvents.forEach { (dateAgo, events) ->
+                wrappedItemsMap.forEach { (dateAgo, currentDateWrappedItems) ->
                     stickyHeader {
                         NavigationTitle(
                             title = dateAgoToString(dateAgo),
@@ -295,8 +368,6 @@ fun HistoryScreen(
                         )
                     }
 
-                    val currentDateWrappedItems = wrappedItemsMap[dateAgo] ?: emptyList()
-                    
                     itemsIndexed(
                         items = currentDateWrappedItems,
                         key = { index, wrappedItem -> "${dateAgo}_${wrappedItem.item.event.id}_$index" }
@@ -336,9 +407,9 @@ fun HistoryScreen(
                                     onClick = {
                                         if (!selection) {
                                             if (event.song.id == mediaMetadata?.id) {
-                                                playerConnection.player.togglePlayPause()
+                                                playerConnection?.player?.togglePlayPause()
                                             } else {
-                                                playerConnection.playQueue(
+                                                playerConnection?.playQueue(
                                                     ListQueue(
                                                         title = dateAgoToString(dateAgo),
                                                         items = currentDateWrappedItems.map { it.item.song.toMediaItem() },
@@ -359,7 +430,6 @@ fun HistoryScreen(
                                         }
                                     }
                                 )
-                                .animateItem()
                         )
                     }
                 }
@@ -378,7 +448,7 @@ fun HistoryScreen(
                 if (historySource == HistorySource.REMOTE && historyPage != null) {
                     val songs = filteredRemoteContent?.flatMap { it.songs } ?: emptyList()
                     if (songs.isNotEmpty()) {
-                        playerConnection.playQueue(
+                        playerConnection?.playQueue(
                             ListQueue(
                                 title = context.getString(R.string.history),
                                 items = songs.map { it.toMediaItem() }.shuffled()
@@ -386,7 +456,7 @@ fun HistoryScreen(
                         )
                     }
                 } else {
-                    playerConnection.playQueue(
+                    playerConnection?.playQueue(
                         ListQueue(
                             title = context.getString(R.string.history),
                             items = allWrappedItems.map { it.item.song.toMediaItem() }.shuffled()
@@ -397,6 +467,9 @@ fun HistoryScreen(
         )
     }
 
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+    ) {
     TopAppBar(
         title = {
             if (selection) {
@@ -516,4 +589,5 @@ fun HistoryScreen(
             }
         }
     )
+    }
 }

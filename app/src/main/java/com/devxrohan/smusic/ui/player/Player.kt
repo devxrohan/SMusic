@@ -2,6 +2,8 @@
 
 package com.devxrohan.smusic.ui.player
 
+import com.devxrohan.smusic.utils.writeBackWithRetry
+
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -150,6 +152,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEachIndexed
 import androidx.compose.ui.util.lerp
 import androidx.compose.animation.animateColorAsState
+import com.devxrohan.smusic.models.toMediaMetadata
 import com.devxrohan.smusic.ui.menu.SongMenu
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.ColorUtils
@@ -194,6 +197,7 @@ import com.devxrohan.smusic.lyrics.LyricsEntry
 import com.devxrohan.smusic.lyrics.LyricsUtils.parseLyrics
 import com.devxrohan.smusic.models.MediaMetadata
 import com.devxrohan.smusic.playback.ExoDownloadService
+import com.devxrohan.smusic.ui.component.AppConfig
 import com.devxrohan.smusic.ui.component.BottomSheet
 import com.devxrohan.smusic.ui.component.BottomSheetState
 import com.devxrohan.smusic.ui.component.bottomSheetDraggable
@@ -241,6 +245,9 @@ fun BottomSheetPlayer(
     navController: NavController,
     onOpenFullscreenLyrics: () -> Unit,
     modifier: Modifier = Modifier,
+    docked: Boolean = false,
+    collapsedOffsetY: () -> androidx.compose.ui.unit.Dp = { 0.dp },
+    dockedBottomBleed: () -> Float = { 0f },
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
@@ -846,7 +853,7 @@ fun BottomSheetPlayer(
                     insert(metadata)
                 }
                 coroutineScope.launch(Dispatchers.IO) {
-                    playlist.playlist.browseId?.let { YouTube.addToPlaylist(it, metadata.id) }
+                    playlist.playlist.browseId?.let { writeBackWithRetry { YouTube.addToPlaylist(it, metadata.id) } }
                 }
                 listOf(metadata.id)
             } ?: emptyList()
@@ -960,11 +967,14 @@ fun BottomSheetPlayer(
             playerConnection.player.stop()
             playerConnection.player.clearMediaItems()
         },
+        collapsedContentOffsetY = collapsedOffsetY,
         collapsedContent = {
             MiniPlayer(
                 position = position,
                 duration = duration,
                 state = state,
+                docked = docked,
+                dockedBottomBleed = dockedBottomBleed,
             )
         },
     ) {
@@ -2838,7 +2848,7 @@ private fun SpotifyPlayerContent(
                     color = Color.White,
                 )
                 Text(
-                    text = "\"${mediaMetadata.title}\" in Search",
+                    text = stringResource(R.string.ui_in_search, mediaMetadata.title),
                     style = MaterialTheme.typography.headlineSmall.copy(fontFamily = SpotifyFontFamily, fontSize = 20.sp, fontWeight = FontWeight.Bold),
                     color = Color.White,
                     maxLines = 1,
@@ -3193,7 +3203,7 @@ private fun SpotifyLyricsPreviewCard(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = "Show",
+                    text = stringResource(R.string.ui_show),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = 0.72f),
@@ -3304,7 +3314,7 @@ private fun SpotifyArtistCard(
                 color = Color.White,
             )
             Text(
-                text = "Artist",
+                text = stringResource(R.string.sort_by_artist),
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.7f),
             )
@@ -3350,7 +3360,7 @@ private fun SpotifyDetailsCard(
             )
             Spacer(Modifier.height(22.dp))
             Text(
-                text = "Description",
+                text = stringResource(R.string.ui_description),
                 style = MaterialTheme.typography.headlineSmall.copy(fontFamily = SpotifyFontFamily, fontSize = 20.sp, fontWeight = FontWeight.Bold),
                 color = Color.White,
             )
@@ -3362,7 +3372,7 @@ private fun SpotifyDetailsCard(
             )
             Spacer(Modifier.height(18.dp))
             Text(
-                text = "More",
+                text = stringResource(R.string.ui_more),
                 style = MaterialTheme.typography.headlineSmall.copy(fontFamily = SpotifyFontFamily, fontSize = 20.sp, fontWeight = FontWeight.Bold),
                 color = Color.White,
             )
@@ -4132,6 +4142,24 @@ fun ClassicPlayerScreen(
         label = "classicAccent"
     )
 
+    // The Classic player is always a dark gradient. In light mode the system status-bar icons are
+    // dark, so they vanish into it. Force light icons while the player is open, then restore.
+    val classicView = androidx.compose.ui.platform.LocalView.current
+    val classicSheetOpen by remember(bottomSheetState) {
+        androidx.compose.runtime.derivedStateOf { bottomSheetState.progress > 0.5f }
+    }
+    androidx.compose.runtime.DisposableEffect(classicSheetOpen, classicView) {
+        var ctx = classicView.context
+        while (ctx is android.content.ContextWrapper && ctx !is android.app.Activity) ctx = ctx.baseContext
+        val window = (ctx as? android.app.Activity)?.window
+        val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, classicView) }
+        val original = controller?.isAppearanceLightStatusBars
+        if (classicSheetOpen && controller != null) controller.isAppearanceLightStatusBars = false
+        onDispose {
+            if (controller != null && original != null) controller.isAppearanceLightStatusBars = original
+        }
+    }
+
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var sleepTimerValue by remember { mutableFloatStateOf(30f) }
 
@@ -4229,13 +4257,15 @@ fun ClassicPlayerScreen(
                 onOpenFullscreenLyrics = onOpenFullscreenLyrics,
                 shape = RoundedCornerShape(24.dp),
                 artworkScale = 1f,
+                useCustomCornerRadius = true,
+                textColor = Color.White,
             )
         }
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = PlayerHorizontalPadding + 6.dp),
+                .padding(horizontal = PlayerHorizontalPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(
@@ -4243,25 +4273,35 @@ fun ClassicPlayerScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                // Start the title block exactly at the thumbnail's left edge (Spotify-style).
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.Start,
+                ) {
                     Text(
                         text = mediaMetadata?.title.orEmpty(),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable(enabled = mediaMetadata?.album != null) {
-                            mediaMetadata?.album?.let { navController.navigate("album/${it.id}") }
-                            bottomSheetState.collapseSoft()
-                        }
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = mediaMetadata?.album != null) {
+                                mediaMetadata?.album?.let { navController.navigate("album/${it.id}") }
+                                bottomSheetState.collapseSoft()
+                            }
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = mediaMetadata?.artists?.joinToString { it.name }.orEmpty(),
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color.White.copy(alpha = 0.7f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Spacer(Modifier.width(12.dp))
@@ -4459,11 +4499,12 @@ fun ClassicPlayerScreen(
                         .clickable {
                             currentSong?.let { song ->
                                 menuState.show {
-                                    SongMenu(
-                                        originalSong = song,
+                                    PlayerMenu(
+                                        mediaMetadata = song.toMediaMetadata(),
                                         navController = navController,
+                                        playerBottomSheetState = bottomSheetState,
+                                        onShowDetailsDialog = {},
                                         onDismiss = menuState::dismiss,
-                                        onCollapsePlayer = bottomSheetState::collapseSoft,
                                     )
                                 }
                             }

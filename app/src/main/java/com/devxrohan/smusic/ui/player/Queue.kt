@@ -393,16 +393,33 @@ fun Queue(
                                         }
                                         IconButton(
                                             onClick = {
-                                                menuState.show {
-                                                    SelectionMediaMetadataMenu(
-                                                        songSelection = selectedSongs,
-                                                        onDismiss = menuState::dismiss,
-                                                        clearAction = {
-                                                            selectedSongs.clear()
-                                                            selectedItems.clear()
-                                                        },
-                                                        currentItems = selectedItems,
-                                                    )
+                                                if (selectedSongs.isEmpty()) {
+                                                    // Normal (non-selection) tap: this song's own menu,
+                                                    // which includes "Do not recommend".
+                                                    menuState.show {
+                                                        PlayerMenu(
+                                                            mediaMetadata = window.mediaItem.metadata!!,
+                                                            navController = navController,
+                                                            playerBottomSheetState = playerBottomSheetState,
+                                                            isQueueTrigger = true,
+                                                            onShowDetailsDialog = {
+                                                                showDetailsDialog = true
+                                                            },
+                                                            onDismiss = menuState::dismiss,
+                                                        )
+                                                    }
+                                                } else {
+                                                    menuState.show {
+                                                        SelectionMediaMetadataMenu(
+                                                            songSelection = selectedSongs,
+                                                            onDismiss = menuState::dismiss,
+                                                            clearAction = {
+                                                                selectedSongs.clear()
+                                                                selectedItems.clear()
+                                                            },
+                                                            currentItems = selectedItems,
+                                                        )
+                                                    }
                                                 }
                                             },
                                         ) {

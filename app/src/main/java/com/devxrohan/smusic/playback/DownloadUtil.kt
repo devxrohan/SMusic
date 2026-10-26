@@ -20,6 +20,7 @@ import com.devxrohan.smusic.db.entities.FormatEntity
 import com.devxrohan.smusic.di.DownloadCache
 import com.devxrohan.smusic.di.PlayerCache
 import com.devxrohan.smusic.utils.YTPlayerUtils
+import com.devxrohan.smusic.pulse.PulseEngine
 import com.devxrohan.smusic.utils.enumPreference
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import java.util.concurrent.Executor
@@ -43,6 +45,7 @@ constructor(
     val databaseProvider: DatabaseProvider,
     @DownloadCache val downloadCache: SimpleCache,
     @PlayerCache val playerCache: SimpleCache,
+    private val pulseEngine: PulseEngine,
 ) {
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
@@ -170,6 +173,12 @@ constructor(
                         map.toMutableMap().apply {
                             set(download.request.id, download)
                         }
+                    }
+                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                        pulseEngine.onDownloadState(
+                            download.request.id,
+                            download.state == Download.STATE_COMPLETED
+                        )
                     }
                 }
             },

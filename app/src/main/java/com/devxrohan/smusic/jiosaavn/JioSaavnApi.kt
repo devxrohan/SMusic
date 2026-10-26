@@ -71,9 +71,29 @@ object JioSaavnApi {
                 val item = data.getJSONObject(0)
                 val downloadUrls = item.optJSONArray("downloadUrl")
                 if (downloadUrls != null && downloadUrls.length() > 0) {
-                    val streamUrl = downloadUrls.getJSONObject(downloadUrls.length() - 1).getString("url")
-                    streamUrlCache[mappedId] = streamUrl
-                    return@withContext streamUrl
+                    // Prefer an explicitly labelled 320 kbps source. Older API responses can
+                    // omit quality metadata, in which case keep the highest entry as fallback.
+                    var bestUrl: String? = null
+                    var bestKbps = -1
+                    for (i in 0 until downloadUrls.length()) {
+                        val candidate = downloadUrls.optJSONObject(i) ?: continue
+                        val url = candidate.optString("url").takeIf { it.startsWith("http") } ?: continue
+                        val quality = candidate.optString("quality")
+                        val kbps = Regex("(\\d+)").find(quality)?.groupValues?.get(1)?.toIntOrNull() ?: -1
+                        if (quality.contains("320", ignoreCase = true)) {
+                            bestUrl = url
+                            bestKbps = 320
+                            break
+                        }
+                        if (kbps > bestKbps) {
+                            bestUrl = url
+                            bestKbps = kbps
+                        }
+                    }
+                    if (bestUrl != null) {
+                        streamUrlCache[mappedId] = bestUrl
+                        return@withContext bestUrl
+                    }
                 }
             }
         } catch (e: Exception) {

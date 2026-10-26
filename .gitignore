@@ -30,5 +30,5 @@ captures/
 .cxx/
 local.properties.bak
 
-# Firebase service account key (secret)
-tools/service-account.json
+# Firebase Android configuration — do not commit
+/app/google-services.json

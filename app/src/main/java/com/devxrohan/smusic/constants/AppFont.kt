@@ -10,6 +10,7 @@ enum class AppFont(val title: String, val key: String) {
     LINOTTE("Linotte", "linotte"),
     POPPINS("Poppins", "poppins"),
     SF_PRO("SF Pro Display", "sf_pro"),
+    APPLE("Apple", "apple"),
     ANYBODY("Anybody", "anybody"),
     GREAT_VIBES("Great Vibes", "great_vibes"),
     SANS_SERIF("Sans-Serif", "sans_serif"),
@@ -31,6 +32,13 @@ enum class AppFont(val title: String, val key: String) {
                 Font(R.font.poppins_bold, FontWeight.Bold)
             )
             SF_PRO -> FontFamily(Font(R.font.sfprodisplaybold, FontWeight.Bold))
+            APPLE -> FontFamily(
+                Font(R.font.sf_pro_display_regular, FontWeight.Normal),
+                Font(R.font.sf_pro_display_medium, FontWeight.Medium),
+                Font(R.font.sf_pro_display_semibold, FontWeight.SemiBold),
+                Font(R.font.sf_pro_display_bold, FontWeight.Bold),
+                Font(R.font.sf_pro_display_heavy, FontWeight.ExtraBold)
+            )
             ANYBODY -> FontFamily(Font(R.font.anybody))
             GREAT_VIBES -> FontFamily(Font(R.font.great_vibes))
             SANS_SERIF -> FontFamily.SansSerif

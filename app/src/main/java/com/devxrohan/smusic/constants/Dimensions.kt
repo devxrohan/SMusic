@@ -13,7 +13,7 @@ const val CONTENT_TYPE_ARTIST = 3
 const val CONTENT_TYPE_ALBUM = 4
 const val CONTENT_TYPE_PLAYLIST = 5
 
-val NavigationBarHeight = 80.dp
+val NavigationBarHeight = 110.dp
 val MiniPlayerHeight = 80.dp
 val QueuePeekHeight = 64.dp
 val AppBarHeight = 64.dp
@@ -32,3 +32,9 @@ val ThumbnailCornerRadiusVariant = 25.dp
 val PlayerHorizontalPadding = 32.dp
 
 val NavigationBarAnimationSpec = spring<Dp>(stiffness = Spring.StiffnessMediumLow)
+
+/** Visible height of the docked bottom navigation surface (excluding the system navigation inset). */
+val DockedNavBarSurfaceHeight = 72.dp
+
+/** Extra breathing room kept between the last scrolled item and the docked bottom bar. */
+val DockedContentGap = 12.dp

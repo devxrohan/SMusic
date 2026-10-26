@@ -95,8 +95,15 @@ fun ThemePreset.toColorScheme(): androidx.compose.material3.ColorScheme {
         onError = Color.White,
         errorContainer = Color(0xFF4A0E16),
         onErrorContainer = Color(0xFFFFDAD9),
-        outline = textTertiary,
-        outlineVariant = textTertiary.copy(alpha = 0.4f),
+        // Keep light-theme outlines visibly defined. Several cards/boxes apply
+        // their own subtle alpha, so the base outlineVariant needs enough
+        // contrast to remain visible on white/light surfaces.
+        outline = if (isDark) textTertiary else Color(0xFF66666C),
+        outlineVariant = if (isDark) {
+            textTertiary.copy(alpha = 0.4f)
+        } else {
+            Color(0xFF77777D)
+        },
         scrim = Color.Black,
         surfaceBright = surfaceElevated2,
         surfaceDim = background,

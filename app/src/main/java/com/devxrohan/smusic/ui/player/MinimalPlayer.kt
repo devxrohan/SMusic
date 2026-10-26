@@ -38,6 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import kotlin.math.PI
 import kotlin.math.sin
+import androidx.compose.ui.res.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,7 +89,7 @@ fun MinimalPlayer(
             ) {
                 Column {
                     Text(
-                        text = "Play",
+                        text = stringResource(R.string.play),
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = textPrimary
@@ -106,7 +107,7 @@ fun MinimalPlayer(
                 IconButton(onClick = onMenuClick) {
                     Image(
                         painter = painterResource(R.drawable.more_horiz),
-                        contentDescription = "Menu",
+                        contentDescription = stringResource(R.string.ui_menu),
                         colorFilter = ColorFilter.tint(textPrimary),
                         modifier = Modifier.size(28.dp)
                     )
@@ -208,7 +209,7 @@ fun MinimalPlayer(
                 ) {
                     Image(
                         painter = painterResource(if (isLiked) R.drawable.favorite else R.drawable.favorite_border),
-                        contentDescription = "Like",
+                        contentDescription = stringResource(R.string.action_like),
                         colorFilter = ColorFilter.tint(if (isLiked) Color(0xFFFF4B4B) else Color.LightGray),
                         modifier = Modifier.size(32.dp)
                     )
@@ -271,7 +272,7 @@ fun MinimalPlayer(
                                 else -> R.drawable.repeat
                             }
                         ),
-                        contentDescription = "Repeat",
+                        contentDescription = stringResource(R.string.ui_repeat),
                         colorFilter = ColorFilter.tint(if (repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF) textPrimary else Color.Gray),
                         modifier = Modifier.size(24.dp)
                     )
@@ -280,7 +281,7 @@ fun MinimalPlayer(
                 IconButton(onClick = onPrevious) {
                     Image(
                         painter = painterResource(R.drawable.skip_previous),
-                        contentDescription = "Previous",
+                        contentDescription = stringResource(R.string.ui_previous),
                         colorFilter = ColorFilter.tint(if (canSkipPrevious) textPrimary else Color.LightGray),
                         modifier = Modifier.size(32.dp)
                     )
@@ -306,7 +307,7 @@ fun MinimalPlayer(
                 IconButton(onClick = onNext) {
                     Image(
                         painter = painterResource(R.drawable.skip_next),
-                        contentDescription = "Next",
+                        contentDescription = stringResource(R.string.next),
                         colorFilter = ColorFilter.tint(if (canSkipNext) textPrimary else Color.LightGray),
                         modifier = Modifier.size(32.dp)
                     )
@@ -315,7 +316,7 @@ fun MinimalPlayer(
                 IconButton(onClick = onQueueClick) {
                     Image(
                         painter = painterResource(R.drawable.queue_music),
-                        contentDescription = "Queue",
+                        contentDescription = stringResource(R.string.queue),
                         colorFilter = ColorFilter.tint(textPrimary),
                         modifier = Modifier.size(28.dp)
                     )

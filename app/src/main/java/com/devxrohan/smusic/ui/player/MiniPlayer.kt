@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -115,6 +117,7 @@ import kotlin.math.roundToInt
 import com.devxrohan.smusic.ui.component.bottomSheetDraggable
 
 import com.devxrohan.smusic.ui.component.BottomSheetState
+import androidx.compose.ui.res.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -122,7 +125,11 @@ fun MiniPlayer(
     position: Long,
     duration: Long,
     modifier: Modifier = Modifier,
-    state: BottomSheetState
+    state: BottomSheetState,
+    docked: Boolean = false,
+    // 0..1: how much of the docked surface should bleed down into the system navigation inset. Used when the
+    // navigation bar is hidden so the flat docked player sits flush at the bottom with no empty strip below it.
+    dockedBottomBleed: () -> Float = { 0f },
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val isPlaying by playerConnection.isPlaying.collectAsState()
@@ -229,11 +236,30 @@ fun MiniPlayer(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(80.dp)
+            .height(if (docked) 72.dp else 80.dp)
             .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .then(
+                if (docked) Modifier.padding(horizontal = 0.dp, vertical = 0.dp)
+                else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
             .background(Color.Transparent)
     ) {
+        if (docked) {
+            val bleedHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
+                WindowInsets.navigationBars.getBottom(this).toDp()
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    // aligned to the bottom edge of the 72dp player, then moved down by its own height so it
+                    // occupies exactly the strip below the player (the system navigation inset)
+                    .offset(y = bleedHeight)
+                    .fillMaxWidth()
+                    .height(bleedHeight)
+                    .graphicsLayer { alpha = dockedBottomBleed() }
+                    .background(miniPlayerBackgroundColor)
+            )
+        }
         Surface(
             modifier = Modifier
                 .then(
@@ -245,10 +271,10 @@ fun MiniPlayer(
                         Modifier.fillMaxWidth()
                     }
                 )
-                .height(68.dp)
+                .height(if (docked) 72.dp else 68.dp)
                 .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
                 .then(
-                    if (enableLiquidGlass && backdrop != null) {
+                    if (docked) Modifier else if (enableLiquidGlass && backdrop != null) {
                         Modifier
                             .clip(RoundedCornerShape(32.dp))
                             .drawBackdropCustomShape(
@@ -263,7 +289,7 @@ fun MiniPlayer(
                 ),
             tonalElevation = 2.dp,
             shadowElevation = 0.dp,
-            shape = RoundedCornerShape(32.dp),
+            shape = if (docked) RoundedCornerShape(0.dp) else RoundedCornerShape(32.dp),
             color = Color.Transparent
         ) {
             Box(
@@ -476,7 +502,7 @@ fun MiniPlayer(
                                 exit = fadeOut(),
                             ) {
                                 Text(
-                                    text = "Error playing",
+                                    text = stringResource(R.string.ui_error_playing),
                                     color = MaterialTheme.colorScheme.error,
                                     fontSize = 10.sp,
                                     maxLines = 1,
@@ -824,7 +850,7 @@ fun ModernMiniPlayer(
 
                     AnimatedVisibility(visible = error != null, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            text = "Error playing",
+                            text = stringResource(R.string.ui_error_playing),
                             color = MaterialTheme.colorScheme.error,
                             fontSize = 10.sp,
                             maxLines = 1,

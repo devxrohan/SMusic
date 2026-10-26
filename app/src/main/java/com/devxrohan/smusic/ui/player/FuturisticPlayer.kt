@@ -51,6 +51,7 @@ import com.devxrohan.smusic.utils.makeTimeString
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
 import kotlin.math.*
+import androidx.compose.ui.res.stringResource
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WHITE PAPER PLAYER (CloudGlow & Configurable Backgrounds)
@@ -247,7 +248,7 @@ fun FuturisticPlayer(
                 IconButton(onClick = onShuffle) {
                     Icon(
                         painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
-                        contentDescription = "Shuffle",
+                        contentDescription = stringResource(R.string.shuffle),
                         tint = if (shuffleModeEnabled) ActiveBlue else iconColor,
                         modifier = Modifier.size(24.dp)
                     )
@@ -283,7 +284,7 @@ fun FuturisticPlayer(
                     IconButton(onClick = onPrevious, enabled = canSkipPrevious) {
                         Icon(
                             painter = painterResource(R.drawable.skip_previous),
-                            contentDescription = "Previous",
+                            contentDescription = stringResource(R.string.ui_previous),
                             tint = if (canSkipPrevious) iconColor else iconFaintColor,
                             modifier = Modifier.size(20.dp)
                         )
@@ -309,7 +310,7 @@ fun FuturisticPlayer(
                     IconButton(onClick = onNext, enabled = canSkipNext) {
                         Icon(
                             painter = painterResource(R.drawable.skip_next),
-                            contentDescription = "Next",
+                            contentDescription = stringResource(R.string.next),
                             tint = if (canSkipNext) iconColor else iconFaintColor,
                             modifier = Modifier.size(20.dp)
                         )
@@ -320,7 +321,7 @@ fun FuturisticPlayer(
                 IconButton(onClick = onOpenQueue) {
                     Icon(
                         painter = painterResource(R.drawable.queue_music),
-                        contentDescription = "Queue",
+                        contentDescription = stringResource(R.string.queue),
                         tint = iconColor,
                         modifier = Modifier.size(24.dp)
                     )
@@ -342,7 +343,7 @@ fun FuturisticPlayer(
                 IconButton(onClick = onOpenLyrics) {
                     Icon(
                         painter = painterResource(R.drawable.lyrics),
-                        contentDescription = "Lyrics",
+                        contentDescription = stringResource(R.string.lyrics),
                         tint = iconMutedColor,
                         modifier = Modifier.size(24.dp)
                     )
@@ -352,7 +353,7 @@ fun FuturisticPlayer(
                 IconButton(onClick = { playerConnection.toggleLike() }) {
                     Icon(
                         painter = painterResource(if (isLiked) R.drawable.favorite else R.drawable.favorite_border),
-                        contentDescription = "Like",
+                        contentDescription = stringResource(R.string.action_like),
                         tint = if (isLiked) ActiveRed else iconMutedColor,
                         modifier = Modifier.size(24.dp)
                     )
@@ -367,7 +368,7 @@ fun FuturisticPlayer(
                 IconButton(onClick = onRepeat) {
                     Icon(
                         painter = painterResource(repeatIcon),
-                        contentDescription = "Repeat",
+                        contentDescription = stringResource(R.string.ui_repeat),
                         tint = if (repeatActive) ActiveBlue else iconMutedColor,
                         modifier = Modifier.size(24.dp)
                     )

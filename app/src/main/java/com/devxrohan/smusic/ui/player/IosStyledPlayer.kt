@@ -82,6 +82,7 @@ import com.devxrohan.smusic.ui.component.MenuState
 import com.devxrohan.smusic.ui.menu.PlayerMenu
 import com.devxrohan.smusic.utils.makeTimeString
 import com.skydoves.cloudy.cloudy
+import androidx.compose.ui.res.stringResource
 
 private fun String?.highRes(): String = this?.replace("w54-h54", "w512-h512") ?: ""
 
@@ -503,7 +504,7 @@ private fun V8PlayerControlsContent(
                         .clip(RoundedCornerShape(4.dp)),
                 )
                 Text(
-                    text = "Up next: ${nextUpMetadata.title}",
+                    text = stringResource(R.string.ui_up_next, nextUpMetadata.title),
                     style = MaterialTheme.typography.labelSmall,
                     color = textBackgroundColor.copy(alpha = 0.55f),
                     maxLines = 1,
@@ -625,7 +626,7 @@ private fun QueueCollapsedContentV8(
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Icon(
                     painter = painterResource(R.drawable.lyrics_apple),
-                    contentDescription = "Lyrics",
+                    contentDescription = stringResource(R.string.lyrics),
                     tint = textBackgroundColor.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp),
                 )
@@ -651,7 +652,7 @@ private fun QueueCollapsedContentV8(
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Icon(
                     painter = painterResource(R.drawable.queue_music),
-                    contentDescription = "Queue",
+                    contentDescription = stringResource(R.string.queue),
                     tint = textBackgroundColor.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp),
                 )
@@ -681,7 +682,7 @@ private fun V8DeviceSelector(
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Icon(
                 painter = painterResource(deviceIcon),
-                contentDescription = "AirPlay",
+                contentDescription = stringResource(R.string.ui_airplay),
                 tint = textBackgroundColor.copy(alpha = if (isBluetooth) 1f else 0.7f),
                 modifier = Modifier.size(22.dp),
             )
@@ -731,7 +732,7 @@ private fun DeviceSelectionBottomSheet(
                 Spacer(Modifier.height(16.dp))
 
                 Text(
-                    text = "Select device",
+                    text = stringResource(R.string.ui_select_device),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -774,7 +775,7 @@ private fun DeviceSelectionBottomSheet(
                                 )
                                 if (isActive) {
                                     Text(
-                                        text = "Active",
+                                        text = stringResource(R.string.ui_active),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
                                     )
@@ -810,7 +811,7 @@ private fun DeviceSelectionBottomSheet(
                             .padding(12.dp),
                     ) {
                         Text(
-                            text = "Close",
+                            text = stringResource(R.string.close),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                         )

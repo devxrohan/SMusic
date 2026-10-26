@@ -144,7 +144,7 @@ fun InsightScreen(
         ) {
             Icon(
                 painter = painterResource(id = R.drawable.close),
-                contentDescription = "Close",
+                contentDescription = stringResource(R.string.close),
                 tint = Color.White
             )
         }
@@ -221,13 +221,13 @@ fun IntroPage() {
                 modifier = Modifier.size(64.dp).padding(bottom = 16.dp)
             )
             Text(
-                text = "Your $currentYear",
+                text = stringResource(R.string.ui_your, currentYear),
                 fontSize = 42.sp,
                 fontWeight = FontWeight.Black,
                 color = Color.White
             )
             Text(
-                text = "Wrapped up.",
+                text = stringResource(R.string.ui_wrapped_up),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color.White.copy(alpha = 0.8f)
@@ -250,7 +250,7 @@ fun TopSongPage(song: Song?, songStats: SongWithStats?) {
                 modifier = Modifier.padding(32.dp)
             ) {
                 Text(
-                    text = "One song ruled them all...",
+                    text = stringResource(R.string.ui_one_song_ruled_them_all),
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -289,7 +289,7 @@ fun TopSongPage(song: Song?, songStats: SongWithStats?) {
                         shape = RoundedCornerShape(24.dp)
                     ) {
                         Text(
-                            text = "Played ${songStats.songCountListened} times",
+                            text = stringResource(R.string.ui_played_times, songStats.songCountListened),
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
@@ -317,7 +317,7 @@ fun TopArtistPage(artist: Artist?) {
                 modifier = Modifier.padding(32.dp)
             ) {
                 Text(
-                    text = "You couldn't get enough of",
+                    text = stringResource(R.string.ui_you_couldnt_get_enough_of),
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -348,7 +348,7 @@ fun TopArtistPage(artist: Artist?) {
                     shape = RoundedCornerShape(24.dp)
                 ) {
                     Text(
-                        text = "${artist.songCount} streams",
+                        text = stringResource(R.string.ui_streams, artist.songCount),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
@@ -375,7 +375,7 @@ fun TopAlbumPage(album: Album?) {
                 modifier = Modifier.padding(32.dp)
             ) {
                 Text(
-                    text = "Your album on repeat",
+                    text = stringResource(R.string.ui_your_album_on_repeat),
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -407,7 +407,7 @@ fun TopAlbumPage(album: Album?) {
                     shape = RoundedCornerShape(24.dp)
                 ) {
                     Text(
-                        text = "${album.songCountListened ?: 0} streams",
+                        text = stringResource(R.string.ui_streams, album.songCountListened ?: 0),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
@@ -435,7 +435,7 @@ fun SummaryPage(topSongs: List<Song>, navController: NavController) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Your Top 5 Songs",
+                text = stringResource(R.string.ui_your_top_5_songs),
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Black,
                 color = Color.White,

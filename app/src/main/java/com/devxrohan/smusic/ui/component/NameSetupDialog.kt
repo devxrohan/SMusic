@@ -44,7 +44,7 @@ fun NameSetupDialog(
         onDismissRequest = {},
         title = {
             Text(
-                text = "Welcome! 👋",
+                text = stringResource(R.string.ui_welcome),
                 style = MaterialTheme.typography.headlineSmall
             )
         },
@@ -57,7 +57,7 @@ fun NameSetupDialog(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "What should I call you?",
+                    text = stringResource(R.string.ui_what_should_i_call_you),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
@@ -90,7 +90,7 @@ fun NameSetupDialog(
                     supportingText = {
                         if (nameInput.text.isNotEmpty() && !isNameValid) {
                             Text(
-                                text = "Name must be 1-9 characters",
+                                text = stringResource(R.string.ui_name_must_be_1_9_characters),
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall
                             )

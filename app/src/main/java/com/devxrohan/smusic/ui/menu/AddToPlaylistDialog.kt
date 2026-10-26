@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.menu
 
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
@@ -116,7 +117,7 @@ fun AddToPlaylistDialog(
 
                                 playlist.playlist.browseId?.let { plist ->
                                     songIds?.forEach {
-                                        YouTube.addToPlaylist(plist, it)
+                                        writeBackWithRetry { YouTube.addToPlaylist(plist, it) }
                                     }
                                 }
                             }

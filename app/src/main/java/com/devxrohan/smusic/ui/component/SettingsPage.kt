@@ -3,8 +3,11 @@ package com.devxrohan.smusic.ui.component
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -32,40 +35,56 @@ import com.devxrohan.smusic.ui.utils.backToMain
 
 @ExperimentalMaterial3Api
 @Composable
-fun SettingsPage(title: String, navController: NavController, scrollBehavior: TopAppBarScrollBehavior, modifier: Modifier = Modifier, horizontalAlignment: Alignment.Horizontal = Alignment.Start, verticalArrangement: Arrangement.Vertical = Arrangement.Top, items: @Composable () -> Unit) {
-    Column(
-        modifier = modifier
-            .windowInsetsPadding(
-                LocalPlayerAwareWindowInsets.current.only(
-                    WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
-                )
+fun SettingsPage(
+    title: String,
+    navController: NavController,
+    scrollBehavior: TopAppBarScrollBehavior,
+    modifier: Modifier = Modifier,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    items: @Composable () -> Unit,
+) {
+    // Keep settings pages inside a real Scaffold so their content is laid out
+    // below the app bar and above the global player/navigation area. The old
+    // implementation applied the global insets directly to the scrolling
+    // Column, which could consume the whole viewport on the affected pages.
+    androidx.compose.material3.Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        // The global player/navigation inset is applied below as padding INSIDE the scrolling
+        // column, so the page scrolls all the way behind the bottom bar without leaving an
+        // empty strip, and the last item still rests clear of the bar.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            SettingsTopAppBar(
+                title = title,
+                navController = navController,
+                scrollBehavior = scrollBehavior,
             )
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = verticalArrangement,
-        horizontalAlignment = horizontalAlignment
-    ){
-        Spacer(
-            Modifier.windowInsetsPadding(
-                LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Top)
-            )
-        )
-
-        items()
-
-        Spacer(
-            Modifier.height(16.dp)
-        )
+        },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(top = innerPadding.calculateTopPadding())
+                .windowInsetsPadding(
+                    LocalPlayerAwareWindowInsets.current.only(
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+                    )
+                ),
+            verticalArrangement = verticalArrangement,
+            horizontalAlignment = horizontalAlignment,
+        ) {
+            items()
+            Spacer(Modifier.height(16.dp))
+        }
     }
-    SettingsTopAppBar(
-        title,
-        navController,
-        scrollBehavior
-    )
 }
 
 @ExperimentalMaterial3Api
 @Composable
-fun SettingsTopAppBar(title: String, navController: NavController, scrollBehavior: TopAppBarScrollBehavior) {
+fun SettingsTopAppBar(title: String, navController: NavController, scrollBehavior: TopAppBarScrollBehavior?) {
     TopAppBar(
         title = { Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
         navigationIcon = {

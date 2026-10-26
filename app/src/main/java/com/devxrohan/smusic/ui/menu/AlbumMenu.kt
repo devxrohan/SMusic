@@ -55,6 +55,7 @@ import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.devxrohan.smusic.innertube.YouTube
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalDownloadUtil
 import com.devxrohan.smusic.LocalPlayerConnection
@@ -155,7 +156,7 @@ fun AlbumMenu(
             coroutineScope.launch(Dispatchers.IO) {
                 playlist.playlist.browseId?.let { playlistId ->
                     album.album.playlistId?.let { addPlaylistId ->
-                        YouTube.addPlaylistToPlaylist(playlistId, addPlaylistId)
+                        writeBackWithRetry { YouTube.addPlaylistToPlaylist(playlistId, addPlaylistId) }
                     }
                 }
             }
@@ -329,49 +330,7 @@ fun AlbumMenu(
             },
         )
         if (songs.isNotEmpty()) {
-            GridMenuItem(
-                icon = R.drawable.save_to_storage,
-                title = R.string.save_playlist_to_storage,
-            ) {
-                val hasPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    true
-                } else {
-                    androidx.core.content.ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-
-                if (hasPermission) {
-                    val albumTitle = album.album.title
-                    val savingToastMsg = context.getString(R.string.saving_playlist_to_storage, albumTitle)
-                    android.widget.Toast.makeText(context, savingToastMsg, android.widget.Toast.LENGTH_SHORT).show()
-                    scope.launch(Dispatchers.IO) {
-                        com.devxrohan.smusic.utils.SaveToStorageUtil
-                            .savePlaylistToMusicFolder(context, albumTitle, songs.map { it.toMediaMetadata() })
-                            .onSuccess { count ->
-                                launch(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Saved $count songs to Music/SMusic/$albumTitle",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            }
-                            .onFailure { e ->
-                                launch(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Save failed: ${e.message}",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            }
                     }
-                    onDismiss()
-                }
-            }
-        }
         GridMenuItem(
             icon = R.drawable.artist,
             title = R.string.view_artist,

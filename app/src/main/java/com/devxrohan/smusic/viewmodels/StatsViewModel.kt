@@ -34,7 +34,7 @@ constructor(
     private val namePreferenceManager: NamePreferenceManager,
 ) : ViewModel() {
     val selectedOption = MutableStateFlow(OptionStats.CONTINUOUS)
-    val indexChips = MutableStateFlow(0)
+    val indexChips = MutableStateFlow(com.devxrohan.smusic.constants.StatPeriod.entries.lastIndex)
 
     val mostPlayedSongsStats =
         combine(

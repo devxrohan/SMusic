@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.menu
 
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import android.annotation.SuppressLint
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -115,7 +116,7 @@ fun SelectionSongMenu(
             coroutineScope.launch(Dispatchers.IO) {
                 songSelection.forEach { song ->
                     playlist.playlist.browseId?.let { browseId ->
-                        YouTube.addToPlaylist(browseId, song.id)
+                        writeBackWithRetry { YouTube.addToPlaylist(browseId, song.id) }
                     }
                 }
             }
@@ -339,7 +340,7 @@ fun SelectionMediaMetadataMenu(
             coroutineScope.launch(Dispatchers.IO) {
                 songSelection.forEach { song ->
                     playlist.playlist.browseId?.let { browseId ->
-                        YouTube.addToPlaylist(browseId, song.id)
+                        writeBackWithRetry { YouTube.addToPlaylist(browseId, song.id) }
                     }
                 }
             }
@@ -499,6 +500,24 @@ fun SelectionMediaMetadataMenu(
                     }
                 }
             }
+        }
+
+        GridMenuItem(
+            icon = R.drawable.block,
+            title = R.string.pulse_not_for_me,
+        ) {
+            onDismiss()
+            val songs = songSelection.toList()
+            coroutineScope.launch(Dispatchers.IO) {
+                songs.forEach { song ->
+                    playerConnection.service.pulseEngine.onNotForMe(
+                        song.id,
+                        song.artists.mapNotNull { it.id },
+                    )
+                }
+            }
+            android.widget.Toast.makeText(context, R.string.pulse_not_for_me_done, android.widget.Toast.LENGTH_SHORT).show()
+            clearAction()
         }
 
         DownloadGridMenu(

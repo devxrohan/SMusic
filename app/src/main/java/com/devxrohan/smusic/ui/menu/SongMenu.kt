@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.menu
 
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -97,6 +98,7 @@ fun SongMenu(
     playlistBrowseId: String? = null,
     onDismiss: () -> Unit,
     isFromCache: Boolean = false,
+    showLibraryAction: Boolean = true,
     onCollapsePlayer: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -182,7 +184,7 @@ fun SongMenu(
         onGetSong = { playlist ->
             coroutineScope.launch(Dispatchers.IO) {
                 playlist.playlist.browseId?.let { browseId ->
-                    YouTube.addToPlaylist(browseId, song.id)
+                    writeBackWithRetry { YouTube.addToPlaylist(browseId, song.id) }
                 }
             }
             listOf(song.id)
@@ -282,6 +284,10 @@ fun SongMenu(
                     database.query {
                         update(song.song.toggleLike())
                     }
+                    val likedNow = !song.song.liked
+                    coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        playerConnection.service.pulseEngine.onFavorite(song, likedNow)
+                    }
                 },
             ) {
                 Icon(
@@ -319,7 +325,8 @@ fun SongMenu(
                     onDismiss()
                     playerConnection.playNext(song.toMediaItem())
                 }
-                .padding(12.dp),
+                .height(72.dp)
+                .padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
@@ -348,7 +355,8 @@ fun SongMenu(
                 .clickable {
                     showChoosePlaylistDialog = true
                 }
-                .padding(12.dp),
+                .height(72.dp)
+                .padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
@@ -358,10 +366,11 @@ fun SongMenu(
             )
             Text(
                 text = stringResource(R.string.add_to_playlist),
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier
-                    .padding(top = 4.dp),
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
 
@@ -378,7 +387,8 @@ fun SongMenu(
                     onDismiss()
                     android.widget.Toast.makeText(context, R.string.coming_soon, android.widget.Toast.LENGTH_SHORT).show()
                 }
-                .padding(12.dp),
+                .height(72.dp)
+                .padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
@@ -394,6 +404,32 @@ fun SongMenu(
                     .padding(top = 4.dp),
             )
         }
+    }
+
+    // Pulse feedback is intentionally placed directly below the Play next / Add to playlist / Share row.
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    playerConnection.service.pulseEngine.onNotForMe(song)
+                }
+                android.widget.Toast.makeText(context, R.string.pulse_not_for_me_done, android.widget.Toast.LENGTH_SHORT).show()
+                onDismiss()
+            }
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.block),
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+        )
+        Text(
+            text = stringResource(R.string.pulse_not_for_me),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(start = 16.dp),
+        )
     }
 
     LazyColumn(
@@ -448,31 +484,33 @@ fun SongMenu(
                 }
             )
         }
-        item {
-            ListItem(
-                headlineContent = {
-                    Text(
-                        text = stringResource(
-                            if (song.song.inLibrary == null) R.string.add_to_library
-                            else R.string.remove_from_library
+        if (showLibraryAction) {
+            item {
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = stringResource(
+                                if (song.song.inLibrary == null) R.string.add_to_library
+                                else R.string.remove_from_library
+                            )
                         )
-                    )
-                },
-                leadingContent = {
-                    Icon(
-                        painter = painterResource(
-                            if (song.song.inLibrary == null) R.drawable.library_add
-                            else R.drawable.library_add_check
-                        ),
-                        contentDescription = null,
-                    )
-                },
-                modifier = Modifier.clickable {
-                    database.query {
-                        update(song.song.toggleLibrary())
+                    },
+                    leadingContent = {
+                        Icon(
+                            painter = painterResource(
+                                if (song.song.inLibrary == null) R.drawable.library_add
+                                else R.drawable.library_add_check
+                            ),
+                            contentDescription = null,
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        database.query {
+                            update(song.song.toggleLibrary())
+                        }
                     }
-                }
-            )
+                )
+            }
         }
         if (event != null) {
             item {
@@ -508,11 +546,11 @@ fun SongMenu(
                             coroutineScope.launch {
                                 playlistBrowseId?.let { playlistId ->
                                     if (playlistSong.map.setVideoId != null) {
-                                        YouTube.removeFromPlaylist(
+                                        writeBackWithRetry { YouTube.removeFromPlaylist(
                                             playlistId,
                                             playlistSong.map.songId,
                                             playlistSong.map.setVideoId
-                                        )
+                                        ) }
                                     }
                                 }
                             }

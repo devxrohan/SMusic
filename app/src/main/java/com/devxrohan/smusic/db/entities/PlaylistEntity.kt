@@ -5,6 +5,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.devxrohan.smusic.innertube.YouTube
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -48,9 +49,8 @@ data class PlaylistEntity(
 
     fun toggleLike() = localToggleLike().also {
         CoroutineScope(Dispatchers.IO).launch {
-            runCatching {
-                if (browseId != null)
-                    YouTube.likePlaylist(browseId, bookmarkedAt == null)
+            if (browseId != null) writeBackWithRetry {
+                YouTube.likePlaylist(browseId, bookmarkedAt == null)
             }
         }
     }

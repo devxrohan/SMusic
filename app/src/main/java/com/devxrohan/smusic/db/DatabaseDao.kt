@@ -955,6 +955,11 @@ interface DatabaseDao {
     @Query("SELECT * FROM event ORDER BY rowId DESC")
     fun events(): Flow<List<EventWithSong>>
 
+    // Added for AI playlist generation (ported from SMusic' AiRecommendationHelper.kt).
+    @Transaction
+    @Query("SELECT song.* FROM event JOIN song ON song.id = event.songId GROUP BY song.id ORDER BY MAX(event.timestamp) DESC LIMIT :limit OFFSET :offset")
+    fun recentSongs(limit: Int, offset: Int = 0): Flow<List<Song>>
+
     @Transaction
     @Query("SELECT * FROM event ORDER BY rowId ASC LIMIT 1")
     fun firstEvent(): Flow<EventWithSong?>

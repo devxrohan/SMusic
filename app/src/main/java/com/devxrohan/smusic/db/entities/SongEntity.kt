@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.devxrohan.smusic.innertube.YouTube
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -47,7 +48,7 @@ data class SongEntity(
         inLibrary = if (!liked) inLibrary ?: LocalDateTime.now() else inLibrary
     ).also {
         CoroutineScope(Dispatchers.IO).launch {
-            YouTube.likeVideo(id, !liked)
+            writeBackWithRetry { YouTube.likeVideo(id, !liked) }
             this.cancel()
         }
     }

@@ -5,6 +5,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.devxrohan.smusic.innertube.YouTube
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -40,7 +41,7 @@ data class ArtistEntity(
 
     fun toggleLike() = localToggleLike().also {
         CoroutineScope(Dispatchers.IO).launch {
-            runCatching {
+            writeBackWithRetry {
                 if (channelId == null)
                     YouTube.subscribeChannel(YouTube.getChannelId(id), bookmarkedAt == null)
                 else

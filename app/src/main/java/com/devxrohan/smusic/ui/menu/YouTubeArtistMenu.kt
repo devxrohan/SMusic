@@ -41,6 +41,8 @@ import com.devxrohan.smusic.R
 import com.devxrohan.smusic.db.entities.ArtistEntity
 import com.devxrohan.smusic.playback.queues.YouTubeQueue
 import com.devxrohan.smusic.ui.component.YouTubeListItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -196,10 +198,11 @@ fun YouTubeArtistMenu(
                     )
                 },
                 modifier = Modifier.clickable {
+                    val subscribe = libraryArtist?.artist?.bookmarkedAt == null
                     database.query {
-                        val libraryArtist = libraryArtist
-                        if (libraryArtist != null) {
-                            update(libraryArtist.artist.toggleLike())
+                        val current = libraryArtist
+                        if (current != null) {
+                            update(current.artist.toggleLike())
                         } else {
                             insert(
                                 ArtistEntity(
@@ -210,6 +213,9 @@ fun YouTubeArtistMenu(
                                 ).toggleLike()
                             )
                         }
+                    }
+                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                        playerConnection.service.pulseEngine.onArtistSubscription(artist.id, subscribe)
                     }
                 }
             )

@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.menu
 
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import android.annotation.SuppressLint
 import android.content.Intent
 import androidx.compose.foundation.Image
@@ -88,6 +89,7 @@ fun YouTubePlaylistMenu(
     selectAction: () -> Unit = {},
     canSelect: Boolean = false,
     onRefresh: () -> Unit = {},
+    isSimilarTo: Boolean = false,
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
@@ -122,7 +124,7 @@ fun YouTubePlaylistMenu(
             }
             coroutineScope.launch(Dispatchers.IO) {
                 targetPlaylist.playlist.browseId?.let { playlistId ->
-                    YouTube.addPlaylistToPlaylist(playlistId, targetPlaylist.id)
+                    writeBackWithRetry { YouTube.addPlaylistToPlaylist(playlistId, targetPlaylist.id) }
                 }
             }
             allSongs.map { it.id }
@@ -273,7 +275,7 @@ fun YouTubePlaylistMenu(
                 TextButton(onClick = {
                     showRenameDialog = false
                     coroutineScope.launch(Dispatchers.IO) {
-                        YouTube.renamePlaylist(playlist.id, renameText)
+                        writeBackWithRetry { YouTube.renamePlaylist(playlist.id, renameText) }
                         onRefresh()
                     }
                     onDismiss()
@@ -459,6 +461,31 @@ fun YouTubePlaylistMenu(
             }
         }
 
+        GridMenuItem(
+                icon = if (dbPlaylist?.playlist?.bookmarkedAt != null) R.drawable.library_add_check else R.drawable.library_add,
+                title = if (dbPlaylist?.playlist?.bookmarkedAt != null) R.string.remove_playlist_from_library else R.string.add_playlist_to_library,
+            ) {
+                if (dbPlaylist?.playlist == null) {
+                    database.transaction {
+                        val playlistEntity = PlaylistEntity(
+                            name = playlist.title,
+                            browseId = playlist.id,
+                            isEditable = false,
+                            remoteSongCount = playlist.songCountText?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() },
+                            playEndpointParams = playlist.playEndpoint?.params,
+                            shuffleEndpointParams = playlist.shuffleEndpoint?.params,
+                            radioEndpointParams = playlist.radioEndpoint?.params,
+                        ).toggleLike()
+                        insert(playlistEntity)
+                    }
+                } else {
+                    database.transaction {
+                        update(dbPlaylist!!.playlist.toggleLike())
+                    }
+                }
+                onDismiss()
+            }
+
         if (songs.isNotEmpty()) {
             DownloadGridMenu(
                 state = downloadState,
@@ -484,48 +511,6 @@ fun YouTubePlaylistMenu(
                 }
             )
 
-            GridMenuItem(
-                icon = R.drawable.save_to_storage,
-                title = R.string.save_playlist_to_storage,
-            ) {
-                val hasPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    true
-                } else {
-                    androidx.core.content.ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-
-                if (hasPermission) {
-                    val savingToastMsg = context.getString(R.string.saving_playlist_to_storage, playlist.title)
-                    val playlistTitle = playlist.title
-                    android.widget.Toast.makeText(context, savingToastMsg, android.widget.Toast.LENGTH_SHORT).show()
-                    coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        com.devxrohan.smusic.utils.SaveToStorageUtil
-                            .savePlaylistToMusicFolder(context, playlistTitle, songs.map { it.toMediaMetadata() })
-                            .onSuccess { count ->
-                                launch(kotlinx.coroutines.Dispatchers.Main) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Saved $count songs to Music/SMusic/$playlistTitle",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            }
-                            .onFailure { e ->
-                                launch(kotlinx.coroutines.Dispatchers.Main) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Save failed: ${e.message}",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            }
-                    }
-                    onDismiss()
-                }
-            }
         }
 
         GridMenuItem(

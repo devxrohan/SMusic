@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.menu
 
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -146,7 +147,7 @@ fun YouTubeSongMenu(
             }
             coroutineScope.launch(Dispatchers.IO) {
                 playlist.playlist.browseId?.let { browseId ->
-                    YouTube.addToPlaylist(browseId, song.id)
+                    writeBackWithRetry { YouTube.addToPlaylist(browseId, song.id) }
                 }
             }
             listOf(song.id)
@@ -285,7 +286,7 @@ fun YouTubeSongMenu(
                 title = R.string.remove_from_playlist,
             ) {
                 coroutineScope.launch(Dispatchers.IO) {
-                    YouTube.removeFromPlaylist(playlist.id, song.id, song.setVideoId!!)
+                    writeBackWithRetry { YouTube.removeFromPlaylist(playlist.id, song.id, song.setVideoId!!) }
                     onRefresh()
                 }
                 onDismiss()

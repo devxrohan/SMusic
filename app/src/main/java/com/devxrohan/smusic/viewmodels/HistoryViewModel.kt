@@ -12,6 +12,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -33,10 +36,15 @@ constructor(
     private val lastMonday = thisMonday.minusDays(7)
 
     val historyPage = mutableStateOf<HistoryPage?>(null)
+    val historyLoading = MutableStateFlow(false)
+    val historyError = MutableStateFlow<String?>(null)
 
     val events =
         database
             .events()
+            // Let the slide-in finish before the (big) history list arrives, exactly like Pulse does,
+            // so the list never lands in the middle of the animation.
+            .onStart { delay(350) }
             .map { events ->
                 events
                     .groupBy {
@@ -62,7 +70,8 @@ constructor(
                     ).mapValues { entry ->
                         entry.value.distinctBy { it.song.id }
                     }
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyMap())
+            }.flowOn(Dispatchers.Default) // grouping a big history must not run on the main thread
+            .stateIn(viewModelScope, SharingStarted.Lazily, emptyMap())
 
     init {
         fetchRemoteHistory()
@@ -70,10 +79,35 @@ constructor(
 
     fun fetchRemoteHistory() {
         viewModelScope.launch(Dispatchers.IO) {
-            YouTube.musicHistory().onSuccess {
-                historyPage.value = it
-            }.onFailure {
-                reportException(it)
+            historyLoading.value = true
+            historyError.value = null
+            historyPage.value = null
+            try {
+                var lastError: Throwable? = null
+                repeat(3) { attempt ->
+                    val result = YouTube.musicHistory()
+                    if (result.isSuccess) {
+                        val page = result.getOrThrow()
+                        historyPage.value = page
+                        if (page.sections.isNullOrEmpty()) {
+                            historyError.value = "YouTube returned an empty history. Check that the connected account has Watch history enabled."
+                        }
+                        return@launch
+                    }
+                    lastError = result.exceptionOrNull()
+                    if (attempt < 2) delay(500L * (attempt + 1))
+                }
+                lastError?.let {
+                    historyError.value = it.message?.takeIf(String::isNotBlank)
+                        ?: "Couldn't load YouTube Music history. Check your connection and sign in again."
+                    reportException(it)
+                }
+            } catch (error: Throwable) {
+                historyError.value = error.message?.takeIf(String::isNotBlank)
+                    ?: "Couldn't load YouTube Music history. Check your connection and sign in again."
+                reportException(error)
+            } finally {
+                historyLoading.value = false
             }
         }
     }

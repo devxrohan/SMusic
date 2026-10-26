@@ -47,7 +47,7 @@ fun YouTubeImportDialog(
         icon = {
             Icon(
                 painter = painterResource(R.drawable.youtube),
-                contentDescription = "YouTube",
+                contentDescription = stringResource(R.string.account_youtube),
                 modifier = Modifier.size(32.dp),
                 tint = Color.Unspecified
             )
@@ -85,14 +85,14 @@ fun YouTubeImportDialog(
                     )
                 } else {
                     Text(
-                        text = "Paste a YouTube or YouTube Music playlist link below to import it to your library:",
+                        text = stringResource(R.string.ui_paste_a_youtube_or_youtube_music),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = url,
                         onValueChange = { url = it },
-                        label = { Text("YouTube Playlist Link") },
+                        label = { Text(stringResource(R.string.ui_youtube_playlist_link)) },
                         placeholder = { Text("https://www.youtube.com/playlist?list=...") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = Modifier.fillMaxWidth(),
@@ -211,7 +211,7 @@ fun YouTubeImportDialog(
                     },
                     enabled = url.isNotBlank()
                 ) {
-                    Text("Import Playlist")
+                    Text(stringResource(R.string.ui_import_playlist))
                 }
             }
         },

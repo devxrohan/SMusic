@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.screens.playlist
 
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import android.annotation.SuppressLint
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -269,7 +270,7 @@ fun LocalPlaylistScreen(
                         )
                     }
                     viewModel.viewModelScope.launch(Dispatchers.IO) {
-                        playlistData.playlist.browseId?.let { YouTube.renamePlaylist(it, name) }
+                        playlistData.playlist.browseId?.let { writeBackWithRetry { YouTube.renamePlaylist(it, name) } }
                     }
                 },
                 onDismiss = { showEditDialog = false }
@@ -350,7 +351,7 @@ fun LocalPlaylistScreen(
                             playlist?.let { delete(it.playlist) }
                         }
                         viewModel.viewModelScope.launch(Dispatchers.IO) {
-                            playlist?.playlist?.browseId?.let { YouTube.deletePlaylist(it) }
+                            playlist?.playlist?.browseId?.let { writeBackWithRetry { YouTube.deletePlaylist(it) } }
                         }
                         navController.popBackStack()
                     }
@@ -400,11 +401,13 @@ fun LocalPlaylistScreen(
                         val successorSetVideoId = playlistSongMap.getOrNull(successorIndex)?.setVideoId
 
                         playlistSongMap.getOrNull(from)?.setVideoId?.let { setVideoId ->
-                            YouTube.moveSongPlaylist(
-                                viewModel.playlist.value?.playlist?.browseId!!,
-                                setVideoId,
-                                successorSetVideoId.orEmpty()
-                            )
+                            writeBackWithRetry {
+                                YouTube.moveSongPlaylist(
+                                    viewModel.playlist.value?.playlist?.browseId!!,
+                                    setVideoId,
+                                    successorSetVideoId.orEmpty()
+                                )
+                            }
                         }
                     }
                 }
@@ -1055,7 +1058,7 @@ fun LocalPlaylistScreen(
                                 if (browseId != null) {
                                     val setVideoId = map.setVideoId ?: database.getSetVideoId(map.songId)?.setVideoId
                                     if (setVideoId != null) {
-                                        YouTube.removeFromPlaylist(browseId, map.songId, setVideoId)
+                                        writeBackWithRetry { YouTube.removeFromPlaylist(browseId, map.songId, setVideoId) }
                                     }
                                 }
                             }

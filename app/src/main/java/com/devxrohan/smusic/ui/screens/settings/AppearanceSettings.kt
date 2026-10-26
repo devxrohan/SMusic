@@ -43,6 +43,7 @@ import com.devxrohan.smusic.utils.rememberPreference
 import com.devxrohan.smusic.utils.isLowRamDevice
 import me.saket.squiggles.SquigglySlider
 import timber.log.Timber
+import kotlin.math.roundToInt
 
 // ==================== MAIN APPEARANCE SETTINGS SCREEN ====================
 
@@ -75,10 +76,30 @@ fun AppearanceSettings(
         defaultValue = com.devxrohan.smusic.ui.theme.ThemePresets.SMUSIC_DEFAULT.id
     )
 
+    val (navBarStyle, onNavBarStyleChange) = rememberEnumPreference(
+        com.devxrohan.smusic.constants.NavBarStyleKey,
+        defaultValue = com.devxrohan.smusic.constants.NavBarStyle.FLOATING
+    )
+
     val (navBarScale, onNavBarScaleChange) = rememberPreference(
         com.devxrohan.smusic.constants.NavBarScaleKey,
         defaultValue = 1f
     )
+
+    val (homeHeaderStyle, onHomeHeaderStyleChange) = rememberEnumPreference(
+        com.devxrohan.smusic.constants.HomeHeaderStyleKey,
+        defaultValue = com.devxrohan.smusic.constants.HomeHeaderStyle.SMUSIC
+    )
+
+    val (quickPicksCardWidth, onQuickPicksCardWidthChange) = rememberPreference(
+        com.devxrohan.smusic.constants.QuickPicksCardWidthKey,
+        defaultValue = 196f
+    )
+    val (quickPicksCardHeight, onQuickPicksCardHeightChange) = rememberPreference(
+        com.devxrohan.smusic.constants.QuickPicksCardHeightKey,
+        defaultValue = 310f
+    )
+    var showQuickPicksSizeDialog by rememberSaveable { mutableStateOf(false) }
 
     val context = LocalContext.current
     val defaultDisableAnimations = remember(context) { context.isLowRamDevice() }
@@ -94,6 +115,32 @@ fun AppearanceSettings(
     val isSystemInDarkTheme = isSystemInDarkTheme()
     val useDarkTheme = remember(darkMode, isSystemInDarkTheme) {
         if (darkMode == DarkMode.AUTO) isSystemInDarkTheme else darkMode == DarkMode.ON
+    }
+
+    if (showQuickPicksSizeDialog) {
+        AlertDialog(
+            onDismissRequest = { showQuickPicksSizeDialog = false },
+            title = { Text(stringResource(R.string.ui_quick_picks_size)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.ui_width_dp, quickPicksCardWidth.roundToInt()))
+                    Slider(
+                        value = quickPicksCardWidth,
+                        onValueChange = { onQuickPicksCardWidthChange(it) },
+                        valueRange = 120f..360f
+                    )
+                    Text(stringResource(R.string.ui_height_dp, quickPicksCardHeight.roundToInt()))
+                    Slider(
+                        value = quickPicksCardHeight,
+                        onValueChange = { onQuickPicksCardHeightChange(it) },
+                        valueRange = 180f..440f
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showQuickPicksSizeDialog = false }) { Text(stringResource(R.string.done)) }
+            }
+        )
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -133,7 +180,7 @@ fun AppearanceSettings(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(innerPadding)
+                    .padding(top = innerPadding.calculateTopPadding())
                     .windowInsetsPadding(
                         LocalPlayerAwareWindowInsets.current.only(
                             WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
@@ -158,93 +205,73 @@ fun AppearanceSettings(
                                     }
                                 },
                             )
+                        },
+                        {
+                            ListPreference(
+                                title = { Text(stringResource(R.string.color_theme)) },
+                                icon = { Icon(painterResource(R.drawable.palette), null) },
+                                selectedValue = themePresetId,
+                                values = com.devxrohan.smusic.ui.theme.ThemePresets.ALL.map { it.id },
+                                onValueSelected = { presetId ->
+                                    onThemePresetIdChange(presetId)
+                                    // A Color Theme also determines whether the app is
+                                    // rendered as light or dark. Keep Dark Theme in sync
+                                    // so system bars/status-bar icons follow the selected preset.
+                                    val selectedPreset = com.devxrohan.smusic.ui.theme.ThemePresets.fromId(presetId)
+                                    onDarkModeChange(
+                                        if (selectedPreset.isDark) DarkMode.ON else DarkMode.OFF
+                                    )
+                                },
+                                valueText = { presetId ->
+                                    com.devxrohan.smusic.ui.theme.ThemePresets.fromId(presetId).displayName
+                                },
+                            )
                         }
                     )
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Text(
-                    text = stringResource(R.string.color_theme),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
-                )
-                androidx.compose.foundation.lazy.LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp)
-                ) {
-                    items(com.devxrohan.smusic.ui.theme.ThemePresets.ALL) { preset ->
-                        val selected = preset.id == themePresetId
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .width(64.dp)
-                                .clickable { onThemePresetIdChange(preset.id) }
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(preset.accent)
-                                    .border(
-                                        width = if (selected) 3.dp else 0.dp,
-                                        color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                                        shape = CircleShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clip(CircleShape)
-                                        .background(preset.background)
-                                )
+                SettingsGeneralCategory(
+                    title = stringResource(R.string.navigation),
+                    items = listOf(
+                        {
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(painterResource(R.drawable.nav_bar), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                                    Spacer(Modifier.width(16.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(stringResource(R.string.nav_bar_size), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                                        Text("${(navBarScale * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Slider(value = navBarScale, onValueChange = onNavBarScaleChange, valueRange = 0.75f..1.25f)
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = preset.displayName,
-                                style = MaterialTheme.typography.labelSmall,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        {
+                            EnumListPreference(
+                                title = { Text(stringResource(R.string.navigation_bar_style)) },
+                                icon = { Icon(painterResource(R.drawable.nav_bar), null) },
+                                selectedValue = navBarStyle,
+                                onValueSelected = onNavBarStyleChange,
+                                valueText = {
+                                    when (it) {
+                                        com.devxrohan.smusic.constants.NavBarStyle.FLOATING -> stringResource(R.string.navigation_bar_style_floating)
+                                        com.devxrohan.smusic.constants.NavBarStyle.WITHOUT_FLOATING -> stringResource(R.string.navigation_bar_style_docked)
+                                    }
+                                },
+                            )
+                        },
+                        {
+                            SwitchPreference(
+                                title = { Text(stringResource(R.string.slim_navbar)) },
+                                description = stringResource(R.string.slim_navbar_desc),
+                                icon = { Icon(painterResource(R.drawable.nav_bar), null) },
+                                checked = slimNav,
+                                onCheckedChange = onSlimNavChange
                             )
                         }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Text(
-                    text = stringResource(R.string.nav_bar_size),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    androidx.compose.material3.Slider(
-                        value = navBarScale,
-                        onValueChange = onNavBarScaleChange,
-                        valueRange = 0.75f..1.25f,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = "${(navBarScale * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier
-                            .padding(start = 8.dp)
-                            .width(48.dp)
-                    )
-                }
-
-                SettingsGeneralCategory(
-                    title = stringResource(R.string.app_language),
-                    items = listOf(
-                        { LanguagePreference() }
                     )
                 )
 
@@ -281,12 +308,29 @@ fun AppearanceSettings(
                     title = stringResource(R.string.misc),
                     items = listOf(
                         {
-                            SwitchPreference(
-                                title = { Text(stringResource(R.string.slim_navbar)) },
-                                icon = { Icon(painterResource(R.drawable.nav_bar), null) },
-                                checked = slimNav,
-                                onCheckedChange = onSlimNavChange
+                            EnumListPreference(
+                                title = { Text(stringResource(R.string.home_header_style)) },
+                                icon = { Icon(painterResource(R.drawable.auto_awesome), null) },
+                                selectedValue = homeHeaderStyle,
+                                onValueSelected = onHomeHeaderStyleChange,
+                                valueText = {
+                                    when (it) {
+                                        com.devxrohan.smusic.constants.HomeHeaderStyle.SMUSIC -> stringResource(R.string.home_header_style_smusic)
+                                        com.devxrohan.smusic.constants.HomeHeaderStyle.BITCHORD -> stringResource(R.string.home_header_style_bitchord)
+                                        com.devxrohan.smusic.constants.HomeHeaderStyle.NONE -> stringResource(R.string.home_header_style_none)
+                                    }
+                                }
                             )
+                        },
+                        {
+                            if (homeHeaderStyle == com.devxrohan.smusic.constants.HomeHeaderStyle.NONE) {
+                                PreferenceEntry(
+                                    title = { Text(stringResource(R.string.ui_quick_picks_size)) },
+                                    description = stringResource(R.string.ui_adjust_quick_picks_width_and_height),
+                                    icon = { Icon(painterResource(R.drawable.tune), null) },
+                                    onClick = { showQuickPicksSizeDialog = true }
+                                )
+                            }
                         },
                         {
                             EnumListPreference(

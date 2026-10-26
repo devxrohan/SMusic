@@ -6,6 +6,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
@@ -13,11 +14,21 @@ import com.devxrohan.smusic.NotificationPermissionPreference
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.innertube.YouTube
 import com.devxrohan.smusic.constants.ContentCountryKey
+import com.devxrohan.smusic.constants.PrioritizeJioSaavn320Key
 import com.devxrohan.smusic.constants.MusicProviderKey
 import com.devxrohan.smusic.constants.ContentLanguageKey
 import com.devxrohan.smusic.constants.CountryCodeToName
 import com.devxrohan.smusic.constants.EnableKugouKey
 import com.devxrohan.smusic.constants.EnableLrcLibKey
+import com.devxrohan.smusic.constants.EnableSimpMusicLyricsKey
+import com.devxrohan.smusic.constants.EnableUnisonLyricsKey
+import com.devxrohan.smusic.constants.EnableYouLyLyricsKey
+import com.devxrohan.smusic.constants.EnableMegalobizLyricsKey
+import com.devxrohan.smusic.constants.EnablePaxsenixLyricsKey
+import com.devxrohan.smusic.constants.EnablePortatoLyricsKey
+import com.devxrohan.smusic.constants.EnableBetterLyricsKey
+import com.devxrohan.smusic.constants.EnableYouTubeSubtitleLyricsKey
+import com.devxrohan.smusic.constants.EnableYouTubeMusicLyricsKey
 import com.devxrohan.smusic.constants.HideExplicitKey
 import com.devxrohan.smusic.constants.HistoryDuration
 import com.devxrohan.smusic.constants.LanguageCodeToName
@@ -52,9 +63,14 @@ fun ContentSettings(
         key = ContentLanguageKey,
         defaultValue = SYSTEM_DEFAULT
     )
-    val (musicProvider, onMusicProviderChange) = rememberPreference(
-        key = MusicProviderKey,
-        defaultValue = "YT"
+    // The browse/catalog provider is intentionally fixed to YouTube Music, including old installs.
+    val (musicProvider, onMusicProviderChange) = rememberPreference(MusicProviderKey, "YT")
+    LaunchedEffect(musicProvider) {
+        if (musicProvider != "YT") onMusicProviderChange("YT")
+    }
+    val (prioritizeJioSaavn, onPrioritizeJioSaavnChange) = rememberPreference(
+        key = PrioritizeJioSaavn320Key,
+        defaultValue = false
     )
     val (contentCountry, onContentCountryChange) = rememberPreference(
         key = ContentCountryKey,
@@ -96,6 +112,15 @@ fun ContentSettings(
         key = EnableLrcLibKey,
         defaultValue = true
     )
+    val (enableSimpMusic, onEnableSimpMusicChange) = rememberPreference(EnableSimpMusicLyricsKey, true)
+    val (enableUnison, onEnableUnisonChange) = rememberPreference(EnableUnisonLyricsKey, true)
+    val (enableYouLy, onEnableYouLyChange) = rememberPreference(EnableYouLyLyricsKey, true)
+    val (enableMegalobiz, onEnableMegalobizChange) = rememberPreference(EnableMegalobizLyricsKey, true)
+    val (enablePaxsenix, onEnablePaxsenixChange) = rememberPreference(EnablePaxsenixLyricsKey, true)
+    val (enablePortato, onEnablePortatoChange) = rememberPreference(EnablePortatoLyricsKey, true)
+    val (enableBetterLyrics, onEnableBetterLyricsChange) = rememberPreference(EnableBetterLyricsKey, true)
+    val (enableYouTubeSubtitles, onEnableYouTubeSubtitlesChange) = rememberPreference(EnableYouTubeSubtitleLyricsKey, true)
+    val (enableYouTubeMusicLyrics, onEnableYouTubeMusicLyricsChange) = rememberPreference(EnableYouTubeMusicLyricsKey, true)
     val (preferredProvider, onPreferredProviderChange) = rememberEnumPreference(
         key = PreferredLyricsProviderKey,
         defaultValue = PreferredLyricsProvider.LRCLIB
@@ -111,15 +136,12 @@ fun ContentSettings(
         SettingsGeneralCategory(
             title = stringResource(R.string.general),
             items = listOf(
-                {ListPreference(
-                    title = { Text(stringResource(R.string.module)) },
+                {SwitchPreference(
+                    title = { Text(stringResource(R.string.ui_prioritize_jiosaavn_320_kbps)) },
+                    description = stringResource(R.string.ui_try_a_matching_high_quality_jiosaavn),
                     icon = { Icon(painterResource(R.drawable.music_note), null) },
-                    selectedValue = musicProvider,
-                    values = listOf("YT", "JIOSAAVN"),
-                    valueText = {
-                        if (it == "YT") "YT (Compatible)" else "Jio Saavn (Incompatible Supported VPN)"
-                    },
-                    onValueSelected = onMusicProviderChange,
+                    checked = prioritizeJioSaavn,
+                    onCheckedChange = onPrioritizeJioSaavnChange,
                 )},
                 {ListPreference(
                     title = { Text(stringResource(R.string.content_language)) },
@@ -201,22 +223,29 @@ fun ContentSettings(
             )
         )
 
-        // Lyrics settings
+        // Lyrics settings: each toggle controls the real lookup provider in LyricsHelper.
         SettingsGeneralCategory(
             title = stringResource(R.string.lyrics),
             items = listOf(
-                {SwitchPreference(
-                    title = { Text(stringResource(R.string.enable_lrclib)) },
+                { ListPreference(
+                    title = { Text(stringResource(R.string.ui_prefer_lyrics_provider)) },
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },
-                    checked = enableLrclib,
-                    onCheckedChange = onEnableLrclibChange,
-                )},
-                {SwitchPreference(
-                    title = { Text(stringResource(R.string.enable_kugou)) },
-                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
-                    checked = enableKugou,
-                    onCheckedChange = onEnableKugouChange,
-                )},
+                    selectedValue = preferredProvider,
+                    values = enumValues<PreferredLyricsProvider>().toList(),
+                    valueText = { it.name.replace('_', ' ').lowercase().replaceFirstChar(Char::uppercase) },
+                    onValueSelected = onPreferredProviderChange,
+                ) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_lrc_lib)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_lrclib), null) }, checked = enableLrclib, onCheckedChange = onEnableLrclibChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_kugou)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_kugou), null) }, checked = enableKugou, onCheckedChange = onEnableKugouChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_simpmusic)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_simpmusic), null) }, checked = enableSimpMusic, onCheckedChange = onEnableSimpMusicChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_unison)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_unison), null) }, checked = enableUnison, onCheckedChange = onEnableUnisonChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_youlyplus)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_youly), null) }, checked = enableYouLy, onCheckedChange = onEnableYouLyChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_megalobiz)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_megalobiz), null) }, checked = enableMegalobiz, onCheckedChange = onEnableMegalobizChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_paxsenix)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_paxsenix), null) }, checked = enablePaxsenix, onCheckedChange = onEnablePaxsenixChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_portato)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_portato), null) }, checked = enablePortato, onCheckedChange = onEnablePortatoChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_betterlyrics)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_betterlyrics), null) }, checked = enableBetterLyrics, onCheckedChange = onEnableBetterLyricsChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_youtube_subtitles)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_youtube_subtitles), null) }, checked = enableYouTubeSubtitles, onCheckedChange = onEnableYouTubeSubtitlesChange) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_youtube_music)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_youtube_music), null) }, checked = enableYouTubeMusicLyrics, onCheckedChange = onEnableYouTubeMusicLyricsChange) },
             )
         )
 

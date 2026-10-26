@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.screens.settings
 
+import com.devxrohan.smusic.ui.utils.bottomSafeArea
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -74,12 +75,14 @@ fun AboutScreen(
             )
         }
     ) { padding ->
+        val bottomSafe = bottomSafeArea()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(top = padding.calculateTopPadding())
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 24.dp)
+                .padding(bottom = bottomSafe),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(32.dp))

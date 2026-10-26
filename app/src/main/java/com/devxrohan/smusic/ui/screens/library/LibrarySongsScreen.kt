@@ -44,6 +44,7 @@ import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.CONTENT_TYPE_HEADER
 import com.devxrohan.smusic.constants.CONTENT_TYPE_SONG
+import com.devxrohan.smusic.constants.InnerTubeCookieKey
 import com.devxrohan.smusic.constants.SongFilter
 import com.devxrohan.smusic.constants.SongFilterKey
 import com.devxrohan.smusic.constants.SongSortDescendingKey
@@ -65,6 +66,7 @@ import com.devxrohan.smusic.ui.utils.ItemWrapper
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
 import com.devxrohan.smusic.viewmodels.LibrarySongsViewModel
+import com.devxrohan.smusic.innertube.utils.parseCookieString
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -76,9 +78,9 @@ fun LibrarySongsScreen(
     val context = LocalContext.current
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
-    val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isPlaying.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val playerConnection = LocalPlayerConnection.current
+    val isPlaying = playerConnection?.isPlaying?.collectAsState()?.value ?: false
+    val mediaMetadata = playerConnection?.mediaMetadata?.collectAsState()?.value
 
     val (sortType, onSortTypeChange) = rememberEnumPreference(
         SongSortTypeKey,
@@ -87,13 +89,16 @@ fun LibrarySongsScreen(
     val (sortDescending, onSortDescendingChange) = rememberPreference(SongSortDescendingKey, true)
 
     val (ytmSync) = rememberPreference(YtmSyncKey, true)
+    val (innerTubeCookie) = rememberPreference(InnerTubeCookieKey, "")
+    val isLoggedIn = remember(innerTubeCookie) { "SAPISID" in parseCookieString(innerTubeCookie) }
+    val useYouTubeAccount = isLoggedIn
 
     val songs by viewModel.allSongs.collectAsState()
 
     var filter by rememberEnumPreference(SongFilterKey, SongFilter.LIKED)
 
-    LaunchedEffect(Unit) {
-        if (ytmSync) {
+    LaunchedEffect(ytmSync, filter, isLoggedIn) {
+        if (ytmSync && useYouTubeAccount) {
             when (filter) {
                 SongFilter.LIKED -> viewModel.syncLikedSongs()
                 SongFilter.LIBRARY -> viewModel.syncLibrarySongs()
@@ -294,9 +299,9 @@ fun LibrarySongsScreen(
                                 onClick = {
                                     if (!selection) {
                                         if (songWrapper.item.id == mediaMetadata?.id) {
-                                            playerConnection.player.togglePlayPause()
+                                            playerConnection?.player?.togglePlayPause()
                                         } else {
-                                            playerConnection.playQueue(
+                                            playerConnection?.playQueue(
                                                 ListQueue(
                                                     title = context.getString(R.string.queue_all_songs),
                                                     items = songs.map { it.toMediaItem() },
@@ -330,7 +335,7 @@ fun LibrarySongsScreen(
             lazyListState = lazyListState,
             icon = R.drawable.shuffle,
             onClick = {
-                playerConnection.playQueue(
+                playerConnection?.playQueue(
                     ListQueue(
                         title = context.getString(R.string.queue_all_songs),
                         items = songs.shuffled().map { it.toMediaItem() },

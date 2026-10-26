@@ -98,12 +98,12 @@ fun CachePlaylistScreen(
 ) {
     val context = LocalContext.current
     val menuState = LocalMenuState.current
-    val playerConnection = LocalPlayerConnection.current ?: return
+    val playerConnection = LocalPlayerConnection.current
     val haptic = LocalHapticFeedback.current
     val focusManager = LocalFocusManager.current
 
-    val isPlaying by playerConnection.isPlaying.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val isPlaying = playerConnection?.isPlaying?.collectAsState()?.value ?: false
+    val mediaMetadata = playerConnection?.mediaMetadata?.collectAsState()?.value
     val events by viewModel.events.collectAsState()
 
     val playerCache = LocalPlayerConnection.current?.service?.playerCache
@@ -361,7 +361,7 @@ fun CachePlaylistScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Button(
                                     onClick = {
-                                        playerConnection.playQueue(
+                                        playerConnection?.playQueue(
                                             ListQueue(
                                                 title = "Cache Songs",
                                                 items = filteredSongs.map { it.item.toMediaItem() },
@@ -382,7 +382,7 @@ fun CachePlaylistScreen(
 
                                 OutlinedButton(
                                     onClick = {
-                                        playerConnection.playQueue(
+                                        playerConnection?.playQueue(
                                             ListQueue(
                                                 title = "Cache Songs",
                                                 items = filteredSongs.shuffled()
@@ -437,9 +437,9 @@ fun CachePlaylistScreen(
                                 onClick = {
                                     if (!selection) {
                                         if (songWrapper.item.id == mediaMetadata?.id) {
-                                            playerConnection.player.togglePlayPause()
+                                            playerConnection?.player?.togglePlayPause()
                                         } else {
-                                            playerConnection.playQueue(
+                                            playerConnection?.playQueue(
                                                 ListQueue(
                                                     title = "Cache Songs",
                                                     items = filteredSongs.map { it.item.toMediaItem() },

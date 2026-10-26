@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -85,6 +89,7 @@ import androidx.palette.graphics.Palette
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
+import kotlinx.coroutines.launch
 import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalPlayerAwareWindowInsets
 import com.devxrohan.smusic.LocalPlayerConnection
@@ -338,9 +343,10 @@ fun ArtistScreen(
 
         LazyColumn(
             state = lazyListState,
-            contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+            // Same list setup as the Album / Playlist pages.
+            contentPadding = LocalPlayerAwareWindowInsets.current.union(WindowInsets.ime).asPaddingValues(),
         ) {
-            if (artistPage == null && !showLocal) {
+            if (artistPage == null && !showLocal && !viewModel.loadFailed) {
                 item(key = "shimmer") {
                     ShimmerHost {
                         Column(
@@ -506,7 +512,7 @@ fun ArtistScreen(
 
                                 if (!isExpanded && description.length > 100) {
                                     Text(
-                                        text = "More",
+                                        text = stringResource(R.string.ui_more),
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Medium,
@@ -720,7 +726,7 @@ fun ArtistScreen(
                                         .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
                                     Text(
-                                        text = "View All",
+                                        text = stringResource(R.string.ui_view_all),
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier
@@ -925,6 +931,11 @@ fun ArtistScreen(
         )
     }
 
+    val artistIsLiked = libraryArtist?.artist?.bookmarkedAt != null
+
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+    ) {
     TopAppBar(
         title = {
             val animatedAlpha by animateFloatAsState(
@@ -951,6 +962,36 @@ fun ArtistScreen(
             }
         },
         actions = {
+            IconButton(
+                onClick = {
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val current = libraryArtist?.artist
+                        if (current != null) {
+                            database.update(current.toggleLike())
+                        } else {
+                            val pageArtist = artistPage?.artist
+                            if (pageArtist != null) {
+                                val entity = ArtistEntity(
+                                    id = pageArtist.id,
+                                    name = pageArtist.title,
+                                    thumbnailUrl = pageArtist.thumbnail,
+                                    channelId = pageArtist.channelId,
+                                    bookmarkedAt = java.time.LocalDateTime.now()
+                                )
+                                database.insert(entity)
+                                entity.toggleLike()
+                            }
+                        }
+                    }
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                },
+                onLongClick = {},
+            ) {
+                Icon(
+                    painterResource(if (artistIsLiked) R.drawable.favorite else R.drawable.favorite_border),
+                    contentDescription = if (artistIsLiked) "Unsubscribe artist" else "Subscribe artist",
+                )
+            }
             IconButton(
                 onClick = {
                     android.widget.Toast.makeText(context, R.string.coming_soon, android.widget.Toast.LENGTH_SHORT).show()
@@ -981,6 +1022,7 @@ fun ArtistScreen(
             TopAppBarDefaults.topAppBarColors()
         }
     )
+    }
 }
 
 @Composable

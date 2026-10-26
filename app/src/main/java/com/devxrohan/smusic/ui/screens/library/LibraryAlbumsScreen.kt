@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -54,6 +55,8 @@ import com.devxrohan.smusic.constants.GridItemSize
 import com.devxrohan.smusic.constants.GridItemsSizeKey
 import com.devxrohan.smusic.constants.GridThumbnailHeight
 import com.devxrohan.smusic.constants.LibraryViewType
+import com.devxrohan.smusic.constants.InnerTubeCookieKey
+import com.devxrohan.smusic.innertube.utils.parseCookieString
 import com.devxrohan.smusic.constants.YtmSyncKey
 import com.devxrohan.smusic.ui.component.ChipsRow
 import com.devxrohan.smusic.ui.component.EmptyPlaceholder
@@ -76,9 +79,9 @@ fun LibraryAlbumsScreen(
 ) {
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
-    val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isPlaying.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val playerConnection = LocalPlayerConnection.current
+    val isPlaying = playerConnection?.isPlaying?.collectAsState()?.value ?: false
+    val mediaMetadata = playerConnection?.mediaMetadata?.collectAsState()?.value
 
     var viewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.GRID)
     var filter by rememberEnumPreference(AlbumFilterKey, AlbumFilter.LIKED)
@@ -90,6 +93,9 @@ fun LibraryAlbumsScreen(
     val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val (ytmSync) = rememberPreference(YtmSyncKey, true)
+    val (innerTubeCookie) = rememberPreference(InnerTubeCookieKey, "")
+    val isLoggedIn = remember(innerTubeCookie) { "SAPISID" in parseCookieString(innerTubeCookie) }
+    val useYouTubeAccount = isLoggedIn
 
     val filterContent = @Composable {
         Row {
@@ -119,8 +125,8 @@ fun LibraryAlbumsScreen(
         }
     }
 
-    LaunchedEffect(filter) {
-        if (ytmSync && filter == AlbumFilter.LIKED) {
+    LaunchedEffect(filter, ytmSync, isLoggedIn) {
+        if (ytmSync && useYouTubeAccount && filter == AlbumFilter.LIKED) {
             withContext(Dispatchers.IO) {
                 viewModel.sync()
             }

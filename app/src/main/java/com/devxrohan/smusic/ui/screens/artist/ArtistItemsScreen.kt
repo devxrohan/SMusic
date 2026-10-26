@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.screens.artist
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -282,6 +283,9 @@ fun ArtistItemsScreen(
         }
     }
 
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+    ) {
     TopAppBar(
         title = {
             Text(
@@ -303,4 +307,5 @@ fun ArtistItemsScreen(
             }
         },
     )
+    }
 }

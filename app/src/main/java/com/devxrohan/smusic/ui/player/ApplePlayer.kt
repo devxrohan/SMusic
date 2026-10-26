@@ -57,6 +57,7 @@ import com.devxrohan.smusic.constants.SliderStyleKey
 import com.devxrohan.smusic.ui.component.PlayerSliderTrack
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import me.saket.squiggles.SquigglySlider
+import androidx.compose.ui.res.stringResource
 
 val ApplePlayerBackgroundGradient = Brush.linearGradient(
     colors = listOf(
@@ -153,7 +154,7 @@ fun ApplePlayer(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.expand_more),
-                    contentDescription = "Back",
+                    contentDescription = stringResource(R.string.back),
                     tint = Color.White,
                     modifier = Modifier
                         .size(32.dp)
@@ -162,7 +163,7 @@ fun ApplePlayer(
                         .padding(4.dp)
                 )
                 Text(
-                    text = "Happy Mood",
+                    text = stringResource(R.string.ui_happy_mood),
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium
@@ -254,7 +255,7 @@ fun ApplePlayer(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.skip_previous),
-                            contentDescription = "Previous",
+                            contentDescription = stringResource(R.string.ui_previous),
                             tint = Color.Gray,
                             modifier = Modifier
                                 .size(32.dp)
@@ -277,7 +278,7 @@ fun ApplePlayer(
                         ) {
                             Icon(
                                 painter = painterResource(if (isPlaying && !isLoading) R.drawable.pause else R.drawable.play),
-                                contentDescription = "Play/Pause",
+                                contentDescription = stringResource(R.string.ui_play_pause),
                                 tint = Color.White,
                                 modifier = Modifier.size(32.dp)
                             )
@@ -285,7 +286,7 @@ fun ApplePlayer(
                         Spacer(modifier = Modifier.width(32.dp))
                         Icon(
                             painter = painterResource(R.drawable.skip_next),
-                            contentDescription = "Next",
+                            contentDescription = stringResource(R.string.next),
                             tint = Color.Gray,
                             modifier = Modifier
                                 .size(32.dp)
@@ -407,7 +408,7 @@ fun ApplePlayer(
                         painter = painterResource(
                             if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle
                         ),
-                        contentDescription = "Shuffle",
+                        contentDescription = stringResource(R.string.shuffle),
                         tint = if (shuffleModeEnabled) AppleRed else Color.White,
                         modifier = Modifier.size(28.dp)
                     )
@@ -430,7 +431,7 @@ fun ApplePlayer(
                         painter = painterResource(
                             if (isLiked) R.drawable.favorite else R.drawable.favorite_border
                         ),
-                        contentDescription = "Like",
+                        contentDescription = stringResource(R.string.action_like),
                         tint = if (isLiked) AppleRed else Color.White,
                         modifier = Modifier.size(28.dp)
                     )
@@ -456,7 +457,7 @@ fun ApplePlayer(
                                 else -> R.drawable.repeat
                             }
                         ),
-                        contentDescription = "Repeat",
+                        contentDescription = stringResource(R.string.ui_repeat),
                         tint = if (repeatMode != Player.REPEAT_MODE_OFF) AppleRed else Color.White,
                         modifier = Modifier
                             .size(28.dp)

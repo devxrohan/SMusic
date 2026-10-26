@@ -51,6 +51,7 @@ import com.devxrohan.smusic.ui.component.BottomSheet
 import com.devxrohan.smusic.ui.component.BottomSheetState
 import com.devxrohan.smusic.utils.makeTimeString
 import com.devxrohan.smusic.utils.rememberPreference
+import androidx.compose.ui.res.stringResource
 
 @Composable
 fun AppleQueue(
@@ -103,7 +104,7 @@ fun AppleQueue(
                 if (accountPhotoUrl.isNotBlank()) {
                     AsyncImage(
                         model = accountPhotoUrl,
-                        contentDescription = "Profile",
+                        contentDescription = stringResource(R.string.ui_profile),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(56.dp)
@@ -131,7 +132,7 @@ fun AppleQueue(
                         color = Color.Black
                     )
                     Text(
-                        text = "Premium User",
+                        text = stringResource(R.string.ui_premium_user),
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
@@ -154,7 +155,7 @@ fun AppleQueue(
                 ) {
                     Icon(
                         painter = painterResource(if (isPlaying) R.drawable.pause else R.drawable.play),
-                        contentDescription = "Play/Pause",
+                        contentDescription = stringResource(R.string.ui_play_pause),
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
@@ -166,13 +167,13 @@ fun AppleQueue(
             // Playlist Title
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Your Playlist",
+                    text = stringResource(R.string.ui_your_playlist),
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black
                 )
                 Text(
-                    text = "Premium Playlist",
+                    text = stringResource(R.string.ui_premium_playlist),
                     fontSize = 14.sp,
                     color = Color.Gray
                 )
@@ -290,7 +291,7 @@ fun AppleQueue(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "NOW PLAYING",
+                    text = stringResource(R.string.ui_now_playing),
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,

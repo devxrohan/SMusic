@@ -53,6 +53,7 @@ import com.devxrohan.smusic.constants.SliderStyleKey
 import com.devxrohan.smusic.ui.component.PlayerSliderTrack
 import me.saket.squiggles.SquigglySlider
 import kotlin.math.*
+import androidx.compose.ui.res.stringResource
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CLOUDGLOW PLAYER (Neumorphic Aesthetic)
@@ -178,7 +179,7 @@ fun CloudGlowPlayerScreen(
                 }
                 
                 Text(
-                    text = "PLAYING NOW",
+                    text = stringResource(R.string.ui_playing_now),
                     color = if (isDark) Color(0xFFAAAAAA) else Color(0xFF7A8A9E),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -189,7 +190,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = onOpenMenu, size = 44.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(R.drawable.more_horiz),
-                        contentDescription = "Menu",
+                        contentDescription = stringResource(R.string.ui_menu),
                         tint = iconColor,
                         modifier = Modifier.size(20.dp)
                     )
@@ -332,7 +333,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = onPrevious, size = 56.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(R.drawable.skip_previous),
-                        contentDescription = "Previous",
+                        contentDescription = stringResource(R.string.ui_previous),
                         tint = iconColor,
                         modifier = Modifier.size(20.dp)
                     )
@@ -343,7 +344,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = onNext, size = 56.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(R.drawable.skip_next),
-                        contentDescription = "Next",
+                        contentDescription = stringResource(R.string.next),
                         tint = iconColor,
                         modifier = Modifier.size(20.dp)
                     )
@@ -364,7 +365,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = onShuffle, size = 44.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
-                        contentDescription = "Shuffle",
+                        contentDescription = stringResource(R.string.shuffle),
                         tint = if (shuffleModeEnabled) ActiveBlue else iconColor,
                         modifier = Modifier.size(18.dp)
                     )
@@ -374,7 +375,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = onOpenLyrics, size = 44.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(R.drawable.lyrics),
-                        contentDescription = "Lyrics",
+                        contentDescription = stringResource(R.string.lyrics),
                         tint = iconColor,
                         modifier = Modifier.size(18.dp)
                     )
@@ -384,7 +385,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = { playerConnection.toggleLike() }, size = 44.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(if (isLiked) R.drawable.favorite else R.drawable.favorite_border),
-                        contentDescription = "Like",
+                        contentDescription = stringResource(R.string.action_like),
                         tint = if (isLiked) ActiveRed else iconColor,
                         modifier = Modifier.size(18.dp)
                     )
@@ -399,7 +400,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = onRepeat, size = 44.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(repeatIcon),
-                        contentDescription = "Repeat",
+                        contentDescription = stringResource(R.string.ui_repeat),
                         tint = if (repeatActive) ActiveBlue else iconColor,
                         modifier = Modifier.size(18.dp)
                     )
@@ -409,7 +410,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = onOpenQueue, size = 44.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(R.drawable.queue_music),
-                        contentDescription = "Queue",
+                        contentDescription = stringResource(R.string.queue),
                         tint = iconColor,
                         modifier = Modifier.size(18.dp)
                     )

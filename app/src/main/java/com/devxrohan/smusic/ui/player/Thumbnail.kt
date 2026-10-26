@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,6 +72,8 @@ import com.devxrohan.smusic.constants.PlayerBackgroundStyle
 import com.devxrohan.smusic.constants.PlayerHorizontalPadding
 import com.devxrohan.smusic.constants.SwipeThumbnailKey
 import com.devxrohan.smusic.constants.ThumbnailCornerRadius
+import com.devxrohan.smusic.ui.component.dataStore
+import kotlinx.coroutines.flow.map
 import com.devxrohan.smusic.ui.utils.highQualityThumbnail
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
@@ -87,6 +90,8 @@ fun Thumbnail(
     shape: androidx.compose.ui.graphics.Shape = CircleShape,
     showPlayingFrom: Boolean = true,
     artworkScale: Float = 0.85f,
+    useCustomCornerRadius: Boolean = false,
+    textColor: Color? = null,
 ) {
 
 
@@ -103,9 +108,15 @@ fun Thumbnail(
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
     val canSkipNext by playerConnection.canSkipNext.collectAsState()
 
+    val customCornerRadius by context.dataStore.data
+        .map { it[androidx.datastore.preferences.core.floatPreferencesKey("thumbnail_corner_radius")] ?: 16f }
+        .collectAsState(initial = 16f)
+
+    val effectiveShape = if (useCustomCornerRadius) RoundedCornerShape(customCornerRadius.dp) else shape
+
     val playerBackground = PlayerBackgroundStyle.DEFAULT
 
-    val textBackgroundColor = when (playerBackground) {
+    val textBackgroundColor = textColor ?: when (playerBackground) {
         PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onBackground
         PlayerBackgroundStyle.BLUR -> Color.White
         PlayerBackgroundStyle.GRADIENT -> Color.White
@@ -228,12 +239,16 @@ fun Thumbnail(
                 if (showPlayingFrom) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 16.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp, vertical = 16.dp)
                     ) {
                         Text(
                             text = stringResource(R.string.playing_from),
                             style = MaterialTheme.typography.titleMedium,
-                            color = textBackgroundColor
+                            color = textBackgroundColor,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
                         )
                         val playingFrom = queueTitle ?: mediaMetadata?.album?.title
                         if (!playingFrom.isNullOrBlank()) {
@@ -243,7 +258,10 @@ fun Thumbnail(
                                 style = MaterialTheme.typography.titleMedium,
                                 color = textBackgroundColor.copy(alpha = 0.8f),
                                 maxLines = 1,
-                                modifier = Modifier                            )
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                 }
@@ -309,7 +327,7 @@ fun Thumbnail(
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
                                             .fillMaxSize(artworkScale)
-                                            .clip(shape)
+                                            .clip(effectiveShape)
                                     )
                                 }
                             }

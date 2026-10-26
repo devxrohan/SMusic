@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +27,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FloatingActionButton
+import com.devxrohan.smusic.ui.utils.isScrollingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,7 +76,6 @@ import com.devxrohan.smusic.constants.YtmSyncKey
 import com.devxrohan.smusic.db.entities.Playlist
 import com.devxrohan.smusic.db.entities.PlaylistEntity
 import com.devxrohan.smusic.ui.component.CreatePlaylistDialog
-import com.devxrohan.smusic.ui.component.HideOnScrollFAB
 import com.devxrohan.smusic.ui.component.LibraryHeroFavoriteTile
 import com.devxrohan.smusic.ui.component.LibraryPlaylistGridItem
 import com.devxrohan.smusic.ui.component.LibraryPlaylistListItem
@@ -116,16 +120,6 @@ fun LibraryPlaylistsScreen(
 
     val playlists by viewModel.allPlaylists.collectAsState()
 
-    val importPlaylist =
-        Playlist(
-            playlist = PlaylistEntity(
-                id = UUID.randomUUID().toString(),
-                name = "Import Spotify"
-            ),
-            songCount = 0,
-            thumbnails = emptyList(),
-        )
-
     val importYouTubePlaylist =
         Playlist(
             playlist = PlaylistEntity(
@@ -136,8 +130,11 @@ fun LibraryPlaylistsScreen(
             thumbnails = emptyList(),
         )
 
-    var showSpotifyImportDialog by remember { mutableStateOf(false) }
     var showYouTubeImportDialog by remember { mutableStateOf(false) }
+    var showSpotifyImportDialog by remember { mutableStateOf(false) }
+    // AI playlist generation (ported from SMusic): reuses SMusic's listening history (most
+    // played / liked / recent) to prompt a user-configured AI provider, then resolves and saves
+    // the suggestions as a real local playlist via AiRecommendationHelper.
 
     val lazyListState = rememberLazyListState()
     val lazyGridState = rememberLazyGridState()
@@ -152,9 +149,10 @@ fun LibraryPlaylistsScreen(
     }
 
     val (ytmSync) = rememberPreference(YtmSyncKey, true)
+    val useYouTubeAccount = isLoggedIn
 
     LaunchedEffect(isLoggedIn, ytmSync) {
-        if (ytmSync) {
+        if (ytmSync && useYouTubeAccount) {
             withContext(Dispatchers.IO) {
                 viewModel.sync()
             }
@@ -182,8 +180,8 @@ fun LibraryPlaylistsScreen(
     }
 
     val shortcuts = listOf(
-        Triple(importPlaylist.playlist.name, R.drawable.spotify, "import"),
         Triple(importYouTubePlaylist.playlist.name, R.drawable.youtube_logo, "import_yt"),
+        Triple(stringResource(R.string.import_from_spotify), R.drawable.spotify, "import_spotify"),
     )
     val summary = pluralStringResource(R.plurals.n_playlist, playlists.size, playlists.size)
     val pullRefreshState = rememberPullToRefreshState()
@@ -196,7 +194,7 @@ fun LibraryPlaylistsScreen(
                 state = pullRefreshState,
                 isRefreshing = isRefreshing,
                 onRefresh = {
-                    if (ytmSync && allowSyncing) {
+                    if (ytmSync && allowSyncing && useYouTubeAccount) {
                         isRefreshing = true
                         coroutineScope.launch {
                             viewModel.sync()
@@ -243,8 +241,8 @@ fun LibraryPlaylistsScreen(
                     onClick = { route ->
                         when (route) {
                             "local" -> onLocalClick()
-                            "import" -> showSpotifyImportDialog = true
                             "import_yt" -> showYouTubeImportDialog = true
+                            "import_spotify" -> showSpotifyImportDialog = true
                             else -> navController.navigate(route)
                         }
                     },
@@ -285,19 +283,52 @@ fun LibraryPlaylistsScreen(
                 .padding(LocalPlayerAwareWindowInsets.current.asPaddingValues()),
         )
 
-        HideOnScrollFAB(
-            lazyListState = lazyListState,
-            icon = R.drawable.add,
-            onClick = {
-                showCreatePlaylistDialog = true
-            },
-        )
-    }
-    if (showSpotifyImportDialog) {
-        SpotifyImportDialog(onDismiss = { showSpotifyImportDialog = false })
+        // Stacked actions: AI is a small secondary action above
+        // the familiar primary add/create-playlist FAB. The plus opens the original
+        // create-playlist flow directly rather than an extra options box.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = lazyListState.isScrollingUp(),
+            enter = androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.slideOutVertically { it } + androidx.compose.animation.fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .windowInsetsPadding(
+                    LocalPlayerAwareWindowInsets.current.only(
+                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal
+                    )
+                ),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                FloatingActionButton(
+                    onClick = { navController.navigate("generator") },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.custom_ai_sparkle),
+                        contentDescription = stringResource(R.string.ui_create_ai_playlist),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                FloatingActionButton(
+                    onClick = { showCreatePlaylistDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Icon(painter = painterResource(R.drawable.add), contentDescription = stringResource(R.string.create_playlist))
+                }
+            }
+        }
     }
     if (showYouTubeImportDialog) {
         YouTubeImportDialog(onDismiss = { showYouTubeImportDialog = false })
+    }
+    if (showSpotifyImportDialog) {
+        SpotifyImportDialog(onDismiss = { showSpotifyImportDialog = false })
     }
 }
 

@@ -87,11 +87,10 @@ fun LibraryMixScreen(
 ) {
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
-    val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isPlaying.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val playerConnection = LocalPlayerConnection.current
+    val isPlaying = playerConnection?.isPlaying?.collectAsState()?.value ?: false
+    val mediaMetadata = playerConnection?.mediaMetadata?.collectAsState()?.value
 
-    var showSpotifyImportDialog by remember { mutableStateOf(false) }
 
     var viewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.GRID)
     val (sortType, onSortTypeChange) = rememberEnumPreference(
@@ -383,7 +382,6 @@ fun LibraryMixScreen(
                                         if (onImportPlaylistClick != null) {
                                             onImportPlaylistClick()
                                         } else {
-                                            showSpotifyImportDialog = true
                                         }
                                     }
                                     .animateItem(),
@@ -678,8 +676,7 @@ fun LibraryMixScreen(
                                             if (onImportPlaylistClick != null) {
                                                 onImportPlaylistClick()
                                             } else {
-                                                showSpotifyImportDialog = true
-                                            }
+                                                }
                                         },
                                     )
                                     .animateItem(),
@@ -781,8 +778,5 @@ fun LibraryMixScreen(
                     }
                 }
         }
-    }
-    if (showSpotifyImportDialog) {
-        SpotifyImportDialog(onDismiss = { showSpotifyImportDialog = false })
     }
 }

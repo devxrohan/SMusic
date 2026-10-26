@@ -23,9 +23,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -41,8 +43,6 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.devxrohan.smusic.LocalPlayerAwareWindowInsets
 import com.devxrohan.smusic.R
-import com.devxrohan.smusic.constants.ArtistFilter
-import com.devxrohan.smusic.constants.ArtistFilterKey
 import com.devxrohan.smusic.constants.ArtistSortDescendingKey
 import com.devxrohan.smusic.constants.ArtistSortType
 import com.devxrohan.smusic.constants.ArtistSortTypeKey
@@ -53,8 +53,9 @@ import com.devxrohan.smusic.constants.GridItemSize
 import com.devxrohan.smusic.constants.GridItemsSizeKey
 import com.devxrohan.smusic.constants.GridThumbnailHeight
 import com.devxrohan.smusic.constants.LibraryViewType
+import com.devxrohan.smusic.constants.InnerTubeCookieKey
+import com.devxrohan.smusic.innertube.utils.parseCookieString
 import com.devxrohan.smusic.constants.YtmSyncKey
-import com.devxrohan.smusic.ui.component.ChipsRow
 import com.devxrohan.smusic.ui.component.EmptyPlaceholder
 import com.devxrohan.smusic.ui.component.LibraryArtistGridItem
 import com.devxrohan.smusic.ui.component.LibraryArtistListItem
@@ -77,7 +78,6 @@ fun LibraryArtistsScreen(
     val haptic = LocalHapticFeedback.current
     var viewType by rememberEnumPreference(ArtistViewTypeKey, LibraryViewType.GRID)
 
-    var filter by rememberEnumPreference(ArtistFilterKey, ArtistFilter.LIKED)
     val (sortType, onSortTypeChange) = rememberEnumPreference(
         ArtistSortTypeKey,
         ArtistSortType.CREATE_DATE
@@ -86,40 +86,13 @@ fun LibraryArtistsScreen(
     val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val (ytmSync) = rememberPreference(YtmSyncKey, true)
+    val (innerTubeCookie) = rememberPreference(InnerTubeCookieKey, "")
+    val isLoggedIn = remember(innerTubeCookie) { "SAPISID" in parseCookieString(innerTubeCookie) }
+    val useYouTubeAccount = isLoggedIn
 
-    val filterContent = @Composable {
-        Row {
-            Spacer(Modifier.width(12.dp))
-            FilterChip(
-                label = { Text(stringResource(R.string.artists)) },
-                selected = true,
-                colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), labelColor = MaterialTheme.colorScheme.primary, selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), selectedLabelColor = MaterialTheme.colorScheme.primary),
-                onClick = onDeselect,
-                shape = RoundedCornerShape(16.dp),
-                leadingIcon = {
-                    Icon(painter = painterResource(R.drawable.close), contentDescription = "")
-                },
-            )
-            ChipsRow(
-                chips =
-                    listOf(
-                        ArtistFilter.LIKED to stringResource(R.string.filter_liked),
-                        ArtistFilter.LIBRARY to stringResource(R.string.filter_library)
-                    ),
-                currentValue = filter,
-                onValueUpdate = {
-                    filter = it
-                },
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-
-    LaunchedEffect(filter) {
-        if (ytmSync && filter == ArtistFilter.LIKED) {
-            withContext(Dispatchers.IO) {
-                viewModel.sync()
-            }
+    LaunchedEffect(ytmSync, isLoggedIn) {
+        if (ytmSync && useYouTubeAccount) {
+            withContext(Dispatchers.IO) { viewModel.sync() }
         }
     }
 
@@ -200,13 +173,6 @@ fun LibraryArtistsScreen(
                     contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                 ) {
                     item(
-                        key = "filter",
-                        contentType = CONTENT_TYPE_HEADER,
-                    ) {
-                        filterContent()
-                    }
-
-                    item(
                         key = "header",
                         contentType = CONTENT_TYPE_HEADER,
                     ) {
@@ -249,14 +215,6 @@ fun LibraryArtistsScreen(
                         ),
                     contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                 ) {
-                    item(
-                        key = "filter",
-                        span = { GridItemSpan(maxLineSpan) },
-                        contentType = CONTENT_TYPE_HEADER,
-                    ) {
-                        filterContent()
-                    }
-
                     item(
                         key = "header",
                         span = { GridItemSpan(maxLineSpan) },

@@ -20,12 +20,16 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import com.devxrohan.smusic.utils.isYouTubeAccountWriteBackAllowed
 import com.devxrohan.smusic.innertube.YouTube
 import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.db.entities.PlaylistEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 
 @Composable
@@ -35,6 +39,7 @@ fun CreatePlaylistDialog(
     allowSyncing: Boolean = true,
 ) {
     val database = LocalDatabase.current
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var syncedPlaylist by remember { mutableStateOf(false) }
     TextFieldDialog(
@@ -44,14 +49,26 @@ fun CreatePlaylistDialog(
         onDismiss = onDismiss,
         onDone = { playlistName ->
             coroutineScope.launch(Dispatchers.IO) {
-                val browseId = if (syncedPlaylist)
-                    YouTube.createPlaylist(playlistName)
-                else null
+                if (syncedPlaylist && !isYouTubeAccountWriteBackAllowed()) {
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(context, "Connect a YouTube account and switch to YouTube mode to sync this playlist.", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+                val browseId = if (syncedPlaylist) {
+                    runCatching { YouTube.createPlaylist(playlistName) }.getOrNull()?.takeIf { it.isNotBlank() }
+                } else null
+                if (syncedPlaylist && browseId == null) {
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(context, "YouTube could not create the playlist. Nothing was added locally.", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
                 database.query {
                     insert(
                         PlaylistEntity(
                             name = playlistName,
-                            browseId = browseId.toString(),
+                            browseId = browseId,
                             bookmarkedAt = LocalDateTime.now(),
                             isEditable = true,
                         )

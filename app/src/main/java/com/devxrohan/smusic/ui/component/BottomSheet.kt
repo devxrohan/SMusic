@@ -64,6 +64,8 @@ fun BottomSheet(
     ),
     background: @Composable BoxScope.() -> Unit = { },
     onDismiss: (() -> Unit)? = null,
+    // Lets the host slide the collapsed content (mini player) down/up, e.g. when the navigation bar hides.
+    collapsedContentOffsetY: () -> Dp = { 0.dp },
     collapsedContent: @Composable BoxScope.() -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -133,6 +135,7 @@ fun BottomSheet(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
+                        .offset { IntOffset(0, collapsedContentOffsetY().roundToPx()) }
                         .fillMaxWidth()
                         .height(com.devxrohan.smusic.constants.MiniPlayerHeight)
                         .pointerInput(state) {

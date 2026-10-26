@@ -205,7 +205,7 @@ fun ListItem(
 fun GridItem(
     modifier: Modifier = Modifier,
     title: String,
-    subtitle: String,
+    subtitle: String?,
     badges: @Composable RowScope.() -> Unit = {},
     thumbnailContent: @Composable BoxWithConstraintsScope.() -> Unit,
     thumbnailShape: Shape,
@@ -235,8 +235,8 @@ fun GridItem(
                     Modifier.height(GridThumbnailHeight)
                 }
                     .aspectRatio(thumbnailRatio)
-                    .shadow(elevation = 6.dp, shape = RoundedCornerShape(20.dp), clip = false)
-                    .clip(RoundedCornerShape(20.dp)),
+                    .shadow(elevation = 6.dp, shape = thumbnailShape, clip = false)
+                    .clip(thumbnailShape),
         ) {
             thumbnailContent()
         }
@@ -255,16 +255,20 @@ fun GridItem(
                     .fillMaxWidth(),
         )
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            badges()
-
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.secondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (!subtitle.isNullOrEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                badges()
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else {
+            // Keep artist action badges without reserving a blank "0 songs" row.
+            Row(verticalAlignment = Alignment.CenterVertically) { badges() }
         }
     }
 }
@@ -677,9 +681,11 @@ fun ArtistListItem(
     badges: @Composable RowScope.() -> Unit = {
         if (artist.artist.bookmarkedAt != null) {
             Icon(
-                painter = painterResource(R.drawable.favorite),
+                painter = painterResource(
+                    if (artist.artist.isYouTubeArtist) R.drawable.subscribed else R.drawable.favorite
+                ),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
+                tint = if (artist.artist.isYouTubeArtist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 modifier =
                     Modifier
                         .size(18.dp)
@@ -690,7 +696,7 @@ fun ArtistListItem(
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) = ListItem(
     title = artist.artist.name,
-    subtitle = pluralStringResource(R.plurals.n_song, artist.songCount, artist.songCount),
+    subtitle = if (artist.songCount > 0) pluralStringResource(R.plurals.n_song, artist.songCount, artist.songCount) else null,
     badges = badges,
     thumbnailContent = {
         AsyncImage(
@@ -715,9 +721,11 @@ fun ArtistGridItem(
     badges: @Composable RowScope.() -> Unit = {
         if (artist.artist.bookmarkedAt != null) {
             Icon(
-                painter = painterResource(R.drawable.favorite),
+                painter = painterResource(
+                    if (artist.artist.isYouTubeArtist) R.drawable.subscribed else R.drawable.favorite
+                ),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
+                tint = if (artist.artist.isYouTubeArtist) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 modifier =
                     Modifier
                         .size(18.dp)
@@ -728,7 +736,7 @@ fun ArtistGridItem(
     fillMaxWidth: Boolean = false,
 ) = GridItem(
     title = artist.artist.name,
-    subtitle = pluralStringResource(R.plurals.n_song, artist.songCount, artist.songCount),
+    subtitle = if (artist.songCount > 0) pluralStringResource(R.plurals.n_song, artist.songCount, artist.songCount) else "",
     badges = badges,
     thumbnailContent = {
         AsyncImage(
@@ -738,7 +746,7 @@ fun ArtistGridItem(
             contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(ThumbnailCornerRadius)),
+                .clip(CircleShape),
 
             )
     },
@@ -1363,7 +1371,7 @@ fun LibraryHeroFavoriteTile(
                 Icon(
                     painter = painterResource(iconRes),
                     contentDescription = null,
-                    tint = if (iconRes == R.drawable.spotify || iconRes == R.drawable.youtube_logo) Color.Unspecified else animatedColor,
+                    tint = if (iconRes == R.drawable.youtube_logo || iconRes == R.drawable.spotify) Color.Unspecified else animatedColor,
                     modifier = Modifier.size(32.dp)
                 )
             }
@@ -1473,7 +1481,7 @@ fun LibraryPinnedCollectionTile(
                 Icon(
                     painter = painterResource(iconRes),
                     contentDescription = null,
-                    tint = if (iconRes == R.drawable.spotify || iconRes == R.drawable.youtube_logo) Color.Unspecified else animatedColor,
+                    tint = if (iconRes == R.drawable.youtube_logo || iconRes == R.drawable.spotify) Color.Unspecified else animatedColor,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -1527,7 +1535,7 @@ fun PlaylistListItem(
                 stringResource(R.string.offline) -> R.drawable.offline
                 stringResource(R.string.cached_playlist) -> R.drawable.cached
                 stringResource(R.string.filter_local) -> R.drawable.folder
-                "Import Playlist", stringResource(R.string.import_playlist) -> R.drawable.spotify
+                "Import Playlist", stringResource(R.string.import_playlist) -> R.drawable.music_note
                 "Import YouTube" -> R.drawable.youtube_logo
                 else -> {
                     if (autoPlaylist) {
@@ -1549,7 +1557,7 @@ fun PlaylistListItem(
                     Icon(
                         painter = painterResource(painter),
                         contentDescription = null,
-                        tint = if (painter == R.drawable.spotify || painter == R.drawable.youtube_logo) Color.Unspecified else LocalContentColor.current,
+                        tint = if (painter == R.drawable.youtube_logo) Color.Unspecified else LocalContentColor.current,
                         modifier = Modifier
                             .size(ListThumbnailSize / 2)
                             .align(Alignment.Center)

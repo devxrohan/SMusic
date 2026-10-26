@@ -15,8 +15,6 @@ import com.devxrohan.smusic.constants.AlbumFilterKey
 import com.devxrohan.smusic.constants.AlbumSortDescendingKey
 import com.devxrohan.smusic.constants.AlbumSortType
 import com.devxrohan.smusic.constants.AlbumSortTypeKey
-import com.devxrohan.smusic.constants.ArtistFilter
-import com.devxrohan.smusic.constants.ArtistFilterKey
 import com.devxrohan.smusic.constants.ArtistSongSortDescendingKey
 import com.devxrohan.smusic.constants.ArtistSongSortType
 import com.devxrohan.smusic.constants.ArtistSongSortTypeKey
@@ -143,17 +141,11 @@ constructor(
     val allArtists =
         context.dataStore.data
             .map {
-                Triple(
-                    it[ArtistFilterKey].toEnum(ArtistFilter.LIKED),
-                    it[ArtistSortTypeKey].toEnum(ArtistSortType.CREATE_DATE),
-                    it[ArtistSortDescendingKey] ?: true,
-                )
+                it[ArtistSortTypeKey].toEnum(ArtistSortType.CREATE_DATE) to
+                    (it[ArtistSortDescendingKey] ?: true)
             }.distinctUntilChanged()
-            .flatMapLatest { (filter, sortType, descending) ->
-                when (filter) {
-                    ArtistFilter.LIBRARY -> database.artists(sortType, descending)
-                    ArtistFilter.LIKED -> database.artistsBookmarked(sortType, descending)
-                }
+            .flatMapLatest { (sortType, descending) ->
+                database.artistsBookmarked(sortType, descending)
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     fun sync() {

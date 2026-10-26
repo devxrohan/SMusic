@@ -65,6 +65,7 @@ import com.devxrohan.smusic.db.entities.Song
 import com.devxrohan.smusic.extensions.tryOrNull
 import com.devxrohan.smusic.ui.component.IconButton
 import com.devxrohan.smusic.ui.component.ListPreference
+import com.devxrohan.smusic.ui.component.SettingsPage
 import com.devxrohan.smusic.ui.utils.backToMain
 import com.devxrohan.smusic.ui.utils.formatFileSize
 import com.devxrohan.smusic.utils.rememberPreference
@@ -83,9 +84,9 @@ fun StorageSettings(
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
-    val imageDiskCache = context.imageLoader.diskCache ?: return
-    val playerCache = LocalPlayerConnection.current?.service?.playerCache ?: return
-    val downloadCache = LocalPlayerConnection.current?.service?.downloadCache ?: return
+    val imageDiskCache = context.imageLoader.diskCache
+    val playerCache = LocalPlayerConnection.current?.service?.playerCache
+    val downloadCache = LocalPlayerConnection.current?.service?.downloadCache
 
     val coroutineScope = rememberCoroutineScope()
     val (maxImageCacheSize, onMaxImageCacheSizeChange) = rememberPreference(
@@ -97,9 +98,9 @@ fun StorageSettings(
         defaultValue = -1
     )
 
-    var imageCacheSize by remember { mutableLongStateOf(imageDiskCache.size) }
-    var playerCacheSize by remember { mutableLongStateOf(tryOrNull { playerCache.cacheSpace } ?: 0) }
-    var downloadCacheSize by remember { mutableLongStateOf(tryOrNull { downloadCache.cacheSpace } ?: 0) }
+    var imageCacheSize by remember { mutableLongStateOf(imageDiskCache?.size ?: 0L) }
+    var playerCacheSize by remember { mutableLongStateOf(tryOrNull { playerCache?.cacheSpace } ?: 0) }
+    var downloadCacheSize by remember { mutableLongStateOf(tryOrNull { downloadCache?.cacheSpace } ?: 0) }
 
     val animatedImageCacheSize by animateFloatAsState(
         targetValue = if (maxImageCacheSize == -1) 0f
@@ -120,35 +121,37 @@ fun StorageSettings(
     var showCachedSongsSheet by remember { mutableStateOf(false) }
 
     fun currentUpdateFileSize(): Long =
-        context.getExternalFilesDir("updates")?.listFiles()?.sumOf { it.length() } ?: 0L
+        com.devxrohan.smusic.update.UpdateFiles.size(context)
 
     var updateFileSize by remember { mutableLongStateOf(currentUpdateFileSize()) }
 
     LaunchedEffect(imageDiskCache) {
         while (isActive) {
             delay(500)
-            imageCacheSize = imageDiskCache.size
+            imageCacheSize = imageDiskCache?.size ?: 0L
         }
     }
     LaunchedEffect(playerCache) {
         while (isActive) {
             delay(500)
-            playerCacheSize = tryOrNull { playerCache.cacheSpace } ?: 0
+            playerCacheSize = tryOrNull { playerCache?.cacheSpace } ?: 0
         }
     }
     LaunchedEffect(downloadCache) {
         while (isActive) {
             delay(500)
-            downloadCacheSize = tryOrNull { downloadCache.cacheSpace } ?: 0
+            downloadCacheSize = tryOrNull { downloadCache?.cacheSpace } ?: 0
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // Same layout as the other settings pages: own top bar + safe-area aware scrolling.
+    SettingsPage(
+        title = stringResource(R.string.storage),
+        navController = navController,
+        scrollBehavior = scrollBehavior,
+    ) {
         Column(
-            modifier = Modifier
-                .windowInsetsPadding(LocalPlayerAwareWindowInsets.current)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Descargas
@@ -161,7 +164,7 @@ fun StorageSettings(
                 onClearClick = {
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            downloadCache.keys.toList().forEach { key ->
+                            downloadCache?.keys?.toList()?.forEach { key ->
                                 tryOrNull { downloadCache.removeResource(key) }
                             }
                         } catch (e: Exception) {
@@ -182,7 +185,7 @@ fun StorageSettings(
                 onClearClick = {
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            playerCache.keys.toList().forEach { key ->
+                            playerCache?.keys?.toList()?.forEach { key ->
                                 tryOrNull { playerCache.removeResource(key) }
                             }
                         } catch (e: Exception) {
@@ -190,7 +193,7 @@ fun StorageSettings(
                         }
                     }
                 },
-                onManageClick = { showCachedSongsSheet = true },
+                onManageClick = if (playerCache != null) ({ showCachedSongsSheet = true }) else null,
                 extraContent = {
                     ListPreference(
                         title = { Text(stringResource(R.string.max_cache_size)) },
@@ -215,7 +218,7 @@ fun StorageSettings(
                 onClearClick = {
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            imageDiskCache.clear()
+                            imageDiskCache?.clear()
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
@@ -246,7 +249,7 @@ fun StorageSettings(
                     onClearClick = {
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
-                                context.getExternalFilesDir("updates")?.listFiles()?.forEach { it.delete() }
+                                com.devxrohan.smusic.update.UpdateFiles.clear(context)
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }
@@ -257,32 +260,10 @@ fun StorageSettings(
                 )
             }
         }
-
-        TopAppBar(
-            title = {
-                Text(
-                    stringResource(R.string.storage),
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleLarge
-                )
-            },
-            navigationIcon = {
-                IconButton(
-                    onClick = navController::navigateUp,
-                    onLongClick = navController::backToMain,
-                ) {
-                    Icon(
-                        painterResource(R.drawable.arrow_back),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            },
-        )
     }
 
     // Bottom Sheet para gestionar canciones en caché
-    if (showCachedSongsSheet) {
+    if (showCachedSongsSheet && playerCache != null) {
         CachedSongsBottomSheet(
             playerCache = playerCache,
             viewModel = viewModel,

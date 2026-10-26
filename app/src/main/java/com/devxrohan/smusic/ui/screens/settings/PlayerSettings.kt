@@ -61,6 +61,8 @@ import com.devxrohan.smusic.ui.component.SwitchPreference
 import com.devxrohan.smusic.ui.utils.backToMain
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
+import com.devxrohan.smusic.ui.menu.InAppAudioFxSheet
+import com.devxrohan.smusic.ui.menu.InAppEqualizerSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,6 +90,7 @@ fun PlayerSettings(
         AudioNormalizationKey,
         defaultValue = true
     )
+    val (autoMixBeta, onAutoMixBetaChange) = rememberPreference(AutoMixBetaKey, true)
     val (autoLoadMore, onAutoLoadMoreChange) = rememberPreference(
         AutoLoadMoreKey,
         defaultValue = true
@@ -110,6 +113,11 @@ fun PlayerSettings(
             PlayerScreenStyleKey,
             defaultValue = PlayerScreenStyle.CLASSIC,
         )
+    val (lyricsScreenStyle, onLyricsScreenStyleChange) =
+        rememberEnumPreference<LyricsScreenStyle>(
+            LyricsScreenStyleKey,
+            defaultValue = LyricsScreenStyle.LYRICS_2,
+        )
     val (colourfullPlayerColor, onColourfullPlayerColorChange) = rememberPreference(
         ColourfullPlayerColorKey,
         defaultValue = 0xFF4CAF50.toInt()
@@ -118,11 +126,9 @@ fun PlayerSettings(
         SliderStyleKey,
         defaultValue = SliderStyle.SQUIGGLY
     )
-    val (rotateBackground, onRotateBackgroundChange) = rememberPreference(
-        key = RotateBackgroundKey,
-        defaultValue = false
-    )
     var showSliderOptionDialog by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var showAudioFxStudio by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var showInAppEqualizer by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showColorPickerOptionDialog by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
 
     SettingsPage(
@@ -335,6 +341,22 @@ fun PlayerSettings(
         SettingsGeneralCategory(
             title = stringResource(R.string.player),
             items = listOf(
+                {
+                    PreferenceEntry(
+                        title = { Text(stringResource(R.string.ui_audio_fx_studio)) },
+                        description = stringResource(R.string.ui_bass_boost_spatial_widening_room_ambience),
+                        icon = { Icon(painterResource(R.drawable.equalizer), null) },
+                        onClick = { showAudioFxStudio = true },
+                    )
+                },
+                {
+                    PreferenceEntry(
+                        title = { Text(stringResource(R.string.ui_in_app_equalizer_2)) },
+                        description = stringResource(R.string.ui_adjust_equalizer_bands_supported_by_your),
+                        icon = { Icon(painterResource(R.drawable.equalizer), null) },
+                        onClick = { showInAppEqualizer = true },
+                    )
+                },
                 {EnumListPreference(
                     title = { Text(stringResource(R.string.audio_quality)) },
                     icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
@@ -371,14 +393,36 @@ fun PlayerSettings(
                     checked = audioNormalization,
                     onCheckedChange = onAudioNormalizationChange
                 )},
+
+                {SwitchPreference(
+                    title = { Text(stringResource(R.string.ui_automix_beta)) },
+                    description = stringResource(R.string.ui_adds_and_taste_ranks_related_tracks),
+                    icon = { Icon(painterResource(R.drawable.auto_awesome), null) },
+                    checked = autoMixBeta,
+                    onCheckedChange = onAutoMixBetaChange
+                )},
             )
         )
 
 
                 // Player Category
                 SettingsGeneralCategory(
-                    title = "Player Style",
+                    title = stringResource(R.string.ui_player_style),
                     items = listOf(
+                        {
+                            EnumListPreference(
+                                title = { Text(stringResource(R.string.ui_lyrics_display_style)) },
+                                icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                                selectedValue = lyricsScreenStyle,
+                                onValueSelected = onLyricsScreenStyleChange,
+                                valueText = {
+                                    when (it) {
+                                        LyricsScreenStyle.LYRICS_2 -> "Karaoke / synced lyrics"
+                                        LyricsScreenStyle.CLASSIC -> "Classic lyrics"
+                                    }
+                                },
+                            )
+                        },
                         {
                             EnumListPreference(
                                 title = { Text(stringResource(R.string.player_screen_style)) },
@@ -411,7 +455,7 @@ fun PlayerSettings(
                             {
                                 PreferenceEntry(
                                     title = { Text(stringResource(R.string.player_colour)) },
-                                    description = "Choose a custom background color",
+                                    description = stringResource(R.string.ui_choose_a_custom_background_color),
                                     icon = { Icon(painterResource(R.drawable.palette), null) },
                                     onClick = { showColorPickerOptionDialog = true }
                                 )
@@ -455,15 +499,6 @@ fun PlayerSettings(
                             }
                         ) else emptyArray()),
 
-                        {
-                            SwitchPreference(
-                                title = { Text(stringResource(R.string.Rotatelyricsbackground)) },
-                                description = null,
-                                icon = { Icon(painterResource(R.drawable.album), null) },
-                                checked = rotateBackground,
-                                onCheckedChange = onRotateBackgroundChange
-                            )
-                        },
                     )
                 )
 
@@ -488,7 +523,7 @@ fun PlayerSettings(
 
                 {SwitchPreference(
                     title = { Text(stringResource(R.string.enable_similar_content)) },
-                    description = stringResource(R.string.similar_content_desc),
+                    description = stringResource(R.string.ui_let_pulse_add_seed_aware_similar),
                     icon = { Icon(painterResource(R.drawable.similar), null) },
                     checked = similarContentEnabled,
                     onCheckedChange = similarContentEnabledChange,
@@ -516,4 +551,7 @@ fun PlayerSettings(
             )
         )
     }
+
+    if (showAudioFxStudio) InAppAudioFxSheet(onDismiss = { showAudioFxStudio = false })
+    if (showInAppEqualizer) InAppEqualizerSheet(onDismiss = { showInAppEqualizer = false })
 }

@@ -59,6 +59,7 @@ fun PrivacySettings(
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
     val database = LocalDatabase.current
+    val context = LocalContext.current
     val (pauseListenHistory, onPauseListenHistoryChange) = rememberPreference(
         key = PauseListenHistoryKey,
         defaultValue = false
@@ -71,7 +72,6 @@ fun PrivacySettings(
         key = com.devxrohan.smusic.constants.UseRotatingProxyKey,
         defaultValue = false
     )
-    val context = LocalContext.current
     val (enableUpdateNotifications, onEnableUpdateNotificationsChange) = rememberPreference(
         key = com.devxrohan.smusic.constants.EnableUpdateNotificationKey,
         defaultValue = true
@@ -175,6 +175,7 @@ fun PrivacySettings(
             onConfirm = {
                 showClearSearchHistoryDialog = false
                 database.query { clearSearchHistory() }
+                com.devxrohan.smusic.db.SearchHistoryScopeStore(context).clearAll()
             }
         )
     }

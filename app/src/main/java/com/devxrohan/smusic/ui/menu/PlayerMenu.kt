@@ -1,18 +1,16 @@
 package com.devxrohan.smusic.ui.menu
 
-import android.Manifest
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -134,7 +132,6 @@ fun PlayerMenu(
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val playerVolume = playerConnection.service.playerVolume.collectAsState()
-    val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
 
 
@@ -162,7 +159,7 @@ fun PlayerMenu(
                 insert(mediaMetadata)
             }
             coroutineScope.launch(Dispatchers.IO) {
-                playlist.playlist.browseId?.let { YouTube.addToPlaylist(it, mediaMetadata.id) }
+                playlist.playlist.browseId?.let { writeBackWithRetry { YouTube.addToPlaylist(it, mediaMetadata.id) } }
             }
             listOf(mediaMetadata.id)
         },
@@ -273,6 +270,7 @@ fun PlayerMenu(
     var isMuted by remember { mutableStateOf(false) }
     var previousVolume by remember { mutableFloatStateOf(playerVolume.value) }
     var showEqualizerSheet by rememberSaveable { mutableStateOf(false) }
+    var showAudioStudioSheet by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
@@ -425,106 +423,50 @@ fun PlayerMenu(
                     }
 
                     item {
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-
-                    item {
-                        val savingToastMsg = stringResource(R.string.saving_song)
-                        val savedToastMsg = stringResource(R.string.song_saved_successfully)
-                        val failedToastMsg = stringResource(R.string.song_save_failed)
-                        val permReqMsg = stringResource(R.string.storage_permission_required)
-
-                        val permissionLauncher = rememberLauncherForActivityResult(
-                            contract = ActivityResultContracts.RequestPermission()
-                        ) { isGranted ->
-                            if (isGranted) {
-                                Toast.makeText(context, savingToastMsg, Toast.LENGTH_SHORT).show()
-                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
-                                    com.devxrohan.smusic.utils.SaveToStorageUtil
-                                        .saveToMusicFolder(context, mediaMetadata)
-                                        .onSuccess {
-                                            launch(Dispatchers.Main) {
-                                                Toast.makeText(context, savedToastMsg, Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                        .onFailure { e ->
-                                            launch(Dispatchers.Main) {
-                                                Toast.makeText(context, "$failedToastMsg: ${e.message}", Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                }
-                                onDismiss()
-                            } else {
-                                Toast.makeText(context, permReqMsg, Toast.LENGTH_LONG).show()
-                            }
-                        }
-
                         androidx.compose.material3.ListItem(
-                            headlineContent = { Text(stringResource(R.string.save_to_local)) },
-                            leadingContent = { Icon(painterResource(R.drawable.save_to_storage), contentDescription = null) },
+                            headlineContent = { Text(stringResource(R.string.pulse_not_for_me)) },
+                            leadingContent = { Icon(painterResource(R.drawable.block), contentDescription = null) },
                             colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable {
-                                val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    true
-                                } else {
-                                    ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.WRITE_EXTERNAL_STORAGE
-                                    ) == PackageManager.PERMISSION_GRANTED
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    playerConnection.service.pulseEngine.onNotForMe(
+                                        mediaMetadata.id,
+                                        mediaMetadata.artists.mapNotNull { it.id },
+                                    )
                                 }
-
-                                if (hasPermission) {
-                                    Toast.makeText(context, savingToastMsg, Toast.LENGTH_SHORT).show()
-                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
-                                        com.devxrohan.smusic.utils.SaveToStorageUtil
-                                            .saveToMusicFolder(context, mediaMetadata)
-                                            .onSuccess {
-                                                launch(Dispatchers.Main) {
-                                                    Toast.makeText(context, savedToastMsg, Toast.LENGTH_LONG).show()
-                                                }
-                                            }
-                                            .onFailure { e ->
-                                                launch(Dispatchers.Main) {
-                                                    Toast.makeText(context, "$failedToastMsg: ${e.message}", Toast.LENGTH_LONG).show()
-                                                }
-                                            }
-                                    }
-                                    onDismiss()
-                                } else {
-                                    permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                                }
-                            }
+                                Toast.makeText(context, R.string.pulse_not_for_me_done, Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            },
                         )
                     }
 
                     item {
                         androidx.compose.material3.ListItem(
-                            headlineContent = {
-                                Text(
-                                    stringResource(
-                                        if (librarySong?.song?.inLibrary != null) R.string.remove_from_library else R.string.add_to_library
-                                    )
-                                )
-                            },
-                            leadingContent = {
-                                Icon(
-                                    painterResource(
-                                        if (librarySong?.song?.inLibrary != null) R.drawable.library_add_check else R.drawable.library_add
-                                    ),
-                                    contentDescription = null
-                                )
-                            },
+                            headlineContent = { Text(stringResource(R.string.save_to_local)) },
+                            leadingContent = { Icon(painterResource(R.drawable.save_to_storage), contentDescription = null) },
                             colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable {
-                                if (librarySong?.song?.inLibrary != null) {
-                                    database.query {
-                                        inLibrary(mediaMetadata.id, null)
-                                    }
-                                } else {
-                                    database.transaction {
-                                        insert(mediaMetadata)
-                                        inLibrary(mediaMetadata.id, LocalDateTime.now())
-                                    }
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    com.devxrohan.smusic.utils.SaveToStorageUtil
+                                        .saveToMusicFolder(context, mediaMetadata)
+                                        .onSuccess {
+                                            launch(Dispatchers.Main) {
+                                                Toast.makeText(
+                                                    context,
+                                                    R.string.song_saved_successfully,
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                        }
+                                        .onFailure { error ->
+                                            launch(Dispatchers.Main) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "${context.getString(R.string.song_save_failed)}: ${error.message}",
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                        }
                                 }
                                 onDismiss()
                             }
@@ -602,7 +544,17 @@ fun PlayerMenu(
 
                     item {
                         androidx.compose.material3.ListItem(
-                            headlineContent = { Text(stringResource(R.string.advanced)) },
+                            headlineContent = { Text(stringResource(R.string.ui_audio_fx_studio)) },
+                            supportingContent = { Text(stringResource(R.string.ui_bass_spatial_widening_room_ambience_and)) },
+                            leadingContent = { Icon(painterResource(R.drawable.equalizer), contentDescription = null) },
+                            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { showAudioStudioSheet = true }
+                        )
+                    }
+
+                    item {
+                        androidx.compose.material3.ListItem(
+                            headlineContent = { Text(stringResource(R.string.ui_dj_studio_tempo_amp_pitch)) },
                             leadingContent = { Icon(painterResource(R.drawable.tune), contentDescription = null) },
                             colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable {
@@ -613,11 +565,10 @@ fun PlayerMenu(
             }
 
         if (showEqualizerSheet) {
-            InAppEqualizerSheet(
-                onDismiss = {
-                    showEqualizerSheet = false
-                }
-            )
+            InAppEqualizerSheet(onDismiss = { showEqualizerSheet = false })
+        }
+        if (showAudioStudioSheet) {
+            InAppAudioFxSheet(onDismiss = { showAudioStudioSheet = false })
         }
 }
 
@@ -709,6 +660,159 @@ private fun PlayerMenuActionTile(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AudioFxStudioSheet(onDismiss: () -> Unit, onOpenEqualizer: () -> Unit) {
+    val connection = LocalPlayerConnection.current ?: return
+    val service = connection.service
+    val state by service.audioStudioState.collectAsState()
+    val context = LocalContext.current
+    val (crossfade, onCrossfadeChange) = com.devxrohan.smusic.utils.rememberPreference(
+        com.devxrohan.smusic.constants.CrossfadeDurationKey, 0
+    )
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val accent = Color(0xFFFF2A6D)
+    val panel = Color(0xFF191A20)
+    LaunchedEffect(Unit) { service.ensureAudioStudioEffects() }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Color(0xFF101116),
+        dragHandle = {
+            Box(Modifier.padding(top = 10.dp, bottom = 8.dp).width(36.dp).height(4.dp)
+                .background(Color(0xFF41434C), RoundedCornerShape(50)))
+        },
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF321522)).border(BorderStroke(1.dp, accent.copy(alpha = .38f)), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.equalizer), null, tint = accent, modifier = Modifier.size(25.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.ui_audio_fx_studio), color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(stringResource(R.string.ui_sound_space_transitions), color = Color(0xFF858895), fontSize = 9.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = {
+                    service.setAudioStudioEnabled(false)
+                    service.setAudioStudioBass(0)
+                    service.setAudioStudioSpace(0)
+                    service.setAudioStudioReverb(0)
+                    onCrossfadeChange(0)
+                }) { Text(stringResource(R.string.ui_reset), color = accent, fontWeight = FontWeight.Bold) }
+            }
+            Text(
+                if (state.available) "Effects are applied to the active playback session. Availability depends on Android and your device." else "Start playback to initialize the audio effects supported by your device.",
+                color = Color(0xFF9B9DA8), style = MaterialTheme.typography.bodySmall,
+            )
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(panel).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("MASTER", "SPACE", "TRANSITION").forEachIndexed { index, label ->
+                    Box(
+                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                            .background(if (selectedTab == index) accent.copy(alpha = .18f) else Color.Transparent)
+                            .clickable { selectedTab = index }.padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, color = if (selectedTab == index) accent else Color(0xFF9B9DA8), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = .5.sp)
+                    }
+                }
+            }
+            when (selectedTab) {
+                0 -> {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(panel).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.ui_studio_effects), color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.ui_enable_the_active_effect_chain), color = Color(0xFF9B9DA8), style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = state.enabled, enabled = state.available, onCheckedChange = service::setAudioStudioEnabled,
+                            colors = androidx.compose.material3.SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accent))
+                    }
+                    AudioFxControlCard(title = stringResource(R.string.ui_bass_boost), value = state.bassStrength.toFloat(), valueLabel = "${state.bassStrength / 10}%", enabled = state.available && state.bassSupported && state.enabled, onValueChange = { service.setAudioStudioBass(it.toInt()) }, accent = accent) 
+                    Text(stringResource(R.string.ui_in_app_equalizer), color = Color(0xFF858895), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                    Text(stringResource(R.string.ui_open_the_multi_band_equalizer_to), color = Color(0xFF9B9DA8), style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = onOpenEqualizer, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, accent.copy(alpha = .45f))) {
+                        Text(stringResource(R.string.ui_open_in_app_equalizer), color = Color.White)
+                    }
+                }
+                1 -> {
+                    AudioFxControlCard(title = stringResource(R.string.ui_spatial_widening), value = state.spaceStrength.toFloat(), valueLabel = "${state.spaceStrength / 10}%", enabled = state.available && state.spaceSupported && state.enabled, onValueChange = { service.setAudioStudioSpace(it.toInt()) }, accent = accent)
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(stringResource(R.string.ui_room_ambience), color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_choose_the_size_and_character_of), color = Color(0xFF9B9DA8), style = MaterialTheme.typography.bodySmall)
+                        val reverbNames = listOf("Off", "Small room", "Medium room", "Large room", "Medium hall", "Large hall", "Plate")
+                        androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(reverbNames.size) { index ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = state.reverbPreset == index,
+                                    onClick = { service.setAudioStudioReverb(index) },
+                                    enabled = state.available && state.reverbSupported && state.enabled,
+                                    label = { Text(reverbNames[index]) },
+                                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(selectedContainerColor = accent.copy(alpha = .22f), selectedLabelColor = Color.White),
+                                )
+                            }
+                        }
+                    }
+                    OutlinedButton(onClick = {
+                        runCatching { context.startActivity(Intent(Settings.ACTION_SOUND_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                            .onFailure { runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+                    }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, accent.copy(alpha = .45f))) {
+                        Text(stringResource(R.string.ui_open_device_sound_atmos_settings), color = Color.White)
+                    }
+                }
+                else -> {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(stringResource(R.string.ui_track_transition_fade), color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_fade_out_the_ending_of_a), color = Color(0xFF9B9DA8), style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(0, 2, 4, 6, 8).forEach { seconds ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = crossfade == seconds,
+                                    onClick = { onCrossfadeChange(seconds) },
+                                    label = { Text(if (seconds == 0) "Off" else "${seconds}s") },
+                                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(selectedContainerColor = accent.copy(alpha = .22f), selectedLabelColor = Color.White),
+                                )
+                            }
+                        }
+                    }
+                    Text(stringResource(R.string.ui_transition_fade_is_a_track_boundary), color = Color(0xFF858895), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioFxControlCard(
+    title: String,
+    value: Float,
+    valueLabel: String,
+    enabled: Boolean,
+    onValueChange: (Float) -> Unit,
+    accent: Color,
+) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0xFF191A20)).padding(horizontal = 16.dp, vertical = 15.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(valueLabel, color = accent, fontWeight = FontWeight.Bold)
+        }
+        Slider(
+            value = value.coerceIn(0f, 1000f),
+            onValueChange = onValueChange,
+            valueRange = 0f..1000f,
+            enabled = enabled,
+            colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent, inactiveTrackColor = Color(0xFF3A3B44)),
+        )
     }
 }
 

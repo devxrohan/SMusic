@@ -49,8 +49,12 @@ fun ArtistMenu(
         trailingContent = {
             IconButton(
                 onClick = {
+                    val subscribe = artist.artist.bookmarkedAt == null
                     database.transaction {
                         update(artist.artist.toggleLike())
+                    }
+                    coroutineScope.launch(Dispatchers.IO) {
+                        playerConnection.service.pulseEngine.onArtistSubscription(artist.id, subscribe)
                     }
                 },
             ) {

@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.ui.menu
 
+import com.devxrohan.smusic.utils.writeBackWithRetry
 import android.content.Intent
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -139,7 +140,7 @@ fun PlaylistMenu(
                     )
                 }
                 coroutineScope.launch(Dispatchers.IO) {
-                    playlist.playlist.browseId?.let { YouTube.renamePlaylist(it, name) }
+                    playlist.playlist.browseId?.let { writeBackWithRetry { YouTube.renamePlaylist(it, name) } }
                 }
             },
         )
@@ -228,7 +229,7 @@ fun PlaylistMenu(
                         }
 
                         coroutineScope.launch(Dispatchers.IO) {
-                            playlist.playlist.browseId?.let { YouTube.deletePlaylist(it) }
+                            playlist.playlist.browseId?.let { writeBackWithRetry { YouTube.deletePlaylist(it) } }
                         }
                     }
                 ) {
@@ -248,7 +249,7 @@ fun PlaylistMenu(
             coroutineScope.launch(Dispatchers.IO) {
                 // add songs to playlist and push to ytm
                 playlist.playlist.browseId?.let { playlistId ->
-                    YouTube.addPlaylistToPlaylist(playlistId, playlist.id)
+                    writeBackWithRetry { YouTube.addPlaylistToPlaylist(playlistId, playlist.id) }
                 }
             }
             songs.map { it.id }
@@ -391,49 +392,7 @@ fun PlaylistMenu(
         }
 
         if (songs.isNotEmpty()) {
-            GridMenuItem(
-                icon = R.drawable.save_to_storage,
-                title = R.string.save_playlist_to_storage,
-            ) {
-                val hasPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    true
-                } else {
-                    androidx.core.content.ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-
-                if (hasPermission) {
-                    val savingToastMsg = context.getString(R.string.saving_playlist_to_storage, playlist.playlist.name)
-                    val playlistName = playlist.playlist.name
-                    android.widget.Toast.makeText(context, savingToastMsg, android.widget.Toast.LENGTH_SHORT).show()
-                    coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        com.devxrohan.smusic.utils.SaveToStorageUtil
-                            .savePlaylistToMusicFolder(context, playlistName, songs.map { it.toMediaMetadata() })
-                            .onSuccess { count ->
-                                launch(kotlinx.coroutines.Dispatchers.Main) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Saved $count songs to Music/SMusic/$playlistName",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            }
-                            .onFailure { e ->
-                                launch(kotlinx.coroutines.Dispatchers.Main) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Save failed: ${e.message}",
-                                        android.widget.Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            }
                     }
-                    onDismiss()
-                }
-            }
-        }
 
         if (autoPlaylist != true) {
             GridMenuItem(

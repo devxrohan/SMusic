@@ -23,6 +23,11 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "se
 // Cache for DataStore values to avoid blocking calls
 @PublishedApi internal val dataStoreCache = mutableMapOf<String, Any?>()
 
+/** Invalidates cached preferences after security/session changes so removed credentials cannot be resurrected. */
+internal fun invalidateDataStoreCache(vararg keys: Preferences.Key<*>) {
+    keys.forEach { dataStoreCache[it.name] = null }
+}
+
 operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? {
     val cacheKey = key.name
     @Suppress("UNCHECKED_CAST")

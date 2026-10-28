@@ -13,8 +13,15 @@ import com.devxrohan.smusic.db.entities.PlaylistEntity
 import com.devxrohan.smusic.db.entities.PlaylistSongMap
 import com.devxrohan.smusic.db.entities.SongEntity
 import com.devxrohan.smusic.models.toMediaMetadata
+import android.content.Context
+import com.devxrohan.smusic.constants.InnerTubeCookieKey
+import com.devxrohan.smusic.innertube.utils.parseCookieString
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,14 +30,39 @@ import javax.inject.Singleton
 @Singleton
 class SyncUtils @Inject constructor(
     val database: MusicDatabase,
+    @ApplicationContext private val context: Context,
 ) {
-    suspend fun syncLikedSongs() {
+    private suspend fun withAccountSync(block: suspend () -> Unit) {
+        AccountSyncGate.mutex.withLock {
+            val cookie = context.dataStore.data.first()[InnerTubeCookieKey].orEmpty()
+            if ("SAPISID" !in parseCookieString(cookie)) return@withLock
+            block()
+        }
+    }
+
+    /** Pull everything from the connected account into the one local profile. Never deletes local-only data. */
+    suspend fun syncAll() {
+        syncLikedSongs(); syncLibrarySongs(); syncLikedAlbums(); syncArtistsSubscriptions(); syncSavedPlaylists()
+    }
+
+    private suspend fun seen(key: Preferences.Key<String>): Set<String> =
+        context.dataStore.data.first()[key].orEmpty().lines().filter(String::isNotBlank).toSet()
+
+    private suspend fun remember(key: Preferences.Key<String>, ids: Collection<String>) {
+        context.dataStore.edit { it[key] = ids.joinToString("\n") }
+    }
+
+    suspend fun syncLikedSongs() = withAccountSync {
         YouTube.playlist("LM").completed().onSuccess { page ->
             val songs = page.songs.reversed()
 
+            val remoteIds = songs.map(SongItem::id).toSet()
+            // Only undo likes that were removed on YouTube since the last sync; local-only likes stay.
+            val removedRemotely = seen(RemoteSeenLikedSongsKey) - remoteIds
             database.likedSongsByNameAsc().first()
-                .filterNot { it.id in songs.map(SongItem::id) }
+                .filter { it.id in removedRemotely }
                 .forEach { database.update(it.song.localToggleLike()) }
+            remember(RemoteSeenLikedSongsKey, remoteIds)
 
             songs.forEach { song ->
                 val dbSong = database.song(song.id).firstOrNull()
@@ -44,13 +76,16 @@ class SyncUtils @Inject constructor(
         }
     }
 
-    suspend fun syncLibrarySongs() {
+    suspend fun syncLibrarySongs() = withAccountSync {
         YouTube.library("FEmusic_liked_videos").completedLibraryPage().onSuccess { page ->
             val songs = page.items.filterIsInstance<SongItem>().reversed()
 
+            val remoteIds = songs.map(SongItem::id).toSet()
+            val removedRemotely = seen(RemoteSeenLibrarySongsKey) - remoteIds
             database.songsByNameAsc().first()
-                .filterNot { it.id in songs.map(SongItem::id) }
+                .filter { it.id in removedRemotely && it.song.inLibrary != null }
                 .forEach { database.update(it.song.toggleLibrary()) }
+            remember(RemoteSeenLibrarySongsKey, remoteIds)
 
             songs.forEach { song ->
                 val dbSong = database.song(song.id).firstOrNull()
@@ -64,13 +99,16 @@ class SyncUtils @Inject constructor(
         }
     }
 
-    suspend fun syncLikedAlbums() {
+    suspend fun syncLikedAlbums() = withAccountSync {
         YouTube.library("FEmusic_liked_albums").completedLibraryPage().onSuccess { page ->
             val albums = page.items.filterIsInstance<AlbumItem>().reversed()
 
+            val remoteIds = albums.map(AlbumItem::id).toSet()
+            val removedRemotely = seen(RemoteSeenLikedAlbumsKey) - remoteIds
             database.albumsLikedByNameAsc().first()
-                .filterNot { it.id in albums.map(AlbumItem::id) }
+                .filter { it.id in removedRemotely }
                 .forEach { database.update(it.album.localToggleLike()) }
+            remember(RemoteSeenLikedAlbumsKey, remoteIds)
 
             albums.forEach { album ->
                 val dbAlbum = database.album(album.id).firstOrNull()
@@ -90,13 +128,16 @@ class SyncUtils @Inject constructor(
         }
     }
 
-    suspend fun syncArtistsSubscriptions() {
+    suspend fun syncArtistsSubscriptions() = withAccountSync {
         YouTube.library("FEmusic_library_corpus_artists").completedLibraryPage().onSuccess { page ->
             val artists = page.items.filterIsInstance<ArtistItem>()
 
+            val remoteIds = artists.map(ArtistItem::id).toSet()
+            val removedRemotely = seen(RemoteSeenArtistsKey) - remoteIds
             database.artistsBookmarkedByNameAsc().first()
-                .filterNot { it.id in artists.map(ArtistItem::id) }
+                .filter { it.id in removedRemotely }
                 .forEach { database.update(it.artist.localToggleLike()) }
+            remember(RemoteSeenArtistsKey, remoteIds)
 
             artists.forEach { artist ->
                 val dbArtist = database.artist(artist.id).firstOrNull()
@@ -121,7 +162,7 @@ class SyncUtils @Inject constructor(
         }
     }
 
-    suspend fun syncSavedPlaylists() {
+    suspend fun syncSavedPlaylists() = withAccountSync {
         YouTube.library("FEmusic_liked_playlists").completedLibraryPage()
             .onSuccess { page ->
                 val playlistList = page.items.filterIsInstance<PlaylistItem>()
@@ -136,9 +177,11 @@ class SyncUtils @Inject constructor(
                 // silently creating a duplicate on every sync.
                 fun normalizeBrowseId(id: String?) = id?.removePrefix("VL")
 
-                dbPlaylists.filterNot { normalizeBrowseId(it.playlist.browseId) in playlistList.map(PlaylistItem::id) }
-                    .filterNot { it.playlist.browseId == null }
+                val remoteIds = playlistList.map(PlaylistItem::id).toSet()
+                val removedRemotely = seen(RemoteSeenPlaylistsKey) - remoteIds
+                dbPlaylists.filter { normalizeBrowseId(it.playlist.browseId) in removedRemotely && it.playlist.bookmarkedAt != null }
                     .forEach { database.update(it.playlist.localToggleLike()) }
+                remember(RemoteSeenPlaylistsKey, remoteIds)
 
                 playlistList.onEach { playlist ->
                     var playlistEntity = dbPlaylists.find { playlist.id == normalizeBrowseId(it.playlist.browseId) }?.playlist

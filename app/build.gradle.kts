@@ -25,7 +25,7 @@ val statsBaseUrl = localProperties.getProperty("stats.base.url") ?: ""
 val authBaseUrl = localProperties.getProperty("auth.api.base.url") ?: ""
 val discordApplicationId = localProperties.getProperty("discord.application.id") ?: ""
 val updateManifestUrl = localProperties.getProperty("update.manifest.url") ?: ""
-val githubRepo = localProperties.getProperty("github.repo") ?: ""
+val githubRepo = localProperties.getProperty("github.repo") ?: "devxrohan/SMusic"
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {

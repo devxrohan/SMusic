@@ -49,11 +49,11 @@
     <application
         android:name=".App"
         android:allowBackup="true"
-        android:backupAgent=".utils.SMusicBackupAgent"
         android:appCategory="audio"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
+        android:restoreAnyVersion="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="false"
@@ -61,14 +61,14 @@
         tools:targetApi="tiramisu">
 
 
-        <!-- Relaunches the app after a restore; runs in its own process so it outlives the main one. -->
+
         <activity
             android:name=".utils.RestartActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:process=":restart"
             android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@style/Theme.SMusic.Splash" />
 
         <receiver
             android:name=".MusicWidget"

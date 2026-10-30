@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <include domain="file" path="smusic_backup.backup" />
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="." />
+    <exclude domain="file" path="cache" />
+    <exclude domain="file" path="code_cache" />
+    <exclude domain="file" path="no_backup" />
+    <exclude domain="file" path="pending_restore" />
+    <exclude domain="file" path="exoplayer" />
+    <exclude domain="file" path="download" />
+    <exclude domain="file" path="update_cache" />
 </full-backup-content>

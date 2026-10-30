@@ -57,7 +57,17 @@ object TTMLParser {
         
         try {
             val factory = DocumentBuilderFactory.newInstance()
-            factory.isNamespaceAware = true
+            // Keep qualified names intact like BitChord's TTML reader. Android's
+            // Expat DOM can expose prefixed attributes differently when namespace
+            // processing is enabled, so all reads below also match attribute suffixes.
+            factory.isNamespaceAware = false
+            // Lyrics are third-party input; disable external entities where the
+            // platform parser supports these features (Android varies by feature).
+            runCatching { factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+            runCatching { factory.setFeature("http://xml.org/sax/features/external-general-entities", false) }
+            runCatching { factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
+            runCatching { factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true) }
+            runCatching { factory.isExpandEntityReferences = false }
             val builder = factory.newDocumentBuilder()
             val doc = builder.parse(ttml.byteInputStream())
             val timingContext = readTimingContext(doc.documentElement)
@@ -461,7 +471,46 @@ object TTMLParser {
             return emptyList()
         }
         
+        // TTML from lrc.red can also contain plain, unsynchronised lyrics
+        // (lrc:timing="None"). Those <p> nodes have no begin/end attributes,
+        // so the timed parser above intentionally skips them. Keep their text
+        // instead of returning an empty list and letting the UI show raw XML or
+        // a false "Lyrics not found" state.
+        if (lines.isEmpty()) {
+            val plainLines = parseUntimedParagraphs(ttml)
+            if (plainLines.isNotEmpty()) return plainLines
+        }
+
         return lines.sortedBy { it.startTime }
+    }
+
+    private fun parseUntimedParagraphs(ttml: String): List<ParsedLine> {
+        val paragraphRegex = Regex("(?is)<p\\b[^>]*>(.*?)</p\\s*>")
+        val tagRegex = Regex("(?is)<[^>]+>")
+        val result = mutableListOf<ParsedLine>()
+        paragraphRegex.findAll(ttml).forEach { match ->
+            val rawText = match.groupValues[1]
+                .replace(Regex("(?i)<br\\s*/?>"), " ")
+                .replace(tagRegex, "")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            if (rawText.isNotEmpty()) {
+                result += ParsedLine(
+                    text = rawText,
+                    startTime = -1.0,
+                    endTime = -1.0,
+                    words = emptyList(),
+                    isBackground = false,
+                    agent = null,
+                )
+            }
+        }
+        return result
     }
     
     /**

@@ -446,27 +446,23 @@ fun PlayerMenu(
                             leadingContent = { Icon(painterResource(R.drawable.save_to_storage), contentDescription = null) },
                             colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable {
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    com.devxrohan.smusic.utils.SaveToStorageUtil
-                                        .saveToMusicFolder(context, mediaMetadata)
-                                        .onSuccess {
-                                            launch(Dispatchers.Main) {
-                                                Toast.makeText(
-                                                    context,
-                                                    R.string.song_saved_successfully,
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
-                                            }
-                                        }
-                                        .onFailure { error ->
-                                            launch(Dispatchers.Main) {
-                                                Toast.makeText(
-                                                    context,
-                                                    "${context.getString(R.string.song_save_failed)}: ${error.message}",
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
-                                            }
-                                        }
+                                com.devxrohan.smusic.utils.SaveToStorageUtil.saveToMusicFolderInBackground(
+                                    context,
+                                    mediaMetadata,
+                                ) { result ->
+                                    result.onSuccess {
+                                        Toast.makeText(
+                                            context.applicationContext,
+                                            R.string.song_saved_successfully,
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }.onFailure { error ->
+                                        Toast.makeText(
+                                            context.applicationContext,
+                                            "${context.applicationContext.getString(R.string.song_save_failed)}: ${error.message}",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
                                 }
                                 onDismiss()
                             }

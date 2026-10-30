@@ -123,19 +123,15 @@ fun SongMenu(
     ) { isGranted: Boolean ->
         if (isGranted) {
             Toast.makeText(context, savingToastMsg, Toast.LENGTH_SHORT).show()
-            coroutineScope.launch(Dispatchers.IO) {
-                com.devxrohan.smusic.utils.SaveToStorageUtil
-                    .saveToMusicFolder(context, song.toMediaMetadata())
-                    .onSuccess {
-                        launch(Dispatchers.Main) {
-                            Toast.makeText(context, savedToastMsg, Toast.LENGTH_LONG).show()
-                        }
-                    }
-                    .onFailure { e ->
-                        launch(Dispatchers.Main) {
-                            Toast.makeText(context, "$failedToastMsg: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
-                    }
+            com.devxrohan.smusic.utils.SaveToStorageUtil.saveToMusicFolderInBackground(
+                context,
+                song.toMediaMetadata(),
+            ) { result ->
+                result.onSuccess {
+                    Toast.makeText(context.applicationContext, savedToastMsg, Toast.LENGTH_LONG).show()
+                }.onFailure { e ->
+                    Toast.makeText(context.applicationContext, "$failedToastMsg: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
             onDismiss()
         } else {
@@ -661,19 +657,15 @@ fun SongMenu(
 
                     if (hasPermission) {
                         Toast.makeText(context, savingToastMsg, Toast.LENGTH_SHORT).show()
-                        coroutineScope.launch(Dispatchers.IO) {
-                            com.devxrohan.smusic.utils.SaveToStorageUtil
-                                .saveToMusicFolder(context, song.toMediaMetadata())
-                                .onSuccess {
-                                    launch(Dispatchers.Main) {
-                                        Toast.makeText(context, savedToastMsg, Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                                .onFailure { e ->
-                                    launch(Dispatchers.Main) {
-                                        Toast.makeText(context, "$failedToastMsg: ${e.message}", Toast.LENGTH_LONG).show()
-                                    }
-                                }
+                        com.devxrohan.smusic.utils.SaveToStorageUtil.saveToMusicFolderInBackground(
+                            context,
+                            song.toMediaMetadata(),
+                        ) { result ->
+                            result.onSuccess {
+                                Toast.makeText(context.applicationContext, savedToastMsg, Toast.LENGTH_LONG).show()
+                            }.onFailure { e ->
+                                Toast.makeText(context.applicationContext, "$failedToastMsg: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
                         }
                         onDismiss()
                     } else {

@@ -14,7 +14,10 @@ import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.AudioQuality
 import com.devxrohan.smusic.innertube.YouTube
 import com.devxrohan.smusic.models.MediaMetadata
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -27,6 +30,9 @@ object SaveToStorageUtil {
     private const val TAG = "SaveToStorageUtil"
     private const val CHANNEL_ID = "smusic_storage_downloads"
     private const val CHANNEL_NAME = "Storage Downloads"
+
+    // Downloads must outlive Compose bottom sheets/menus, which are dismissed immediately.
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val httpClient = OkHttpClient.Builder()
         .proxy(YouTube.proxy)
@@ -138,6 +144,26 @@ object SaveToStorageUtil {
                 }
             }
             savedCount
+        }
+    }
+
+    /**
+     * Starts a device-storage download in an application-owned scope. Unlike a
+     * rememberCoroutineScope() from a menu/bottom sheet, this job is not cancelled
+     * when the composable is dismissed after the user taps "Save to device".
+     * The callback is always delivered on the main thread.
+     */
+    fun saveToMusicFolderInBackground(
+        context: Context,
+        mediaMetadata: MediaMetadata,
+        onResult: (Result<String>) -> Unit = {},
+    ) {
+        val appContext = context.applicationContext
+        backgroundScope.launch {
+            val result = saveToMusicFolder(appContext, mediaMetadata)
+            withContext(Dispatchers.Main.immediate) {
+                onResult(result)
+            }
         }
     }
 

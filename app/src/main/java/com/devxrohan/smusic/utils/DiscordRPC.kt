@@ -7,7 +7,7 @@ import com.devxrohan.smusic.discordrpc.rpc.DiscordRpcClient
 import com.devxrohan.smusic.discordrpc.rpc.RpcImage
 
 /**
- * Discord Rich Presence, same flow as AirBeats: song title/artist, cover art (via the RPC image proxy),
+ * Discord Rich Presence: song title/artist, cover art (via the RPC image proxy),
  * progress, and two buttons. Covers + buttons only render when the activity carries a Discord
  * application id, so set `discord.application.id=<your app id>` in local.properties (free: Discord
  * Developer Portal > New Application, name it SMusic, copy the Application ID).
@@ -63,7 +63,7 @@ class DiscordRPC(
     companion object {
         // Your own Discord application ID (free, Discord Developer Portal). Set `discord.application.id`
         // in local.properties. Covers + buttons need it: Discord only resolves external images and
-        // shows buttons for activities that carry an application id (this is how AirBeats does it).
+        // shows buttons for activities that carry an application id.
         private val APPLICATION_ID: String? = com.devxrohan.smusic.BuildConfig.DISCORD_APPLICATION_ID.ifBlank { null }
         private const val WEBSITE_URL = "https://github.com/devxrohan/SMusic"
     }

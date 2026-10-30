@@ -26,10 +26,16 @@ class RestartActivity : Activity() {
             intent.getParcelableExtra(AppBackup.EXTRA_RELAUNCH_INTENT)
         }
         val oldPid = intent.getIntExtra(AppBackup.EXTRA_OLD_PID, -1)
-        if (oldPid > 0 && oldPid != Process.myPid()) runCatching { Process.killProcess(oldPid) }
+        // Start the real launcher first so its SplashScreen is the only visible transition.
+        // The previous implementation killed the main process before the new activity was safely
+        // attached, which could leave a transient black window or trigger repeated restarts.
         if (relaunch != null) runCatching { startActivity(relaunch) }
         finish()
         overridePendingTransition(0, 0)
-        Runtime.getRuntime().exit(0)
+        if (oldPid > 0 && oldPid != Process.myPid()) {
+            android.os.Handler(mainLooper).postDelayed({
+                runCatching { Process.killProcess(oldPid) }
+            }, 250L)
+        }
     }
 }

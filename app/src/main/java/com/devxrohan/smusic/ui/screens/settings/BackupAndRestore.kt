@@ -284,7 +284,7 @@ fun BackupAndRestore(
         scrollBehavior = scrollBehavior,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Android OS / device backup (same options as AirBeats)
+        // Android OS backup. Android restores the real app data automatically during reinstall, before MainActivity.
         SettingsGeneralCategory(
             title = stringResource(R.string.android_os_backup_category),
             items = listOf(
@@ -298,33 +298,6 @@ fun BackupAndRestore(
                     },
                     isEnabled = !isBackingUp && !isRestoring,
                     onClick = { viewModel.backupNow(context) }
-                )},
-                {PreferenceEntry(
-                    title = { Text(stringResource(R.string.backup_restore_action)) },
-                    icon = { Icon(painterResource(R.drawable.restore), null) },
-                    description = stringResource(R.string.android_os_backup_subtitle),
-                    isEnabled = !isBackingUp && !isRestoring,
-                    onClick = { showRestoreConfirmDialog = true }
-                )},
-                {PreferenceEntry(
-                    title = { Text(stringResource(R.string.backup_delete_action)) },
-                    icon = { Icon(painterResource(R.drawable.delete), null) },
-                    description = stringResource(R.string.backup_delete_confirm_desc),
-                    isEnabled = !isBackingUp && !isRestoring,
-                    onClick = { showDeleteConfirmDialog = true }
-                )},
-                {PreferenceEntry(
-                    title = { Text(stringResource(R.string.backup_device_settings)) },
-                    icon = { Icon(painterResource(R.drawable.info), null) },
-                    description = stringResource(R.string.backup_scope_title) + ": " + listOf(
-                        R.string.backup_item_playlists,
-                        R.string.backup_item_stats,
-                        R.string.backup_item_library,
-                        R.string.backup_item_profile,
-                        R.string.backup_item_covers,
-                        R.string.backup_item_settings,
-                    ).joinToString(" • ") { context.getString(it) },
-                    onClick = { viewModel.openDeviceBackupSettings(context) }
                 )}
             )
         )
@@ -347,13 +320,16 @@ fun BackupAndRestore(
                     icon = { Icon(painterResource(R.drawable.backup), null) },
                     description = stringResource(R.string.backup_storage_now_desc),
                     onClick = {
-                        if (!AutoBackupManager.hasStoragePermission(context)) requestStorageAccess()
-                        viewModel.backupToStorageNow(context) { success ->
+                        if (!AutoBackupManager.hasStoragePermission(context)) {
+                            requestStorageAccess()
+                        } else {
+                            viewModel.backupToStorageNow(context) { success ->
                             Toast.makeText(
                                 context,
                                 if (success) R.string.backup_storage_saved else R.string.backup_storage_failed,
                                 Toast.LENGTH_SHORT
                             ).show()
+                            }
                         }
                     }
                 )},

@@ -5,8 +5,6 @@
 
 package com.devxrohan.smusic.utils
 
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import com.devxrohan.smusic.db.InternalDatabase
@@ -276,10 +274,8 @@ object AppBackup {
 
     const val EXTRA_RELAUNCH_INTENT = "smusic.relaunch_intent"
     const val EXTRA_OLD_PID = "smusic.old_pid"
-    private const val RESTART_FALLBACK_REQUEST = 24601
-    private const val RESTART_FALLBACK_DELAY_MS = 6_000L
 
-    /** True inside the helper process that [RestartActivity] runs in; the app must not initialise itself there. */
+    /** True inside the helper process used only for a manual restore relaunch. */
     fun isRestartProcess(): Boolean = runCatching {
         val name = if (android.os.Build.VERSION.SDK_INT >= 28) {
             android.app.Application.getProcessName()
@@ -294,51 +290,23 @@ object AppBackup {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
 
-    /**
-     * Relaunches SMusic and ends this process, so a staged restore is applied on the next start.
-     * The launch goes through a helper activity in a separate process (the "process phoenix" pattern): it survives the
-     * death of this process and is allowed to start the launcher activity, so the app comes straight back instead of
-     * just closing. An alarm is scheduled as a last-resort fallback and cancelled as soon as the new process starts.
-     */
+    /** Relaunches only for an explicit manual restore. Android OS restore never calls this. */
     fun restartApp(context: Context) {
         runCatching { context.stopService(Intent(context, MusicService::class.java)) }
-
-        val launch = launchIntent(context)
-        if (launch != null) {
-            runCatching {
-                val pending = PendingIntent.getActivity(
-                    context, RESTART_FALLBACK_REQUEST, launch,
-                    PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-                (context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager)
-                    ?.set(AlarmManager.RTC, System.currentTimeMillis() + RESTART_FALLBACK_DELAY_MS, pending)
-            }
-            val phoenix = Intent(context, RestartActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
-                putExtra(EXTRA_RELAUNCH_INTENT, launch)
-                putExtra(EXTRA_OLD_PID, android.os.Process.myPid())
-            }
-            val started = runCatching { context.startActivity(phoenix) }.isSuccess
-            if (!started) runCatching { context.startActivity(launch) }
+        val launch = launchIntent(context) ?: return
+        val phoenix = Intent(context, RestartActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+            putExtra(EXTRA_RELAUNCH_INTENT, launch)
+            putExtra(EXTRA_OLD_PID, android.os.Process.myPid())
         }
-        // Give the activity manager a moment to take the start request, then end this process.
-        runCatching { Thread.sleep(200) }
+        val started = runCatching { context.startActivity(phoenix) }.isSuccess
+        if (!started) runCatching { context.startActivity(launch) }
+        runCatching { Thread.sleep(150) }
         android.os.Process.killProcess(android.os.Process.myPid())
         exitProcess(0)
     }
 
-    /** Called when the app starts: the relaunch worked, so the fallback alarm is no longer needed. */
-    fun cancelRestartFallback(context: Context) {
-        runCatching {
-            val launch = launchIntent(context) ?: return
-            val pending = PendingIntent.getActivity(
-                context, RESTART_FALLBACK_REQUEST, launch,
-                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-            ) ?: return
-            (context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager)?.cancel(pending)
-            pending.cancel()
-        }
-    }
+    fun cancelRestartFallback(context: Context) = Unit
 
     // ───────────────────────────── helpers ─────────────────────────────
 

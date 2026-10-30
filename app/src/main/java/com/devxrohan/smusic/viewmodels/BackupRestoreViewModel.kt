@@ -48,7 +48,7 @@ import kotlin.system.exitProcess
 class BackupRestoreViewModel @Inject constructor(
     val database: MusicDatabase,
 ) : ViewModel() {
-    // ───────────── device / OS backup state (same options as AirBeats) ─────────────
+    // ───────────── device / OS backup state ─────────────
 
     private val _lastOsBackupTime = MutableStateFlow(0L)
     val lastOsBackupTime: StateFlow<Long> = _lastOsBackupTime.asStateFlow()
@@ -85,8 +85,11 @@ class BackupRestoreViewModel @Inject constructor(
 
     fun restoreFromStorageNow(context: Context, onResult: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            val success = AutoBackupManager.restoreFromStorageBackup(context, shouldRestart = true)
-            withContext(Dispatchers.Main) { onResult(success) }
+            val success = AutoBackupManager.restoreFromStorageBackup(context, shouldRestart = false)
+            withContext(Dispatchers.Main) {
+                onResult(success)
+                if (success) closeAppAfterRestore(context)
+            }
         }
     }
 
@@ -104,13 +107,21 @@ class BackupRestoreViewModel @Inject constructor(
             try {
                 val success = AutoBackupManager.createAutoBackup(context, database, notifyBackupManager = true)
                 if (success) {
+                    val storageSaved = if (AutoBackupManager.hasStoragePermission(context)) {
+                        AutoBackupManager.saveBackupToStorage(context, database)
+                    } else {
+                        false
+                    }
                     val cloudSuccess = AutoBackupManager.uploadToCloud(context, AutoBackupManager.getAutoBackupFile(context))
                     _lastOsBackupTime.value = System.currentTimeMillis()
                     updateBackupSize(context)
                     withContext(Dispatchers.Main) {
+                        if (!storageSaved && AutoBackupManager.isAutoBackupToStorageEnabled(context)) {
+                            AutoBackupManager.requestStoragePermission(context)
+                        }
                         Toast.makeText(
                             context,
-                            if (cloudSuccess) R.string.backup_cloud_saved else R.string.backup_now_success,
+                            if (cloudSuccess || storageSaved) R.string.backup_cloud_saved else R.string.backup_now_success,
                             Toast.LENGTH_SHORT
                         ).show()
                         onComplete?.invoke(true)
@@ -217,13 +228,25 @@ class BackupRestoreViewModel @Inject constructor(
             }.onFailure { reportException(it) }.getOrDefault(false)
 
             if (staged) {
-                // The staged backup is applied at the start of the next process, so the app relaunches itself.
-                AppBackup.restartApp(context)
+                // Close only. The staged data is applied when the user opens SMusic again;
+                // there is intentionally no automatic relaunch.
+                withContext(Dispatchers.Main) { closeAppAfterRestore(context) }
             } else {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, R.string.restore_failed, Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+
+    private fun closeAppAfterRestore(context: Context) {
+        runCatching {
+            if (context is android.app.Activity) context.finishAndRemoveTask()
+        }
+        runCatching {
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }, 180L)
         }
     }
 
@@ -269,8 +292,8 @@ class BackupRestoreViewModel @Inject constructor(
             if (!staged) {
                 return com.devxrohan.smusic.utils.DriveResult.Error(Exception("The cloud backup is not a valid SMusic backup"))
             }
-            // Applied at the start of the next process; relaunch the app the same way a local restore does.
-            AppBackup.restartApp(context)
+            // Close only; the staged restore is applied when the user opens the app again.
+            withContext(Dispatchers.Main) { closeAppAfterRestore(context) }
             com.devxrohan.smusic.utils.DriveResult.Success(true)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -381,7 +404,7 @@ class BackupRestoreViewModel @Inject constructor(
         }
     }
 
-    // ───────────── cached songs backup / restore (same as AirBeats) ─────────────
+    // ───────────── cached songs backup / restore ─────────────
 
     fun backupCache(context: Context, uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {

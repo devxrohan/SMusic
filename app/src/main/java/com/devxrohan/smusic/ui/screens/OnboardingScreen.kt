@@ -102,7 +102,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
-import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 
 /**
@@ -132,61 +131,7 @@ fun OnboardingScreen(
     var notificationsGranted by remember { mutableStateOf(notificationsAllowed()) }
     var audioGranted by remember { mutableStateOf(isGranted(audioPermission)) }
     var notificationAskedOnce by remember { mutableStateOf(false) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
-    // Restore from a backup (same options as AirBeats' first-run screen)
-    var showRestoreDialog by remember { mutableStateOf(false) }
-    var isRestoringBackup by remember { mutableStateOf(false) }
-    var restoringStatusText by remember { mutableStateOf("") }
-    val restoringAutoText = stringResource(R.string.restore_status_auto)
-    val restoringFileText = stringResource(R.string.restore_status_file)
-    val restoreFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            isRestoringBackup = true
-            restoringStatusText = restoringFileText
-            scope.launch {
-                val restored = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    com.devxrohan.smusic.utils.AutoBackupManager.restoreFromUri(context, uri, shouldRestart = true)
-                }
-                if (!restored) {
-                    isRestoringBackup = false
-                    android.widget.Toast.makeText(context, R.string.restore_failed, android.widget.Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-    fun startAutoRestore() {
-        showRestoreDialog = false
-        isRestoringBackup = true
-        restoringStatusText = restoringAutoText
-        scope.launch {
-            val restored = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                com.devxrohan.smusic.utils.AutoBackupManager.restoreAutoBackup(context, shouldRestart = true) ||
-                    com.devxrohan.smusic.utils.AutoBackupManager.checkAndRestoreDeviceCloudBackup(context)
-            }
-            if (!restored) {
-                isRestoringBackup = false
-                val hasAccess = com.devxrohan.smusic.utils.AutoBackupManager.hasStoragePermission(context)
-                android.widget.Toast.makeText(
-                    context,
-                    if (hasAccess) R.string.restore_auto_not_found else R.string.restore_allow_storage,
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
-                if (!hasAccess) {
-                    // Backups in Documents/SMusic can only be read with file access
-                    runCatching {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            context.startActivity(
-                                Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                                    .setData(android.net.Uri.parse("package:${context.packageName}"))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
     fun openNotificationSettings() {
         runCatching { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
@@ -271,11 +216,25 @@ fun OnboardingScreen(
                         Spacer(Modifier.height(10.dp))
                         Text(stringResource(R.string.ui_your_music_your_mood_lets_make), color = colors.onSurfaceVariant, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
                         Spacer(Modifier.height(28.dp))
-                        RestoreEntryTile(
-                            title = stringResource(R.string.restore_from_backup_title),
-                            subtitle = stringResource(R.string.restore_from_backup_desc),
-                            onClick = { showRestoreDialog = true }
-                        )
+                        val githubRepo = com.devxrohan.smusic.BuildConfig.GITHUB_REPO
+                        if (githubRepo.isNotBlank()) {
+                            val starToast = stringResource(R.string.onboarding_github_star_toast)
+                            GithubStarTile(
+                                title = stringResource(R.string.onboarding_github_star_title),
+                                subtitle = "devxrohan/SMusic · ${stringResource(R.string.onboarding_github_star_desc)}",
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(
+                                                Intent.ACTION_VIEW,
+                                                android.net.Uri.parse("https://github.com/$githubRepo")
+                                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                        android.widget.Toast.makeText(context, starToast, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
                     }
                     1 -> {
                         StepHeading(Icons.Outlined.Notifications, stringResource(R.string.ui_set_up_your_permissions), stringResource(R.string.ui_allow_notifications_and_music_access_to))
@@ -344,50 +303,12 @@ fun OnboardingScreen(
                 }
         }
 
-        if (showRestoreDialog) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showRestoreDialog = false },
-                containerColor = colors.surfaceContainerHigh,
-                title = { Text(stringResource(R.string.restore_from_backup_title), fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(stringResource(R.string.restore_options_desc), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                        RestoreEntryTile(
-                            title = stringResource(R.string.restore_auto_title),
-                            subtitle = stringResource(R.string.restore_auto_desc),
-                            onClick = { startAutoRestore() }
-                        )
-                        RestoreEntryTile(
-                            title = stringResource(R.string.restore_file_title),
-                            subtitle = stringResource(R.string.restore_file_desc),
-                            onClick = {
-                                showRestoreDialog = false
-                                restoreFileLauncher.launch(arrayOf("*/*"))
-                            }
-                        )
-                    }
-                },
-                confirmButton = {},
-                dismissButton = { TextButton(onClick = { showRestoreDialog = false }) { Text(stringResource(R.string.cancel)) } }
-            )
-        }
-
-        if (isRestoringBackup) {
-            Box(
-                Modifier.fillMaxSize().background(colors.scrim.copy(alpha = 0.55f)).clickable(enabled = true, onClick = {}),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    androidx.compose.material3.CircularProgressIndicator(color = colors.primary)
-                    Text(restoringStatusText, color = Color.White, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
     }
 }
 
+/** Welcome-step CTA inviting the user to star the project on GitHub — a small ask, framed as support for the project. */
 @Composable
-private fun RestoreEntryTile(title: String, subtitle: String, onClick: () -> Unit) {
+private fun GithubStarTile(title: String, subtitle: String, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Surface(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
@@ -397,7 +318,7 @@ private fun RestoreEntryTile(title: String, subtitle: String, onClick: () -> Uni
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(colors.primaryContainer), contentAlignment = Alignment.Center) {
-                Icon(painterResource(R.drawable.restore), null, tint = colors.primary, modifier = Modifier.size(22.dp))
+                Icon(painterResource(R.drawable.star), null, tint = colors.primary, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {

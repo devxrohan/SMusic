@@ -92,7 +92,7 @@ object AiRecommendationHelper {
 
         // 2. Query AI Provider
         onLog?.invoke("Connecting to AI Provider...")
-        val configuredProvider = context.dataStore.get(AiProviderKey, "Puter").trim().ifBlank { "Puter" }
+        val configuredProvider = context.dataStore.get(AiProviderKey, "Google").trim().ifBlank { "Google" }
         val configuredKey = if (configuredProvider.equals("DeepL", ignoreCase = true)) {
             context.dataStore.get(DeeplApiKey, "")
         } else {

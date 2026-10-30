@@ -1464,6 +1464,9 @@
     <string name="backup_time_yesterday">Yesterday at %1$s</string>
     <string name="restore_from_backup_title">Restore from backup</string>
     <string name="restore_from_backup_desc">Bring back your playlists, stats and settings</string>
+    <string name="onboarding_github_star_title">Give us a star</string>
+    <string name="onboarding_github_star_desc">Star our GitHub repo — every star helps others discover SMusic and tells us people care</string>
+    <string name="onboarding_github_star_toast">Thanks for checking us out! Your star is a huge support to us.</string>
     <string name="restore_options_desc">Choose how you want to restore your data and settings.</string>
     <string name="restore_auto_title">Automatic backup</string>
     <string name="restore_auto_desc">Android OS backup, Documents/SMusic or your device cloud backup</string>
@@ -1473,4 +1476,5 @@
     <string name="restore_status_file">Restoring from file…</string>
     <string name="restore_auto_not_found">No automatic backup found. Choose a backup file instead.</string>
     <string name="restore_allow_storage">Allow file access to find backups in Documents/SMusic, then try again.</string>
+    <string name="ui_lrc_red">lrc.red</string>
 </resources>

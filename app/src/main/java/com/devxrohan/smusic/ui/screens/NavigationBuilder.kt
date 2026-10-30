@@ -360,4 +360,13 @@ fun NavGraphBuilder.navigationBuilder(
     composable(com.devxrohan.smusic.ui.screens.settings.AnnouncementRoute) {
         com.devxrohan.smusic.ui.screens.settings.AnnouncementScreen(navController)
     }
+    composable(
+        route = "${com.devxrohan.smusic.ui.screens.settings.AnnouncementDetailRoute}/{announcementId}",
+        arguments = listOf(navArgument("announcementId") { type = NavType.StringType })
+    ) { backStackEntry ->
+        com.devxrohan.smusic.ui.screens.settings.AnnouncementDetailScreen(
+            navController,
+            backStackEntry.arguments?.getString("announcementId")
+        )
+    }
 }

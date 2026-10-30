@@ -97,7 +97,7 @@ fun AppearanceSettings(
     )
     val (quickPicksCardHeight, onQuickPicksCardHeightChange) = rememberPreference(
         com.devxrohan.smusic.constants.QuickPicksCardHeightKey,
-        defaultValue = 310f
+        defaultValue = 262f
     )
     var showQuickPicksSizeDialog by rememberSaveable { mutableStateOf(false) }
 

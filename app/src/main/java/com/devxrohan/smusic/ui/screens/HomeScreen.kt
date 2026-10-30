@@ -258,6 +258,8 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
                         onClick = {
                             if (it.id == mediaMetadata?.id) {
                                 playerConnection.player.togglePlayPause()
@@ -297,6 +299,8 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
                         onClick = {
                             navController.navigate("album/${it.id}")
                         },
@@ -318,6 +322,8 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
                         onClick = {
                             navController.navigate("artist/${it.id}")
                         },
@@ -349,6 +355,8 @@ fun HomeScreen(
             thumbnailRatio = 1f,
             modifier = Modifier
                 .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
                     onClick = {
                         when (item) {
                             is SongItem -> playerConnection.playQueue(
@@ -541,6 +549,8 @@ fun HomeScreen(
                                     .clip(MaterialTheme.shapes.large)
                                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                     .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
                                         onClick = {
                                             if (isActive) {
                                                 playerConnection.player.togglePlayPause()
@@ -907,6 +917,8 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .width(horizontalLazyGridItemWidth)
                                         .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
                                             onClick = {
                                                 if (song!!.id == mediaMetadata?.id) {
                                                     playerConnection.player.togglePlayPause()

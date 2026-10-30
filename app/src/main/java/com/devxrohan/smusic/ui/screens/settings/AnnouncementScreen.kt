@@ -14,6 +14,8 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import androidx.compose.ui.text.style.TextOverflow
@@ -134,39 +135,66 @@ fun AnnouncementScreen(navController: NavController) {
                 pendingUpdate?.let { update ->
                     item(key = "pending_update") {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                            shape = RoundedCornerShape(18.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(20.dp)) {
-                                Text(
-                                    text = stringResource(R.string.update_notification_title),
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
+                            Column(
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(RoundedCornerShape(13.dp))
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.update),
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(23.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = stringResource(R.string.update_notification_title),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "Version ${update.versionName}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = stringResource(R.string.ui_smusic_v_is_ready_to_download, update.versionName),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(14.dp))
                                 Button(
                                     onClick = {
                                         navController.navigate(com.devxrohan.smusic.ui.screens.settings.CheckForUpdateRoute)
-                                    }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
                                 ) { Text(stringResource(R.string.ui_update_now)) }
                             }
                         }
                     }
                 }
                 items(announcements.reversed(), key = { it.id }) { announcement ->
-                    // Compact by default (small thumbnail, 2 lines); tap to open the full text and the big picture.
-                    var expanded by remember(announcement.id) { mutableStateOf(false) }
+                    // Keep every list row compact. Full text and the original image open on a dedicated detail destination.
                     val hasImage = announcement.imageUrl.startsWith("https://", ignoreCase = true)
-                    val canExpand = hasImage || announcement.message.length > 90 || announcement.message.contains('\n') ||
-                        announcement.title.length > 32
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { value ->
                             if (value == SwipeToDismissBoxValue.EndToStart || value == SwipeToDismissBoxValue.StartToEnd) {
@@ -200,27 +228,32 @@ fun AnnouncementScreen(navController: NavController) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            shape = RoundedCornerShape(22.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
-                                .clickable(enabled = canExpand) { expanded = !expanded }
+                                .clip(RoundedCornerShape(22.dp))
+                                .clickable {
+                                    navController.navigate("$AnnouncementDetailRoute/${android.net.Uri.encode(announcement.id)}")
+                                }
                         ) {
                             Column(
-                                modifier = Modifier
-                                    .padding(16.dp)
-                                    .animateContentSize()
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.Top) {
-                                    if (hasImage && !expanded) {
+                                    if (hasImage) {
                                         AsyncImage(
                                             model = announcement.imageUrl,
                                             contentDescription = null,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier
-                                                .size(64.dp)
-                                                .clip(RoundedCornerShape(12.dp))
+                                                .size(72.dp)
+                                                .clip(RoundedCornerShape(14.dp))
                                         )
                                         Spacer(modifier = Modifier.width(14.dp))
                                     }
@@ -230,7 +263,7 @@ fun AnnouncementScreen(navController: NavController) {
                                                 text = announcement.title,
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.Bold,
-                                                maxLines = if (expanded) Int.MAX_VALUE else 1,
+                                                maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                             Spacer(modifier = Modifier.height(4.dp))
@@ -239,35 +272,100 @@ fun AnnouncementScreen(navController: NavController) {
                                             text = announcement.message,
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = if (expanded) Int.MAX_VALUE else 2,
+                                            maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
-                                    if (canExpand) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Icon(
-                                            painter = painterResource(R.drawable.chevron_right),
-                                            contentDescription = if (expanded) "Collapse" else "Expand",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier
-                                                .size(24.dp)
-                                                .rotate(if (expanded) 90f else 0f)
-                                        )
-                                    }
                                 }
-                                if (hasImage && expanded) {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    AsyncImage(
-                                        model = announcement.imageUrl,
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(16f / 9f)
-                                            .clip(RoundedCornerShape(12.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "READ MESSAGE",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+const val AnnouncementDetailRoute = "announcement_detail"
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AnnouncementDetailScreen(navController: NavController, announcementId: String?) {
+    val context = LocalContext.current
+    var announcement by remember(announcementId) { mutableStateOf<AnnouncementInfo?>(null) }
+    LaunchedEffect(announcementId) {
+        val decodedId = runCatching { android.net.Uri.decode(announcementId.orEmpty()) }.getOrDefault(announcementId.orEmpty())
+        announcement = AppNotificationManager.getCachedAnnouncements(context).firstOrNull { it.id == decodedId }
+    }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Notification", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = navController::navigateUp) {
+                        Icon(painter = painterResource(R.drawable.arrow_back), contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        val item = announcement
+        if (item == null) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("This notification is no longer available.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp + bottomSafeArea()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(
+                                    Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                }
+                                Text("SMusic • Announcement", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                            }
+                            if (item.title.isNotBlank()) {
+                                Text(item.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            if (item.imageUrl.startsWith("https://", ignoreCase = true)) {
+                                AsyncImage(
+                                    model = item.imageUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp))
+                                )
+                            }
+                            Text(
+                                item.message,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                lineHeight = MaterialTheme.typography.bodyLarge.lineHeight
+                            )
                         }
                     }
                 }

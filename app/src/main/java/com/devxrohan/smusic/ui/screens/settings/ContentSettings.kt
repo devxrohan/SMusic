@@ -20,6 +20,7 @@ import com.devxrohan.smusic.constants.ContentLanguageKey
 import com.devxrohan.smusic.constants.CountryCodeToName
 import com.devxrohan.smusic.constants.EnableKugouKey
 import com.devxrohan.smusic.constants.EnableLrcLibKey
+import com.devxrohan.smusic.constants.EnableLrcRedKey
 import com.devxrohan.smusic.constants.EnableSimpMusicLyricsKey
 import com.devxrohan.smusic.constants.EnableUnisonLyricsKey
 import com.devxrohan.smusic.constants.EnableYouLyLyricsKey
@@ -108,6 +109,10 @@ fun ContentSettings(
         key = EnableKugouKey,
         defaultValue = true
     )
+    val (enableLrcRed, onEnableLrcRedChange) = rememberPreference(
+        key = EnableLrcRedKey,
+        defaultValue = true
+    )
     val (enableLrclib, onEnableLrclibChange) = rememberPreference(
         key = EnableLrcLibKey,
         defaultValue = true
@@ -123,7 +128,7 @@ fun ContentSettings(
     val (enableYouTubeMusicLyrics, onEnableYouTubeMusicLyricsChange) = rememberPreference(EnableYouTubeMusicLyricsKey, true)
     val (preferredProvider, onPreferredProviderChange) = rememberEnumPreference(
         key = PreferredLyricsProviderKey,
-        defaultValue = PreferredLyricsProvider.LRCLIB
+        defaultValue = PreferredLyricsProvider.LRC_RED
     )
 
 
@@ -235,6 +240,7 @@ fun ContentSettings(
                     valueText = { it.name.replace('_', ' ').lowercase().replaceFirstChar(Char::uppercase) },
                     onValueSelected = onPreferredProviderChange,
                 ) },
+                { SwitchPreference(title = { Text(stringResource(R.string.ui_lrc_red)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_lrc_red), null) }, checked = enableLrcRed, onCheckedChange = onEnableLrcRedChange) },
                 { SwitchPreference(title = { Text(stringResource(R.string.ui_lrc_lib)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_lrclib), null) }, checked = enableLrclib, onCheckedChange = onEnableLrclibChange) },
                 { SwitchPreference(title = { Text(stringResource(R.string.ui_kugou)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_kugou), null) }, checked = enableKugou, onCheckedChange = onEnableKugouChange) },
                 { SwitchPreference(title = { Text(stringResource(R.string.ui_simpmusic)) }, icon = { Icon(painterResource(R.drawable.lyrics_provider_simpmusic), null) }, checked = enableSimpMusic, onCheckedChange = onEnableSimpMusicChange) },

@@ -56,6 +56,7 @@ val ContentLanguageKey = stringPreferencesKey("contentLanguage")
 val ContentCountryKey = stringPreferencesKey("contentCountry")
 val EnableKugouKey = booleanPreferencesKey("enableKugou")
 val EnableLrcLibKey = booleanPreferencesKey("enableLrclib")
+val EnableLrcRedKey = booleanPreferencesKey("enableLrcRed")
 val EnableSimpMusicLyricsKey = booleanPreferencesKey("enableSimpMusic")
 val EnableUnisonLyricsKey = booleanPreferencesKey("enableUnison")
 val EnableYouLyLyricsKey = booleanPreferencesKey("enableYouLy")
@@ -329,6 +330,7 @@ enum class QuickPicks {
 }
 
 enum class PreferredLyricsProvider {
+    LRC_RED,
     LRCLIB,
     KUGOU,
     SIMP_MUSIC,
@@ -359,6 +361,8 @@ val TopSize = stringPreferencesKey("topSize")
 val HistoryDuration = floatPreferencesKey("historyDuration")
 
 val PlayerBackgroundStyleKey = stringPreferencesKey("playerBackgroundStyle")
+
+/** Classic player only: fills the whole screen with the song cover, blurred behind the header and controls. */
 val ShowLyricsKey = booleanPreferencesKey("showLyrics")
 val TranslateLyricsKey = booleanPreferencesKey("translateLyrics")
 

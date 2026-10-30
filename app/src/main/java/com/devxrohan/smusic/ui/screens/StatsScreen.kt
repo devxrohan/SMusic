@@ -7,8 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.devxrohan.smusic.LocalPlayerAwareWindowInsets
 import com.devxrohan.smusic.constants.StatPeriod
 import com.devxrohan.smusic.viewmodels.StatsViewModel
 import java.util.concurrent.TimeUnit
@@ -77,7 +80,9 @@ fun StatsScreen(navController: NavController, viewModel: StatsViewModel = hiltVi
         containerColor = MaterialTheme.colorScheme.background
     ) { insets ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(insets).padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(top = insets.calculateTopPadding()).padding(horizontal = 16.dp),
+            // Same bottom space as every other page: system bar + mini player, so the last items never hide behind it.
+            contentPadding = PaddingValues(bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {

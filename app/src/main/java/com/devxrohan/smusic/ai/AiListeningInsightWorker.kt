@@ -46,7 +46,7 @@ class AiListeningInsightWorker(context: Context, params: WorkerParameters) : Cor
             val songs = (mostPlayed + recent).distinctBy { it.id }.take(16)
             if (songs.isEmpty()) return@withContext Result.success()
             val taste = songs.joinToString("\n") { song -> "${song.title} — ${song.artists.joinToString { it.name }}" }
-            val provider = applicationContext.dataStore.get(AiProviderKey, "Puter").trim()
+            val provider = applicationContext.dataStore.get(AiProviderKey, "Google").trim()
             val key = applicationContext.dataStore.get(OpenRouterApiKey, "")
             val storedBase = applicationContext.dataStore.get(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
             val storedModel = applicationContext.dataStore.get(OpenRouterModelKey, "gpt-4o-mini")

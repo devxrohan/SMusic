@@ -196,10 +196,20 @@ object AppNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val updateMessage = context.getString(R.string.update_notification_text, update.versionName)
+        val updatePreview = notificationPreview(updateMessage, 92)
         val notification = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher_monochrome)
             .setContentTitle(context.getString(R.string.update_notification_title))
-            .setContentText(context.getString(R.string.update_notification_text, update.versionName))
+            .setContentText(updatePreview)
+            .setSubText("SMusic  •  v${update.versionName}")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .setBigContentTitle(context.getString(R.string.update_notification_title))
+                    .bigText(notificationPreview(updateMessage, 180))
+                    .setSummaryText("Version ${update.versionName} is ready")
+            )
+            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             // Swipeable system notification. Swiping it only dismisses the phone copy;
@@ -353,8 +363,8 @@ object AppNotificationManager {
             val only = unseen.first()
             builder
                 .setContentTitle(only.title.ifBlank { context.getString(R.string.announcement_default_title) })
-                .setContentText(only.message)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(only.message))
+                .setContentText(notificationPreview(only.message))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(only.message.take(MAX_EXPANDED_MESSAGE_CHARS)))
         } else {
             builder
                 .setContentTitle(context.getString(R.string.announcement_default_title))
@@ -457,8 +467,8 @@ object AppNotificationManager {
             .setSmallIcon(R.mipmap.ic_launcher_monochrome)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentTitle(info.title.ifBlank { context.getString(R.string.announcement_default_title) })
-            .setContentText(info.message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(info.message))
+            .setContentText(notificationPreview(info.message))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(info.message.take(MAX_EXPANDED_MESSAGE_CHARS)))
             .setContentIntent(contentIntent)
             .setDeleteIntent(deleteIntent)
             .setAutoCancel(true)
@@ -475,7 +485,7 @@ object AppNotificationManager {
                     .bigPicture(notificationBitmap)
                     .bigLargeIcon(null as Bitmap?)
                     .setBigContentTitle(info.title.ifBlank { context.getString(R.string.announcement_default_title) })
-                    .setSummaryText(info.message)
+                    .setSummaryText(notificationPreview(info.message))
             )
         }
         // Time-limited message: the system removes the notification itself when the time is up.
@@ -484,7 +494,14 @@ object AppNotificationManager {
         notifySafely(context, notificationId, builder.build())
     }
 
-    /** Crop around the image center to a wide notification-friendly aspect ratio. */
+    /** Keep the notification shade concise without changing the message stored for the in-app inbox. */
+    private fun notificationPreview(message: String, maxChars: Int = 140): String {
+        val normalized = message.replace(Regex("\\s+"), " ").trim()
+        return if (normalized.length <= maxChars) normalized
+        else normalized.take(maxChars - 1).trimEnd() + "…"
+    }
+
+    /** Crop and bound the image to a notification-friendly 2:1 thumbnail. */
     private fun centerCropNotificationImage(source: Bitmap, targetRatio: Float = 2f): Bitmap {
         val sourceRatio = source.width.toFloat() / source.height.coerceAtLeast(1)
         val cropWidth: Int
@@ -498,8 +515,17 @@ object AppNotificationManager {
         }
         val left = ((source.width - cropWidth) / 2).coerceAtLeast(0)
         val top = ((source.height - cropHeight) / 2).coerceAtLeast(0)
-        return Bitmap.createBitmap(source, left, top, cropWidth.coerceAtLeast(1), cropHeight.coerceAtLeast(1))
+        val cropped = Bitmap.createBitmap(source, left, top, cropWidth.coerceAtLeast(1), cropHeight.coerceAtLeast(1))
+        val targetWidth = minOf(cropped.width, 1024)
+        val targetHeight = (targetWidth / targetRatio).toInt().coerceAtLeast(1)
+        return if (cropped.width > targetWidth || cropped.height > targetHeight) {
+            Bitmap.createScaledBitmap(cropped, targetWidth, targetHeight, true).also {
+                if (it !== cropped) cropped.recycle()
+            }
+        } else cropped
     }
+
+    private const val MAX_EXPANDED_MESSAGE_CHARS = 700
 
     private suspend fun downloadNotificationImage(imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null

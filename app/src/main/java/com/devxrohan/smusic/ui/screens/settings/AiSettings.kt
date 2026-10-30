@@ -79,7 +79,7 @@ fun AiSettings(
         AiListeningInsightWorker.setEnabled(context.applicationContext, listeningInsights)
     }
 
-    var aiProvider by rememberPreference(AiProviderKey, "Puter")
+    var aiProvider by rememberPreference(AiProviderKey, "Google")
     var openRouterApiKey by rememberPreference(OpenRouterApiKey, "")
     var openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
     var openRouterModel by rememberPreference(OpenRouterModelKey, "gpt-4o-mini")
@@ -93,7 +93,7 @@ fun AiSettings(
     var showRefreshAiDialog by remember { mutableStateOf(false) }
 
     val aiProviders = listOf(
-        "OpenRouter", "OpenAI", "Perplexity", "Claude", "Gemini",
+        "Google", "OpenRouter", "OpenAI", "Perplexity", "Claude", "Gemini",
         "XAi", "Mistral", "Nvidia", "OrcaRouter", "Groq",
         "Puter", "DeepL", "Custom"
     )
@@ -429,17 +429,26 @@ fun AiSettings(
                     )
                 },
                 {
-                    val currentKey = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
-                    val masked = if (currentKey.isNotBlank()) "••••••••" + currentKey.takeLast(4) else "Not configured"
-                    PreferenceEntry(
-                        title = { Text(stringResource(R.string.ui_api_key)) },
-                        description = masked,
-                        icon = { Icon(painterResource(R.drawable.lock), contentDescription = null) },
-                        onClick = { showApiKeyDialog = true }
-                    )
+                    if (aiProvider == "Google") {
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.ui_api_key)) },
+                            description = "Not required — free, no account needed",
+                            icon = { Icon(painterResource(R.drawable.lock), contentDescription = null) },
+                            onClick = {}
+                        )
+                    } else {
+                        val currentKey = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
+                        val masked = if (currentKey.isNotBlank()) "••••••••" + currentKey.takeLast(4) else "Not configured"
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.ui_api_key)) },
+                            description = masked,
+                            icon = { Icon(painterResource(R.drawable.lock), contentDescription = null) },
+                            onClick = { showApiKeyDialog = true }
+                        )
+                    }
                 },
                 {
-                    if (aiProvider != "DeepL") {
+                    if (aiProvider != "DeepL" && aiProvider != "Google") {
                         val availableModels = modelsByProvider[aiProvider] ?: listOf("Custom")
                         ListPreference(
                             title = { Text(stringResource(R.string.ui_model)) },

@@ -427,7 +427,7 @@ class MainActivity : ComponentActivity() {
         }
 
 
-        // Daily AI recommendations (Settings > AI > AI recommendations). Ported 1:1 from AirBeats.
+        // Daily AI recommendations (Settings > AI > AI recommendations).
         lifecycleScope.launch {
             dataStore.data
                 .map { (try { it[com.devxrohan.smusic.constants.AiRecommendationsKey] } catch (e: Exception) { null }) ?: false }

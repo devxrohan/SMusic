@@ -63,7 +63,7 @@ enum class AppFont(val title: String, val key: String) {
 
     companion object {
         fun fromKey(key: String?): AppFont {
-            return entries.find { it.key == key } ?: LINOTTE
+            return entries.find { it.key == key } ?: APPLE
         }
     }
 }

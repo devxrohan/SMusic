@@ -63,9 +63,12 @@ class App : android.app.Application(), ImageLoaderFactory {
 
     override fun attachBaseContext(base: android.content.Context) {
         super.attachBaseContext(base)
-        // A restored backup is moved into place here, before the database / DataStore / SharedPreferences are opened.
+        // Restore staged/manual data before any database, DataStore or SharedPreferences
+        // instance is created. On a fresh install, also recover the persistent Documents
+        // snapshot first; this prevents the onboarding screen from appearing over restored data.
         if (!com.devxrohan.smusic.utils.AppBackup.isRestartProcess()) {
             runCatching { com.devxrohan.smusic.utils.AppBackup.applyPendingRestore(base) }
+            runCatching { com.devxrohan.smusic.utils.AutoBackupManager.restorePersistentBackupBeforeFirstLaunch(base) }
         }
     }
 
@@ -78,8 +81,9 @@ class App : android.app.Application(), ImageLoaderFactory {
         com.devxrohan.smusic.utils.AppBackup.cancelRestartFallback(this)
         runCatching { com.devxrohan.smusic.utils.AppBackup.finishPendingRestore(this) }
 
-        // Restore a snapshot that Android's OS backup (or Downloads/SMusic, Documents/SMusic) brought back. Once per install.
-        runCatching { com.devxrohan.smusic.utils.AutoBackupManager.checkAndRestoreOnOpen(this) }
+        // Android Auto Backup restores the app's real database, DataStore, SharedPreferences and user files
+        // before the launcher activity is available. Do not unpack a second snapshot here: doing so can overwrite
+        // the data that Android has just restored and was the source of the reinstall/restore race.
         GlobalScope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(8_000)
             runCatching { com.devxrohan.smusic.utils.AutoBackupManager.resetRestartAttempts(this@App) }
@@ -92,7 +96,15 @@ class App : android.app.Application(), ImageLoaderFactory {
                 if (startedActivities == 0) {
                     GlobalScope.launch(Dispatchers.IO) {
                         runCatching {
-                            com.devxrohan.smusic.utils.AutoBackupManager.performAutoBackupToStorageIfEnabled(this@App, database)
+                            val manager = com.devxrohan.smusic.utils.AutoBackupManager
+                            // Never let a fresh-open snapshot write race ahead of the startup restore check — on a
+                            // reinstall that check is what brings the real backup back, and a near-empty database
+                            // written here first would overwrite it before it ever gets restored.
+                            val info = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull()
+                            val isFreshInstall = info != null && info.firstInstallTime == info.lastUpdateTime
+                            if (!isFreshInstall) {
+                                manager.performAutoBackupToStorageIfEnabled(this@App, database)
+                            }
                         }
                     }
                 }

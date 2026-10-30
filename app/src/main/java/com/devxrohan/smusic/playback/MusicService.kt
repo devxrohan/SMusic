@@ -111,7 +111,6 @@ import com.devxrohan.smusic.constants.PermanentShuffleKey
 import com.devxrohan.smusic.constants.PersistentQueueKey
 import com.devxrohan.smusic.constants.PlayerVolumeKey
 import com.devxrohan.smusic.constants.RepeatModeKey
-import com.devxrohan.smusic.constants.ShowLyricsKey
 import com.devxrohan.smusic.constants.SimilarContent
 import com.devxrohan.smusic.constants.SkipSilenceKey
 import com.devxrohan.smusic.constants.StopMusicOnTaskClearKey
@@ -532,26 +531,28 @@ class MusicService :
             }
         }
 
-        combine(
-            currentMediaMetadata.distinctUntilChangedBy { it?.id },
-            dataStore.data.map { it[ShowLyricsKey] ?: false }.distinctUntilChanged(),
-        ) { mediaMetadata, showLyrics ->
-            mediaMetadata to showLyrics
-        }.collectLatest(scope) { (mediaMetadata, showLyrics) ->
-            if (showLyrics && mediaMetadata != null && database.lyrics(mediaMetadata.id)
-                    .first() == null
-            ) {
-                val lyrics = lyricsHelper.getLyrics(mediaMetadata)
-                database.query {
-                    upsert(
-                        LyricsEntity(
-                            id = mediaMetadata.id,
-                            lyrics = lyrics,
-                        ),
-                    )
+        // Pre-fetch lyrics for the current song as soon as it starts playing, not only once the Lyrics screen is
+        // opened. This used to be gated behind ShowLyricsKey, a *persisted* preference for the mini-player's
+        // Queue/Lyrics tab choice — so prefetching only happened to run when that tab happened to already be
+        // selected, not in response to a song actually starting. In practice that meant lyrics were usually first
+        // requested only when the user opened the lyrics screen and sat there waiting. Fetching unconditionally
+        // here means they're normally already in the database (see the `database.lyrics(id).first() == null`
+        // check below, which skips the fetch once they're saved) by the time the screen opens.
+        currentMediaMetadata
+            .distinctUntilChangedBy { it?.id }
+            .collectLatest(scope) { mediaMetadata ->
+                if (mediaMetadata != null && database.lyrics(mediaMetadata.id).first() == null) {
+                    val lyrics = lyricsHelper.getLyrics(mediaMetadata)
+                    database.query {
+                        upsert(
+                            LyricsEntity(
+                                id = mediaMetadata.id,
+                                lyrics = lyrics,
+                            ),
+                        )
+                    }
                 }
             }
-        }
 
         dataStore.data
             .map { it[SkipSilenceKey] ?: false }
@@ -1845,6 +1846,23 @@ class MusicService :
         }
     }
 
+    // Reuse clients instead of rebuilding connection pools for each stream resolution.
+    // Keep the YouTube proxy client separate from direct-source reachability probes so
+    // optional providers (JioSaavn/JossRed) retain their existing network behavior.
+    private val playbackHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OkHttpClient.Builder()
+            .proxy(YouTube.proxy)
+            .build()
+    }
+
+    private val streamProbeHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(2, TimeUnit.SECONDS)
+            .callTimeout(4, TimeUnit.SECONDS)
+            .build()
+    }
+
     private fun createCacheDataSource(): CacheDataSource.Factory =
         CacheDataSource
             .Factory()
@@ -1856,12 +1874,7 @@ class MusicService :
                     .setUpstreamDataSourceFactory(
                         DefaultDataSource.Factory(
                             this,
-                            OkHttpDataSource.Factory(
-                                OkHttpClient
-                                    .Builder()
-                                    .proxy(YouTube.proxy)
-                                    .build(),
-                            ),
+                            OkHttpDataSource.Factory(playbackHttpClient),
                         ),
                     ),
             ).setCacheWriteDataSinkFactory(null)
@@ -1948,9 +1961,13 @@ class MusicService :
 
             // Optional JioSaavn-first mode for catalogue tracks. This is a best-effort
             // title/artist match; if no reliable match or stream is available, continue with YouTube.
-            val preferSaavn = runBlocking(Dispatchers.IO) {
-                dataStore.data.map { it[com.devxrohan.smusic.constants.PrioritizeJioSaavn320Key] ?: false }.first()
-            }
+            // This preference is already warmed into the app's DataStore cache at service
+            // startup. Read the cached value synchronously instead of suspending on disk for
+            // every uncached YouTube track; JioSaavn priority remains fully user-controlled.
+            val preferSaavn = dataStore.get(
+                com.devxrohan.smusic.constants.PrioritizeJioSaavn320Key,
+                false,
+            )
             if (preferSaavn && !mediaId.startsWith("JS:")) {
                 runCatching {
                     val localSong = database.getSongById(mediaId)
@@ -1970,8 +1987,10 @@ class MusicService :
                         }
                         if (!saavnUrl.isNullOrBlank()) {
                             val streamReachable = runCatching {
-                                OkHttpClient.Builder().connectTimeout(2, TimeUnit.SECONDS).readTimeout(2, TimeUnit.SECONDS).build()
-                                    .newCall(Request.Builder().url(saavnUrl).head().build()).execute().use { it.isSuccessful }
+                                streamProbeHttpClient
+                                    .newCall(Request.Builder().url(saavnUrl).head().build())
+                                    .execute()
+                                    .use { it.isSuccessful }
                             }.getOrDefault(false)
                             if (streamReachable) {
                                 Timber.i("Using reachable JioSaavn-priority stream for $mediaId; YouTube remains fallback")
@@ -2069,12 +2088,10 @@ class MusicService :
                 Timber.tag(ytLogTag).e(e, "YouTube playback error, trying JossRed as fallback")
 
                 // Verificar si la fuente alternativa está habilitada
-                val useAlternativeSource = runBlocking {
-                    dataStore.data.map { preferences ->
-                        val JossRedMultimedia = booleanPreferencesKey("JossRedMultimedia")
-                        preferences[JossRedMultimedia] ?: false
-                    }.first()
-                }
+                val useAlternativeSource = dataStore.get(
+                    booleanPreferencesKey("JossRedMultimedia"),
+                    false,
+                )
 
                 // Si la fuente alternativa está deshabilitada, relanzar la excepción
                 if (!useAlternativeSource) {
@@ -2093,19 +2110,14 @@ class MusicService :
                     }.getOrNull()
 
                     if (alternativeUrl != null) {
-                        // Verificar accesibilidad de URL con una solicitud HEAD
-                        val client = OkHttpClient.Builder()
-                            .connectTimeout(2, TimeUnit.SECONDS)
-                            .readTimeout(2, TimeUnit.SECONDS)
-                            .build()
-
+                        // Keep the existing reachability check, but reuse its connection pool.
                         val request = Request.Builder()
                             .url(alternativeUrl)
                             .head()
                             .build()
 
                         try {
-                            val response = client.newCall(request).execute()
+                            val response = streamProbeHttpClient.newCall(request).execute()
                             response.use {
                                 if (it.isSuccessful) {
                                     Timber.tag(JRlogTag)
@@ -2449,9 +2461,17 @@ class MusicService :
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        val stopOnTaskClear = runBlocking {
-            dataStore.getSuspend(StopMusicOnTaskClearKey, false)
-        }
+        // onTaskRemoved runs on the main thread and the system gives it very little headroom before flagging the
+        // app as not responding. The previous `runBlocking { dataStore.getSuspend(...) }` here blocked that main
+        // thread on a DataStore read — usually fast (served from the in-memory cache populated at startup — see
+        // DataStore.kt's dataStoreCache), but with no guaranteed upper bound: a cache miss or a slow disk right
+        // when the user swipes the app away reads from the actual DataStore Flow and can easily run past what
+        // onTaskRemoved will tolerate. That's what showed up as "SMusic isn't responding" right after closing.
+        // `dataStore.get(key, default)` is the synchronous, cache-only counterpart — it never touches disk, and
+        // resolves to the same value here in practice since this key's cache entry (or its correct default when
+        // the user has never changed the setting, which is the common case) is already populated well before
+        // onTaskRemoved could ever fire.
+        val stopOnTaskClear = dataStore.get(StopMusicOnTaskClearKey, false)
         if (stopOnTaskClear || player.currentMediaItem == null) {
             stopForegroundAndSelf()
         }

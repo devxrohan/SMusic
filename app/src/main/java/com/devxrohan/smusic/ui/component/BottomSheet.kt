@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -40,9 +41,11 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.devxrohan.smusic.constants.NavigationBarAnimationSpec
@@ -87,6 +90,18 @@ fun BottomSheet(
                     .coerceAtLeast(0)
                 IntOffset(x = 0, y = y)
             }
+            .clip(shape)
+            // While collapsed the host may slide the mini player down (nav bar hidden). The touch area of the
+            // sheet must follow it, otherwise the strip above the mini player swallows every tap / drag meant
+            // for the page underneath. The strip is cut out of the measured area, so it is never hit-tested.
+            .layout { measurable, constraints ->
+                val deadZone =
+                    if (state.isCollapsed) collapsedContentOffsetY().roundToPx().coerceAtLeast(0) else 0
+                val placeable = measurable.measure(constraints.offset(vertical = -deadZone))
+                layout(placeable.width, placeable.height + deadZone) {
+                    placeable.place(0, deadZone)
+                }
+            }
             .pointerInput(state) {
                 val velocityTracker = VelocityTracker()
 
@@ -106,7 +121,6 @@ fun BottomSheet(
                     }
                 )
             }
-            .clip(shape)
     ) {
         if (!state.isCollapsed && !state.isDismissed) {
             BackHandler(onBack = state::collapseSoft)
@@ -130,12 +144,19 @@ fun BottomSheet(
                         alpha = 1f - (state.progress * 4).coerceAtMost(1f)
                     }
                     .fillMaxWidth()
+                    // The touch area is cut by the dead zone above, but this slot keeps its full height.
+                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
                     .height(state.collapsedBound),
             ) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .offset { IntOffset(0, collapsedContentOffsetY().roundToPx()) }
+                        .offset {
+                            // When collapsed the sheet itself is already moved down by this amount (see above).
+                            val shift = collapsedContentOffsetY().roundToPx()
+                            val moved = if (state.isCollapsed) shift.coerceAtLeast(0) else 0
+                            IntOffset(0, shift - moved)
+                        }
                         .fillMaxWidth()
                         .height(com.devxrohan.smusic.constants.MiniPlayerHeight)
                         .pointerInput(state) {

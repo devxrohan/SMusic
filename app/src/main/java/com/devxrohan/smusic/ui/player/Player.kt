@@ -53,6 +53,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -79,9 +80,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.material3.IconButton
 import com.devxrohan.smusic.db.MusicDatabase
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AlertDialogDefaults
@@ -111,6 +115,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -128,6 +133,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.drawWithCache
@@ -143,6 +149,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -166,7 +173,7 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import androidx.palette.graphics.Palette
-import coil.ImageLoader
+import coil.imageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.devxrohan.smusic.LocalDatabase
@@ -194,6 +201,7 @@ import com.devxrohan.smusic.db.entities.LyricsEntity
 import com.devxrohan.smusic.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.devxrohan.smusic.db.entities.ArtistEntity
 import com.devxrohan.smusic.lyrics.LyricsEntry
+import com.devxrohan.smusic.lyrics.WordTimestamp
 import com.devxrohan.smusic.lyrics.LyricsUtils.parseLyrics
 import com.devxrohan.smusic.models.MediaMetadata
 import com.devxrohan.smusic.playback.ExoDownloadService
@@ -441,7 +449,7 @@ fun BottomSheetPlayer(
         } else if (playerBackground == PlayerBackgroundStyle.GRADIENT) {
             withContext(Dispatchers.IO) {
                 val result = runCatching {
-                    ImageLoader(context)
+                    context.imageLoader
                         .execute(
                             ImageRequest
                                 .Builder(context)
@@ -483,7 +491,7 @@ fun BottomSheetPlayer(
         val metadata = mediaMetadata ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
             val result = runCatching {
-                ImageLoader(context)
+                context.imageLoader
                     .execute(
                         ImageRequest
                             .Builder(context)
@@ -3168,7 +3176,8 @@ private fun SpotifyLyricsPreviewCard(
     val lyricEntries = remember(lyrics) {
         when {
             lyrics.isNullOrBlank() || lyrics == LYRICS_NOT_FOUND -> emptyList()
-            lyrics.startsWith("[") -> parseLyrics(lyrics)
+            com.devxrohan.smusic.lyrics.SMusicLyricsUtils.isRecognizedTimedLyrics(lyrics) ->
+                com.devxrohan.smusic.lyrics.SMusicLyricsUtils.parseAnyLyrics(lyrics)
             else -> lyrics.lines()
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
@@ -4105,6 +4114,342 @@ fun ClassicControlsContent(
     }
 }
 
+/**
+ * BitChord-style single-line lyric strip for the Classic player.
+ *
+ * The important part is that the lyric clock is independent of the player's
+ * relatively coarse position callbacks. We use the last reported position as
+ * an anchor and advance it on the frame clock while playing. The highlighted
+ * copy is then clipped continuously across the measured text, rather than
+ * switching whole words with a recomposition-sized animation.
+ */
+@Composable
+private fun ClassicLyricLineStrip(
+    mediaMetadata: MediaMetadata?,
+    position: Long,
+    duration: Long,
+    sliderPosition: Long?,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val playerConnection = LocalPlayerConnection.current ?: return
+    val context = LocalContext.current
+    val database = LocalDatabase.current
+    val lyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
+    val lyrics = lyricsEntity?.lyrics
+    val isLoading = lyricsEntity == null
+
+    // Fetch lyrics from the same background path used by the full lyrics screen.
+    // This keeps the Classic strip alive and animated without requiring the user
+    // to open the lyrics page first.
+    LaunchedEffect(mediaMetadata?.id, lyricsEntity) {
+        val metadata = mediaMetadata ?: return@LaunchedEffect
+        if (lyricsEntity != null) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            runCatching {
+                database.getLyrics(metadata.id)
+            }.getOrNull()?.let { cached ->
+                if (cached.lyrics.isNotBlank() && cached.lyrics != LYRICS_NOT_FOUND) return@withContext
+            }
+
+            runCatching {
+                val entryPoint = EntryPointAccessors.fromApplication(
+                    context.applicationContext,
+                    com.devxrohan.smusic.di.LyricsHelperEntryPoint::class.java,
+                )
+                val fetched = entryPoint.lyricsHelper().getLyrics(metadata)
+                if (fetched.isNotBlank()) {
+                    database.query { upsert(LyricsEntity(metadata.id, fetched)) }
+                }
+            }
+        }
+    }
+
+    val lines = remember(lyrics, duration) {
+        if (lyrics == null || lyrics == LYRICS_NOT_FOUND) return@remember emptyList()
+        val parsed = if (com.devxrohan.smusic.lyrics.SMusicLyricsUtils.isRecognizedTimedLyrics(lyrics)) {
+            com.devxrohan.smusic.lyrics.SMusicLyricsUtils.parseAnyLyrics(lyrics)
+        } else {
+            lyrics.lines().filter { it.isNotBlank() }.map { LyricsEntry(-1L, it.trim()) }
+        }.filter { it.text.isNotBlank() }
+
+        // For untimed text, use a line-level timeline across the track. The
+        // ClassicSweptLyricText renderer then reveals the whole sentence smoothly.
+        val allUntimed = parsed.isNotEmpty() && parsed.all { it.time < 0L }
+        val resolved = if (allUntimed) {
+            val trackDuration = duration.takeIf { it > 0L } ?: parsed.size * 2500L
+            parsed.mapIndexed { index, entry ->
+                entry.copy(time = trackDuration * index / parsed.size)
+            }
+        } else parsed
+        if (resolved.isNotEmpty() && resolved.first().time >= 0L) {
+            listOf(LyricsEntry.HEAD_LYRICS_ENTRY) + resolved
+        } else resolved
+    }
+
+    val livePosition = rememberClassicLyricPosition(
+        reportedPosition = position,
+        seekingPosition = sliderPosition,
+        isPlaying = isPlaying,
+        trackKey = lyricsEntity?.id ?: "classic-lyrics",
+    )
+
+    if (isLoading) {
+        // BitChord keeps a real text status in the player while the provider
+        // race is running. Rotate the status softly instead of showing a
+        // skeleton or waiting for the lyrics page to be opened.
+        val loadingLines = remember {
+            listOf(
+                "Loading lyrics",
+                "Finding lyrics",
+                "Syncing lyrics",
+                "Preparing lyrics",
+            )
+        }
+        var loadingIndex by remember(mediaMetadata?.id) { mutableIntStateOf(0) }
+        LaunchedEffect(mediaMetadata?.id) {
+            while (isActive) {
+                delay(1400L)
+                loadingIndex = (loadingIndex + 1) % loadingLines.size
+            }
+        }
+        AnimatedContent(
+            targetState = loadingLines[loadingIndex],
+            transitionSpec = {
+                fadeIn(tween(220, easing = FastOutSlowInEasing)) togetherWith
+                    fadeOut(tween(180, easing = FastOutSlowInEasing))
+            },
+            label = "classicLyricsLoadingText",
+            modifier = modifier
+                .fillMaxWidth()
+                .heightIn(min = 30.dp, max = 42.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick,
+                ),
+        ) { text ->
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.72f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+            )
+        }
+        return
+    }
+
+    if (lines.isEmpty()) return
+
+    val currentIndex = remember(lines, livePosition) {
+        if (lines.all { it.time < 0L }) {
+            // Plain TTML has no timestamps; show its first lyric instead of
+            // treating every line as already elapsed and jumping to the end.
+            0
+        } else {
+            com.devxrohan.smusic.lyrics.LyricsUtils.findCurrentLineIndex(
+                lines,
+                livePosition,
+            ).coerceIn(0, lines.lastIndex)
+        }
+    }
+    val currentLine = lines[currentIndex]
+    val words = currentLine.words.orEmpty()
+
+    // The strip itself stays left-pinned. Long lines are clipped horizontally
+    // while the timed sweep follows the current word.
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 30.dp, max = 42.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        ClassicSweptLyricText(
+            line = currentLine,
+            positionMs = livePosition,
+            lineEndMs = lines.getOrNull(currentIndex + 1)?.time?.takeIf { it > currentLine.time }
+                ?: (currentLine.time + 4000L),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun rememberClassicLyricPosition(
+    reportedPosition: Long,
+    seekingPosition: Long?,
+    isPlaying: Boolean,
+    trackKey: Any,
+): Long {
+    var smoothPosition by remember(trackKey) { mutableLongStateOf(reportedPosition) }
+    var anchorPosition by remember(trackKey) { mutableLongStateOf(reportedPosition) }
+    var anchorNanos by remember(trackKey) { mutableLongStateOf(0L) }
+    var lastReported by remember(trackKey) { mutableLongStateOf(reportedPosition) }
+
+    val latestReported by rememberUpdatedState(reportedPosition)
+    val latestSeeking by rememberUpdatedState(seekingPosition)
+    val latestPlaying by rememberUpdatedState(isPlaying)
+
+    LaunchedEffect(trackKey, isPlaying) {
+        anchorPosition = latestSeeking ?: latestReported
+        lastReported = latestReported
+        anchorNanos = 0L
+
+        while (true) {
+            withFrameNanos { now ->
+                val seek = latestSeeking
+                if (seek != null) {
+                    smoothPosition = seek
+                    anchorPosition = seek
+                    lastReported = latestReported
+                    anchorNanos = now
+                } else {
+                    val reported = latestReported
+                    if (reported != lastReported) {
+                        // Media3 position callbacks are an anchor, not the
+                        // animation clock. Re-anchor whenever the player gives
+                        // us a new reading, then let the frame clock run between
+                        // readings. This removes the visible 200–500 ms lyric lag.
+                        anchorPosition = reported
+                        lastReported = reported
+                        anchorNanos = now
+                        smoothPosition = reported
+                    }
+                    if (latestPlaying) {
+                        if (anchorNanos == 0L) anchorNanos = now
+                        val elapsedMs = ((now - anchorNanos).coerceAtLeast(0L) / 1_000_000L)
+                        smoothPosition = anchorPosition + elapsedMs
+                    } else {
+                        smoothPosition = reported
+                        anchorPosition = reported
+                        anchorNanos = now
+                    }
+                }
+            }
+        }
+    }
+
+    return smoothPosition
+}
+
+/**
+ * Two identical text layers, exactly like BitChord's sweep: the lower copy is
+ * dim and the upper copy is clipped to the portion already sung. Because the
+ * clip boundary is calculated from the measured text, it moves continuously
+ * through the word instead of popping from one whole-word colour to another.
+ */
+@Composable
+private fun ClassicSweptLyricText(
+    line: LyricsEntry,
+    positionMs: Long,
+    lineEndMs: Long,
+    modifier: Modifier = Modifier,
+) {
+    var layout by remember(line) { mutableStateOf<TextLayoutResult?>(null) }
+    val words = line.words.orEmpty()
+
+    // Map every timed word back to its real character range in the rendered
+    // line. This is important for spaces/punctuation: cumulative word lengths
+    // alone make the sweep drift away from the actual sung word.
+    val wordRanges = remember(line) {
+        val ranges = mutableListOf<Triple<Int, Int, WordTimestamp>>()
+        var searchFrom = 0
+        for (word in words) {
+            val needle = word.text.trim()
+            if (needle.isEmpty()) continue
+            val found = line.text.indexOf(needle, searchFrom)
+            if (found >= 0) {
+                ranges += Triple(found, found + needle.length, word)
+                searchFrom = found + needle.length
+            }
+        }
+        ranges
+    }
+
+    val revealChars = remember(wordRanges, positionMs, line.time, lineEndMs, line.text.length) {
+        if (wordRanges.isEmpty()) {
+            val start = line.time.coerceAtLeast(0L)
+            val end = lineEndMs.coerceAtLeast(start + 1L)
+            val progress = ((positionMs - start).toFloat() / (end - start).toFloat()).coerceIn(0f, 1f)
+            return@remember line.text.length * progress
+        }
+        var reveal = 0f
+        for ((start, end, word) in wordRanges) {
+            val startMs = (word.startTime * 1000.0).toLong()
+            val endMs = (word.endTime * 1000.0).toLong().coerceAtLeast(startMs + 1L)
+            when {
+                positionMs >= endMs -> reveal = end.toFloat()
+                positionMs <= startMs -> break
+                else -> {
+                    val progress = ((positionMs - startMs).toFloat() /
+                        (endMs - startMs).toFloat()).coerceIn(0f, 1f)
+                    reveal = start + (end - start) * progress
+                    break
+                }
+            }
+        }
+        reveal.coerceIn(0f, line.text.length.toFloat())
+    }
+
+    val revealX = layout?.let { measured ->
+        val maxOffset = measured.layoutInput.text.length
+        when {
+            revealChars <= 0f -> 0f
+            revealChars >= maxOffset -> measured.size.width.toFloat()
+            else -> {
+                val whole = revealChars.toInt().coerceIn(0, maxOffset)
+                val fraction = revealChars - whole
+                val a = measured.getHorizontalPosition(whole, usePrimaryDirection = true)
+                val b = measured.getHorizontalPosition(
+                    (whole + 1).coerceAtMost(maxOffset),
+                    usePrimaryDirection = true,
+                )
+                a + (b - a) * fraction
+            }
+        }
+    } ?: 0f
+
+    Box(modifier = modifier) {
+        Text(
+            text = line.text,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = Color.White.copy(alpha = 0.42f),
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+            onTextLayout = { layout = it },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = line.text,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawWithContent {
+                    if (revealX > 0f) {
+                        clipRect(left = 0f, top = 0f, right = revealX, bottom = size.height) {
+                            this@drawWithContent.drawContent()
+                        }
+                    }
+                },
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClassicPlayerScreen(
@@ -4127,7 +4472,8 @@ fun ClassicPlayerScreen(
     val menuState = LocalMenuState.current
     val database = LocalDatabase.current
     val haptic = LocalHapticFeedback.current
-    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SQUIGGLY)
+    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
+    var classicPendingSeekPosition by remember { mutableStateOf<Long?>(null) }
 
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
     val isLiked = currentSong?.song?.liked == true
@@ -4227,42 +4573,64 @@ fun ClassicPlayerScreen(
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        lerp(Color.Black, accent, 0.5f),
-                        lerp(Color.Black, accent, 0.22f),
-                        Color.Black,
-                    )
-                )
-            )
-            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
-            .padding(bottom = queueSheetState.collapsedBound)
-            .bottomSheetDraggable(bottomSheetState),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        // Takes all the remaining vertical space, so the thumbnail area
-        // (including its built-in "Playing from" header and swipe-to-
-        // change-song gesture) is properly centered instead of everything
-        // clustering at the top with dead space below.
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.weight(1f),
-        ) {
-            Thumbnail(
-                sliderPositionProvider = { sliderPosition },
-                onOpenFullscreenLyrics = onOpenFullscreenLyrics,
-                shape = RoundedCornerShape(24.dp),
-                artworkScale = 1f,
-                useCustomCornerRadius = true,
-                textColor = Color.White,
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Classic keeps its normal layout. The cover is only a soft background layer;
+        // it never becomes the foreground/fullscreen artwork and never creates top/bottom bands.
+        mediaMetadata?.thumbnailUrl?.let { artworkUrl ->
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(artworkUrl.highQualityThumbnail())
+                    .allowHardware(false)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(42.dp)
+                    .alpha(0.34f),
             )
         }
 
         Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            lerp(Color.Black, accent, 0.48f).copy(alpha = 0.52f),
+                            lerp(Color.Black, accent, 0.22f).copy(alpha = 0.42f),
+                            Color.Black.copy(alpha = 0.68f),
+                        )
+                    )
+                )
+                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
+                .padding(bottom = queueSheetState.collapsedBound)
+                .bottomSheetDraggable(bottomSheetState),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Keep the artwork as the normal Classic thumbnail. The background image
+            // above is decorative only and never replaces this foreground artwork.
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f),
+            ) {
+                Thumbnail(
+                    sliderPositionProvider = { sliderPosition },
+                    onOpenFullscreenLyrics = onOpenFullscreenLyrics,
+                    shape = RoundedCornerShape(24.dp),
+                    artworkScale = 1f,
+                    useCustomCornerRadius = true,
+                    textColor = Color.White,
+                    modifier = Modifier,
+                )
+            }
+
+            // Keep metadata (title, artist, like button) clearly below the artwork.
+            // This fixed gap also reserves space when Thumbnail fills its weighted area.
+            // Density-independent dp, so this reads the same physical size on any phone.
+            Spacer(Modifier.height(20.dp))
+
+            Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = PlayerHorizontalPadding),
@@ -4288,7 +4656,7 @@ fun ClassicPlayerScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = mediaMetadata?.album != null) {
+                            .clickable(enabled = mediaMetadata?.album != null, interactionSource = remember { MutableInteractionSource() }, indication = null) {
                                 mediaMetadata?.album?.let { navController.navigate("album/${it.id}") }
                                 bottomSheetState.collapseSoft()
                             }
@@ -4310,7 +4678,7 @@ fun ClassicPlayerScreen(
                         .size(44.dp)
                         .clip(CircleShape)
                         .background(if (isLiked) accent else Color.White.copy(alpha = 0.12f))
-                        .clickable {
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             playerConnection.toggleLike()
                         },
@@ -4325,12 +4693,32 @@ fun ClassicPlayerScreen(
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            // Visible breathing room below the title/artist row before lyrics.
+            Spacer(Modifier.height(20.dp))
+
+            ClassicLyricLineStrip(
+                mediaMetadata = mediaMetadata,
+                position = position,
+                duration = (mediaMetadata?.duration?.toLong() ?: 0L) * 1000L,
+                sliderPosition = sliderPosition,
+                isPlaying = isPlaying,
+                onClick = onOpenFullscreenLyrics,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            // Keep the seek bar hugging the lyric strip — only a hairline gap,
+            // not the larger breathing room used elsewhere in this column.
+            Spacer(Modifier.height(4.dp))
 
             val classicSliderColors = SliderDefaults.colors(
-                thumbColor = accent,
-                activeTrackColor = accent,
+                thumbColor = Color.White,
+                activeTrackColor = Color.White,
                 inactiveTrackColor = Color.White.copy(alpha = 0.35f),
+                activeTickColor = Color.White,
+                inactiveTickColor = Color.White.copy(alpha = 0.35f),
+                disabledThumbColor = Color.White.copy(alpha = 0.35f),
+                disabledActiveTrackColor = Color.White.copy(alpha = 0.35f),
+                disabledInactiveTrackColor = Color.White.copy(alpha = 0.2f),
             )
             ClassicSeekBar(
                 progress = (sliderPosition ?: position).toFloat() / duration.coerceAtLeast(1L).toFloat(),
@@ -4338,14 +4726,28 @@ fun ClassicPlayerScreen(
                 isPlaying = isPlaying,
                 colors = classicSliderColors,
                 onSeek = { fraction ->
-                    val newPosition = (fraction * duration).toLong()
+                    val newPosition = (fraction.coerceIn(0f, 1f) * duration.coerceAtLeast(0L)).toLong()
+                    classicPendingSeekPosition = newPosition
                     onSliderPositionChange(newPosition)
                 },
                 onSeekFinished = {
-                    sliderPosition?.let { playerConnection.player.seekTo(it) }
+                    (classicPendingSeekPosition ?: sliderPosition)?.let { target ->
+                        playerConnection.player.seekTo(target.coerceIn(0L, duration.coerceAtLeast(0L)))
+                    }
+                    classicPendingSeekPosition = null
                     onSliderPositionChange(null)
                 },
-                modifier = Modifier.fillMaxWidth()
+                // The Slider/SquigglySlider primitives reserve generous empty
+                // space above and below their track for touch target size
+                // (~44–48dp), which is what made the lyric line read as
+                // floating between the title row and the seek bar instead of
+                // sitting right above it. Tightening the height compresses
+                // that invisible padding symmetrically — the track/thumb
+                // colors, shape and interaction logic inside ClassicSeekBar
+                // are untouched, so this can't conflict with any slider style.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp)
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(makeTimeString(sliderPosition ?: position), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
@@ -4365,38 +4767,40 @@ fun ClassicPlayerScreen(
                     tint = if (shuffleModeEnabled) accent else Color.White.copy(alpha = 0.5f),
                     modifier = Modifier
                         .size(24.dp)
-                        .clickable { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled }
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled }
                 )
                 Icon(
-                    painter = painterResource(R.drawable.skip_previous),
+                    painter = painterResource(R.drawable.classic_skip_previous),
                     contentDescription = null,
                     tint = Color.White.copy(alpha = if (canSkipPrevious) 1f else 0.35f),
                     modifier = Modifier
                         .size(34.dp)
-                        .clickable(enabled = canSkipPrevious) { playerConnection.player.seekToPrevious() }
+                        .clickable(enabled = canSkipPrevious, interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.seekToPrevious() }
                 )
                 Box(
                     modifier = Modifier
-                        .size(74.dp)
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(accent)
-                        .clickable { playerConnection.player.togglePlayPause() },
+                        .size(78.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { playerConnection.player.togglePlayPause() },
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        painter = painterResource(if (isPlaying) R.drawable.pause else R.drawable.play),
+                        painter = painterResource(if (isPlaying) R.drawable.classic_pause else R.drawable.classic_play),
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(42.dp)
                     )
                 }
                 Icon(
-                    painter = painterResource(R.drawable.skip_next),
+                    painter = painterResource(R.drawable.classic_skip_next),
                     contentDescription = null,
                     tint = Color.White.copy(alpha = if (canSkipNext) 1f else 0.35f),
                     modifier = Modifier
                         .size(34.dp)
-                        .clickable(enabled = canSkipNext) { playerConnection.player.seekToNext() }
+                        .clickable(enabled = canSkipNext, interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.seekToNext() }
                 )
                 Icon(
                     painter = painterResource(
@@ -4409,7 +4813,7 @@ fun ClassicPlayerScreen(
                     tint = if (repeatMode != Player.REPEAT_MODE_OFF) accent else Color.White.copy(alpha = 0.5f),
                     modifier = Modifier
                         .size(24.dp)
-                        .clickable {
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             playerConnection.player.repeatMode = when (repeatMode) {
                                 Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                                 Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
@@ -4424,8 +4828,6 @@ fun ClassicPlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
                     .padding(vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
@@ -4434,7 +4836,7 @@ fun ClassicPlayerScreen(
                     painter = painterResource(R.drawable.lyrics),
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp).clickable { onOpenFullscreenLyrics() }
+                    modifier = Modifier.size(20.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onOpenFullscreenLyrics() }
                 )
                 if (sleepTimerEnabled) {
                     Text(
@@ -4443,14 +4845,14 @@ fun ClassicPlayerScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = accent,
                         maxLines = 1,
-                        modifier = Modifier.clickable(onClick = playerConnection.service.sleepTimer::clear)
+                        modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = playerConnection.service.sleepTimer::clear)
                     )
                 } else {
                     Icon(
                         painter = painterResource(R.drawable.bedtime),
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp).clickable { showSleepTimerDialog = true }
+                        modifier = Modifier.size(20.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showSleepTimerDialog = true }
                     )
                 }
                 Icon(
@@ -4464,7 +4866,7 @@ fun ClassicPlayerScreen(
                     tint = Color.White,
                     modifier = Modifier
                         .size(20.dp)
-                        .clickable {
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             mediaMetadata?.let { metadata ->
                                 if (download?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) {
                                     androidx.media3.exoplayer.offline.DownloadService.sendRemoveDownload(
@@ -4488,7 +4890,7 @@ fun ClassicPlayerScreen(
                     painter = painterResource(R.drawable.queue_music),
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp).clickable { queueSheetState.expandSoft() }
+                    modifier = Modifier.size(20.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { queueSheetState.expandSoft() }
                 )
                 Icon(
                     painter = painterResource(R.drawable.more_horiz),
@@ -4496,7 +4898,7 @@ fun ClassicPlayerScreen(
                     tint = Color.White,
                     modifier = Modifier
                         .size(20.dp)
-                        .clickable {
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             currentSong?.let { song ->
                                 menuState.show {
                                     PlayerMenu(
@@ -4514,9 +4916,11 @@ fun ClassicPlayerScreen(
 
             Spacer(Modifier.height(24.dp))
         }
+        }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ClassicSeekBar(
     progress: Float,
@@ -4528,102 +4932,75 @@ fun ClassicSeekBar(
     modifier: Modifier = Modifier,
 ) {
     val clampedProgress = progress.coerceIn(0f, 1f)
-    val trackHeight = if (style == SliderStyle.SLIM) 4.dp else 8.dp
-    val phase = rememberInfiniteTransition(label = "squigglyPhase").animateFloat(
-        initialValue = 0f,
-        targetValue = if (style == SliderStyle.SQUIGGLY && isPlaying) (2 * Math.PI).toFloat() else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "squigglyPhaseAnim"
-    )
+    val value = clampedProgress
+    val currentOnSeek by rememberUpdatedState(onSeek)
+    val currentOnSeekFinished by rememberUpdatedState(onSeekFinished)
 
-    val currentOnSeek = rememberUpdatedState(onSeek)
-    val currentOnSeekFinished = rememberUpdatedState(onSeekFinished)
-
-    Box(
-        modifier = modifier
-            .height(28.dp)
-            .pointerInput(Unit) {
-                // Raw, low-level gesture handling — NOT detectDragGestures,
-                // which has a built-in touch-slop threshold that a plain
-                // tap (press+release with no real movement) never crosses,
-                // meaning onDragStart would never fire for a tap at all.
-                // awaitFirstDown() reacts the instant a finger touches
-                // down, before any slop check, so both a tap and a drag
-                // starting from that same touch work correctly here.
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    currentOnSeek.value((down.position.x / size.width.toFloat()).coerceIn(0f, 1f))
-                    down.consume()
-
-                    drag(down.id) { change ->
-                        currentOnSeek.value((change.position.x / size.width.toFloat()).coerceIn(0f, 1f))
-                        change.consume()
+    // Use the exact same Material/Squiggly/PlayerSliderTrack primitives as the
+    // Player settings styles. Classic only overrides their colors to white;
+    // it must not grow its own thumb/track geometry.
+    when (style) {
+        SliderStyle.DEFAULT -> {
+            Slider(
+                value = value,
+                onValueChange = onSeek,
+                onValueChangeFinished = onSeekFinished,
+                colors = colors,
+                modifier = modifier.pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        val inset = 16.dp.toPx()
+                        val usableWidth = (size.width.toFloat() - inset * 2f).coerceAtLeast(1f)
+                        val fraction = ((offset.x - inset) / usableWidth).coerceIn(0f, 1f)
+                        currentOnSeek(fraction)
+                        currentOnSeekFinished()
                     }
-                    currentOnSeekFinished.value()
-                }
-            }
-    ) {
-        Canvas(modifier = Modifier.fillMaxWidth().align(Alignment.Center).height(trackHeight + 12.dp)) {
-            val centerY = size.height / 2f
-            val strokeWidth = trackHeight.toPx()
-            val activeX = size.width * clampedProgress
-
-            // Inactive portion — always a plain straight line for every
-            // style, so the remaining time is easy to read regardless.
-            drawLine(
-                color = colors.inactiveTrackColor,
-                start = Offset(activeX, centerY),
-                end = Offset(size.width, centerY),
-                strokeWidth = strokeWidth,
-                cap = StrokeCap.Round,
+                },
             )
-
-            when (style) {
-                SliderStyle.SQUIGGLY -> {
-                    val amplitude = if (isPlaying) 5.dp.toPx() else 0f
-                    val wavelength = 26.dp.toPx()
-                    val path = Path()
-                    var x = 0f
-                    var first = true
-                    while (x <= activeX) {
-                        val y = centerY + amplitude * kotlin.math.sin((x / wavelength) * 2 * Math.PI.toFloat() + phase.value)
-                        if (first) {
-                            path.moveTo(x, y)
-                            first = false
-                        } else {
-                            path.lineTo(x, y)
-                        }
-                        x += 4f
+        }
+        SliderStyle.SQUIGGLY -> {
+            SquigglySlider(
+                value = value,
+                onValueChange = onSeek,
+                onValueChangeFinished = onSeekFinished,
+                colors = colors,
+                modifier = modifier.pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        val inset = 16.dp.toPx()
+                        val usableWidth = (size.width.toFloat() - inset * 2f).coerceAtLeast(1f)
+                        val fraction = ((offset.x - inset) / usableWidth).coerceIn(0f, 1f)
+                        currentOnSeek(fraction)
+                        currentOnSeekFinished()
                     }
-                    drawPath(
-                        path = path,
-                        color = colors.activeTrackColor,
-                        style = Stroke(width = strokeWidth * 0.6f, cap = StrokeCap.Round)
+                },
+                squigglesSpec = SquigglySlider.SquigglesSpec(
+                    amplitude = if (isPlaying) 2.dp else 0.dp,
+                    strokeWidth = 3.dp,
+                ),
+            )
+        }
+        SliderStyle.SLIM -> {
+            Slider(
+                value = value,
+                onValueChange = onSeek,
+                onValueChangeFinished = onSeekFinished,
+                colors = colors,
+                thumb = { Spacer(Modifier.size(0.dp)) },
+                track = { sliderState ->
+                    PlayerSliderTrack(
+                        sliderState = sliderState,
+                        colors = colors,
                     )
-                }
-                else -> {
-                    drawLine(
-                        color = colors.activeTrackColor,
-                        start = Offset(0f, centerY),
-                        end = Offset(activeX, centerY),
-                        strokeWidth = strokeWidth,
-                        cap = StrokeCap.Round,
-                    )
-                }
-            }
-
-            // Thumb — every style except Slim shows one, matching the
-            // Slim variant's intentionally minimal, thumb-less look.
-            if (style != SliderStyle.SLIM) {
-                drawCircle(
-                    color = colors.thumbColor,
-                    radius = (trackHeight.toPx() / 2f) + 5.dp.toPx(),
-                    center = Offset(activeX, centerY),
-                )
-            }
+                },
+                modifier = modifier.pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        val inset = 16.dp.toPx()
+                        val usableWidth = (size.width.toFloat() - inset * 2f).coerceAtLeast(1f)
+                        val fraction = ((offset.x - inset) / usableWidth).coerceIn(0f, 1f)
+                        currentOnSeek(fraction)
+                        currentOnSeekFinished()
+                    }
+                },
+            )
         }
     }
 }

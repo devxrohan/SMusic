@@ -4,7 +4,7 @@ import com.devxrohan.smusic.ui.component.BottomSheetState
 import com.devxrohan.smusic.ui.component.bottomSheetDraggable
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.ui.platform.LocalContext
-import coil.ImageLoader
+import coil.imageLoader
 import coil.request.ImageRequest
 import com.devxrohan.smusic.ui.theme.extractThemeColor
 import androidx.compose.foundation.Image
@@ -69,7 +69,7 @@ fun ColourfullPlayer(
     
     LaunchedEffect(colorInt, thumbnailUrl) {
         if (colorInt == 0 && thumbnailUrl != null) {
-            val result = ImageLoader(context).execute(
+            val result = context.imageLoader.execute(
                 ImageRequest.Builder(context)
                     .data(thumbnailUrl)
                     .allowHardware(false)

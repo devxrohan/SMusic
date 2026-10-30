@@ -381,7 +381,7 @@ fun SMusicLyricsScreen(
                                 } else {
                                     Lyrics(
                                         sliderPositionProvider = { sliderPosition },
-
+                                        forceShowContent = true,
                                         modifier = modifier,
                                     )
                                 }
@@ -685,7 +685,7 @@ fun SMusicLyricsScreen(
                         } else {
                             Lyrics(
                                 sliderPositionProvider = { sliderPosition },
-
+                                forceShowContent = true,
                                 modifier = modifier,
                             )
                         }

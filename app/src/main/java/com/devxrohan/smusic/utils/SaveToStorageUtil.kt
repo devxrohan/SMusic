@@ -164,7 +164,8 @@ object SaveToStorageUtil {
             showProgressNotification(context, notificationId, mediaMetadata.title, 0, subText)
 
             // 1. Resolve stream URL and format using robust playerResponseForPlayback with fallbacks
-            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val appContext = context.applicationContext
+            val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val playbackData = YTPlayerUtils.playerResponseForPlayback(
                 videoId = mediaMetadata.id,
                 playlistId = null,
@@ -194,7 +195,20 @@ object SaveToStorageUtil {
             val fileName = "${sanitisedTitle} - ${artistName}.$extension"
 
             // 4. Download the stream with live progress updates
-            val request = Request.Builder().url(streamUrl).build()
+            // Request the media range explicitly and use normal browser headers. This avoids
+            // YouTube's occasional throttled/partial responses for direct storage downloads.
+            val downloadUrl = if (!streamUrl.contains("range=")) {
+                val length = format.contentLength?.takeIf { it > 0L } ?: 15_000_000L
+                "$streamUrl&range=0-$length"
+            } else {
+                streamUrl
+            }
+            val request = Request.Builder()
+                .url(downloadUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "*/*")
+                .header("Connection", "keep-alive")
+                .build()
             val response = httpClient.newCall(request).execute()
             response.use { resp ->
                 if (!resp.isSuccessful) {
@@ -203,11 +217,12 @@ object SaveToStorageUtil {
                 val body = resp.body ?: throw Exception("Response body is null")
                 val contentLength = body.contentLength()
                 val inputStream = body.byteStream()
+                // Avoid huge eager allocations when the server omits or misreports length.
                 val outputBuffer = ByteArrayOutputStream(
-                    if (contentLength > 0 && contentLength < Int.MAX_VALUE) contentLength.toInt() else 1024 * 1024
+                    if (contentLength in 1..(32L * 1024 * 1024)) contentLength.toInt() else 1024 * 1024
                 )
 
-                val buffer = ByteArray(8192)
+                val buffer = ByteArray(65536)
                 var bytesRead: Int
                 var totalBytesRead = 0L
                 var lastUpdateMs = 0L
@@ -259,14 +274,22 @@ object SaveToStorageUtil {
                     val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, contentValues)
                         ?: throw Exception("Failed to create MediaStore entry")
 
-                    resolver.openOutputStream(uri)?.use { outputStream ->
-                        outputStream.write(audioBytes)
-                    } ?: throw Exception("Failed to open output stream")
+                    try {
+                        resolver.openOutputStream(uri, "w")?.use { outputStream ->
+                            outputStream.write(audioBytes)
+                            outputStream.flush()
+                        } ?: throw Exception("Failed to open output stream")
 
-                    // Mark as complete
-                    contentValues.clear()
-                    contentValues.put(MediaStore.Audio.Media.IS_PENDING, 0)
-                    resolver.update(uri, contentValues, null, null)
+                        // Publish only after all audio bytes have been written successfully.
+                        contentValues.clear()
+                        contentValues.put(MediaStore.Audio.Media.IS_PENDING, 0)
+                        if (resolver.update(uri, contentValues, null, null) <= 0) {
+                            throw Exception("Failed to publish downloaded audio")
+                        }
+                    } catch (writeError: Exception) {
+                        resolver.delete(uri, null, null)
+                        throw writeError
+                    }
 
                     Timber.tag(TAG).d("Saved via MediaStore: $fileName")
                 } else {

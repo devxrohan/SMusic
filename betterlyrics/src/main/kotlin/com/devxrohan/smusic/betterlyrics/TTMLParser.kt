@@ -57,7 +57,7 @@ object TTMLParser {
         
         try {
             val factory = DocumentBuilderFactory.newInstance()
-            // Keep qualified names intact like BitChord's TTML reader. Android's
+            // Keep qualified names intact with qualified names preserved by the TTML reader. Android's
             // Expat DOM can expose prefixed attributes differently when namespace
             // processing is enabled, so all reads below also match attribute suffixes.
             factory.isNamespaceAware = false

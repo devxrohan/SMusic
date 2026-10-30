@@ -316,7 +316,7 @@ fun AppearanceSettings(
                                 valueText = {
                                     when (it) {
                                         com.devxrohan.smusic.constants.HomeHeaderStyle.SMUSIC -> stringResource(R.string.home_header_style_smusic)
-                                        com.devxrohan.smusic.constants.HomeHeaderStyle.BITCHORD -> stringResource(R.string.home_header_style_bitchord)
+                                        com.devxrohan.smusic.constants.HomeHeaderStyle.FEATURED -> stringResource(R.string.home_header_style_featured)
                                         com.devxrohan.smusic.constants.HomeHeaderStyle.NONE -> stringResource(R.string.home_header_style_none)
                                     }
                                 }

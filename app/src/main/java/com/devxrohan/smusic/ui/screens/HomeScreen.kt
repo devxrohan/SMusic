@@ -490,7 +490,7 @@ fun HomeScreen(
                     item {
                         val picks = quickPicks.orEmpty()
                         val distinctPicks = remember(picks) { picks.distinctBy { it.id } }
-                        if (homeHeaderStyle == HomeHeaderStyle.BITCHORD) {
+                        if (homeHeaderStyle == HomeHeaderStyle.FEATURED) {
                             Text(
                                 text = stringResource(R.string.ui_listen_now),
                                 fontFamily = appFont.getFontFamily(),

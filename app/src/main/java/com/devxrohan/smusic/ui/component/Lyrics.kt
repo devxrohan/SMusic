@@ -389,7 +389,7 @@ fun Lyrics(
                 // No real timestamps anywhere — plain lyrics, or a timed format
                 // (e.g. untimed TTML) that carries no timing data. Show every
                 // line exactly as-is with no karaoke/scroll animation, the same
-                // way BitChord renders unsynced lyrics.
+                // way unsynced lyrics are rendered.
                 parsed
             }
         }

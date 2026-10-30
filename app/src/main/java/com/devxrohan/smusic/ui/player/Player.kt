@@ -4115,7 +4115,7 @@ fun ClassicControlsContent(
 }
 
 /**
- * BitChord-style single-line lyric strip for the Classic player.
+ * Animated single-line lyric strip for the Classic player.
  *
  * The important part is that the lyric clock is independent of the player's
  * relatively coarse position callbacks. We use the last reported position as
@@ -4196,7 +4196,7 @@ private fun ClassicLyricLineStrip(
     )
 
     if (isLoading) {
-        // BitChord keeps a real text status in the player while the provider
+        // The player keeps a real text status in the player while the provider
         // race is running. Rotate the status softly instead of showing a
         // skeleton or waiting for the lyrics page to be opened.
         val loadingLines = remember {
@@ -4343,7 +4343,7 @@ private fun rememberClassicLyricPosition(
 }
 
 /**
- * Two identical text layers, exactly like BitChord's sweep: the lower copy is
+ * Two identical text layers, using a two-layer progress sweep: the lower copy is
  * dim and the upper copy is clipped to the portion already sung. Because the
  * clip boundary is calculated from the measured text, it moves continuously
  * through the word instead of popping from one whole-word colour to another.

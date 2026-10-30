@@ -164,7 +164,7 @@ val HomeHeaderStyleKey = stringPreferencesKey("homeHeaderStyle")
 val QuickPicksCardWidthKey = floatPreferencesKey("quickPicksCardWidth")
 val QuickPicksCardHeightKey = floatPreferencesKey("quickPicksCardHeight")
 
-enum class HomeHeaderStyle { SMUSIC, BITCHORD, NONE }
+enum class HomeHeaderStyle { SMUSIC, FEATURED, NONE }
 
 enum class NavBarStyle {
     FLOATING,

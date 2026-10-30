@@ -59,7 +59,7 @@ object AiTranslationService {
             )
         }
 
-        // Same no-key approach BitChord uses: Google's free, unauthenticated
+        // Free, no-key translation approach: Google's free, unauthenticated
         // "dict-chrome-ex" endpoint. No account, no API key, nothing to configure.
         if (provider.equals("Google", ignoreCase = true)) {
             return@withContext translateWithGoogleFree(
@@ -252,7 +252,7 @@ object AiTranslationService {
         }.getOrNull()
     }
 
-    // ── Free, no-key translation (same approach BitChord uses) ──
+    // ── Free, no-key translation (the free, no-key translation approach) ──
     // Google's own web client ("dict-chrome-ex") requires no API key. Lines are
     // batched and separated by private-use marker characters so one request can
     // translate many lyric lines while keeping them in order.

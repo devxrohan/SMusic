@@ -963,7 +963,7 @@
     <string name="pulse_how_learns_body">Pulse learns on this device from what you actually do: songs you finish or replay, ones you skip, what you like, and what you play together. Nothing leaves your phone. As it learns, Keep Listening, Similar To and a few extra shelves become more personal.</string>
     <string name="home_header_style">Home Header Style</string>
     <string name="home_header_style_smusic">Morning Aura</string>
-    <string name="home_header_style_bitchord">Apple Listen</string>
+    <string name="home_header_style_featured">Apple Listen</string>
     <string name="home_header_style_none">None — Quick Picks Only</string>
 
     <!-- Voice assistant -->

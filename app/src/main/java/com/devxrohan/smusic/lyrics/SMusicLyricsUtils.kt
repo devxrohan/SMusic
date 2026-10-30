@@ -11,6 +11,8 @@ import android.text.format.DateUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.devxrohan.smusic.betterlyrics.TTMLParser
+import org.json.JSONArray
+import org.json.JSONObject
 
 
 data class LyricsRomanizationPreferences(
@@ -113,17 +115,56 @@ object SMusicLyricsUtils {
         )
     )
 
-    fun isTtml(lyrics: String): Boolean {
-        val trimmed = lyrics.trim()
-        if (!trimmed.startsWith("<")) return false
+    private fun normalizeTtmlSource(lyrics: String): String = lyrics.trim()
+        .removePrefix("\uFEFF")
+        .replace("\\u003C", "<", ignoreCase = true)
+        .replace("\\u003E", ">", ignoreCase = true)
+        .replace("\\<", "<")
+        .replace("\\>", ">")
+        .replace("&lt;", "<", ignoreCase = true)
+        .replace("&gt;", ">", ignoreCase = true)
+        .replace("&quot;", "\"", ignoreCase = true)
+        .replace("&apos;", "'", ignoreCase = true)
+        .replace("&amp;", "&", ignoreCase = true)
 
-        return trimmed.contains("<tt", ignoreCase = true) ||
-                trimmed.contains("http://www.w3.org/ns/ttml", ignoreCase = true)
+    fun isTtml(lyrics: String): Boolean {
+        val normalized = normalizeTtmlSource(lyrics)
+        return normalized.contains("<tt", ignoreCase = true) ||
+            normalized.contains("http://www.w3.org/ns/ttml", ignoreCase = true) ||
+            normalized.contains("<p", ignoreCase = true) && normalized.contains("<span", ignoreCase = true) &&
+                normalized.contains("begin=", ignoreCase = true)
     }
 
     fun parseTtml(lyrics: String, durationSeconds: Int? = null): List<LyricsEntry> {
-        val parsedLines = TTMLParser.parseTTML(lyrics)
-        if (parsedLines.isEmpty()) return emptyList()
+        val normalized = normalizeTtmlSource(lyrics)
+        val parsedLines = TTMLParser.parseTTML(normalized)
+        if (parsedLines.isEmpty()) {
+            // Providers occasionally return escaped or partially untimed TTML. Never
+            // let the raw XML leak into the lyrics UI: salvage each paragraph as text.
+            val paragraphRegex = Regex("""(?is)<p\b([^>]*)>(.*?)</p>""")
+            val fallback = paragraphRegex.findAll(normalized).mapNotNull { match ->
+                val attrs = match.groupValues[1]
+                val inner = match.groupValues[2]
+                val text = inner.replace(Regex("""(?is)<br\s*/?>"""), " ")
+                    .replace(Regex("""(?is)<[^>]+>"""), "")
+                    .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                    .replace("&quot;", "\"").replace("&apos;", "'")
+                    .replace(Regex("""\s+"""), " ").trim()
+                if (text.isBlank()) return@mapNotNull null
+                val beginValue = Regex("""(?:begin|start)\s*=\s*['\"]([^'\"]+)['\"]""", RegexOption.IGNORE_CASE)
+                    .find(attrs)?.groupValues?.get(1)
+                val begin = beginValue?.let { value ->
+                    parseClockTimestamp(value) ?: value.toDoubleOrNull()?.let { (it * 1000).toLong() }
+                }
+                LyricsEntry(begin ?: -1L, text)
+            }.toList()
+            if (fallback.isNotEmpty()) return fallback.sortedBy { if (it.time < 0) Long.MAX_VALUE else it.time }
+            // Last-resort salvage for malformed XML with paragraph tags removed.
+            val plain = normalized.replace(Regex("""(?is)<head\b.*?</head>"""), " ")
+                .replace(Regex("""(?is)<[^>]+>"""), " ")
+                .replace(Regex("""\s+"""), " ").trim()
+            return if (plain.isBlank()) emptyList() else listOf(LyricsEntry(-1L, plain))
+        }
         val scale = 1.0
 
         return parsedLines.map { line ->
@@ -146,6 +187,190 @@ object SMusicLyricsUtils {
                 agent = line.agent,
             )
         }.sorted()
+    }
+
+    /** Detects common structured timed lyric JSON responses (array or wrapped object). */
+    fun isStructuredTimedLyricsJson(lyrics: String): Boolean {
+        val trimmed = lyrics.trimStart().removePrefix("\uFEFF")
+        if (!(trimmed.startsWith("[") || trimmed.startsWith("{"))) return false
+        return trimmed.contains("\"time\"", ignoreCase = true) ||
+            trimmed.contains("\"timestamp\"", ignoreCase = true) ||
+            trimmed.contains("\"startTime\"", ignoreCase = true) ||
+            trimmed.contains("\"start_time\"", ignoreCase = true) ||
+            trimmed.contains("\"start\"", ignoreCase = true) ||
+            trimmed.contains("\"syllabus\"", ignoreCase = true)
+    }
+
+    /**
+     * Parses line-timed JSON from Apple Music-like providers and common wrappers.
+     * Supports `time`/`duration` + `syllabus`, and `start`/`startTime`/`timestamp` + words.
+     * Numeric times are treated as milliseconds unless explicitly represented as seconds strings.
+     */
+    fun parseStructuredTimedLyricsJson(lyrics: String): List<LyricsEntry> {
+        if (!isStructuredTimedLyricsJson(lyrics)) return emptyList()
+        return runCatching {
+            val raw = lyrics.trim().removePrefix("\uFEFF")
+            val rootArray = when {
+                raw.startsWith("[") -> JSONArray(raw)
+                else -> {
+                    val obj = JSONObject(raw)
+                    val keys = sequenceOf("lyrics", "lines", "content", "data", "results", "subtitles", "items")
+                    val directArray = keys.mapNotNull { key -> obj.optJSONArray(key) }.firstOrNull()
+                    val nestedObjectArray = keys.mapNotNull { key -> obj.optJSONObject(key) }
+                        .asSequence()
+                        .mapNotNull { nested ->
+                            sequenceOf("lyrics", "lines", "content", "data", "results", "items")
+                                .mapNotNull { key -> nested.optJSONArray(key) }.firstOrNull()
+                        }.firstOrNull()
+                    val nestedJsonString = keys.mapNotNull { key -> obj.optString(key, null) }
+                        .firstOrNull { it.trimStart().startsWith("[") }
+                    when {
+                        directArray != null -> directArray
+                        nestedObjectArray != null -> nestedObjectArray
+                        nestedJsonString != null -> JSONArray(nestedJsonString)
+                        obj.has("text") || obj.has("content") -> JSONArray().apply { put(obj) }
+                        else -> JSONArray()
+                    }
+                }
+            }
+            buildList {
+                for (i in 0 until rootArray.length()) {
+                    val line = rootArray.optJSONObject(i) ?: continue
+                    val text = line.optString("text", line.optString("content", line.optString("line", "")))
+                        .replace(Regex("<[^>]+>"), "").trim()
+                    if (text.isEmpty()) continue
+                    val timeValue = when {
+                        line.has("time") -> line.opt("time")
+                        line.has("timestamp") -> line.opt("timestamp")
+                        line.has("startTime") -> line.opt("startTime")
+                        line.has("start_time") -> line.opt("start_time")
+                        line.has("start") -> line.opt("start")
+                        else -> null
+                    }
+                    val timeMs = parseJsonTimeToMillis(timeValue) ?: continue
+                    val wordArray = sequenceOf("syllabus", "words", "wordTimings", "word_timestamps", "tokens")
+                        .mapNotNull { key -> line.optJSONArray(key) }.firstOrNull()
+                    val words = mutableListOf<WordTimestamp>()
+                    if (wordArray != null) {
+                        for (j in 0 until wordArray.length()) {
+                            val word = wordArray.optJSONObject(j) ?: continue
+                            val wordText = word.optString("text", word.optString("word", ""))
+                            if (wordText.isEmpty()) continue
+                            val wordStartValue = when {
+                                word.has("time") -> word.opt("time")
+                                word.has("startTime") -> word.opt("startTime")
+                                word.has("start") -> word.opt("start")
+                                else -> null
+                            }
+                            val wordStartMs = parseJsonTimeToMillis(wordStartValue) ?: continue
+                            val durationValue = when {
+                                word.has("duration") -> word.opt("duration")
+                                word.has("endTime") -> null
+                                word.has("end") -> null
+                                else -> null
+                            }
+                            val explicitEnd = when {
+                                word.has("endTime") -> parseJsonTimeToMillis(word.opt("endTime"))
+                                word.has("end") -> parseJsonTimeToMillis(word.opt("end"))
+                                else -> null
+                            }
+                            val wordDuration = parseJsonTimeToMillis(durationValue) ?: 0L
+                            val wordEndMs = (explicitEnd ?: (wordStartMs + wordDuration)).coerceAtLeast(wordStartMs)
+                            words += WordTimestamp(wordText, wordStartMs / 1000.0, wordEndMs / 1000.0,
+                                isBackground = word.optBoolean("isBackground", false))
+                        }
+                    }
+                    add(LyricsEntry(time = timeMs, text = text, words = words.takeIf { it.isNotEmpty() },
+                        agent = line.optString("agent", line.optString("singer", "")).takeIf { it.isNotBlank() }))
+                }
+            }.sorted()
+        }.getOrElse { emptyList() }
+    }
+
+    private fun parseJsonTimeToMillis(value: Any?): Long? = when (value) {
+        null, JSONObject.NULL -> null
+        is Number -> value.toDouble().let { n ->
+            if (!n.isFinite() || n < 0) null else n.toLong()
+        }
+        is String -> {
+            val v = value.trim()
+            parseClockTimestamp(v) ?: v.toDoubleOrNull()?.let { n ->
+                if (!n.isFinite() || n < 0) null else if (v.contains('.') && n < 100_000) (n * 1000).toLong() else n.toLong()
+            }
+        }
+        else -> null
+    }
+
+    fun isRecognizedTimedLyrics(lyrics: String): Boolean {
+        val source = lyrics.trim().removePrefix("\uFEFF")
+        return isTtml(source) || isStructuredTimedLyricsJson(source) ||
+            source.contains("-->") ||
+            source.lines().any { Regex("^\\s*\\[?\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3}\\]?\\s+.+$").matches(it) }
+    }
+
+    /** Auto-detect common lyric payloads without changing the existing karaoke renderer. */
+    fun parseAnyLyrics(lyrics: String): List<LyricsEntry> {
+        val source = lyrics.trim().removePrefix("\uFEFF")
+        if (source.isEmpty()) return emptyList()
+        if (isTtml(source)) {
+            parseTtml(source).takeIf { it.isNotEmpty() }?.let { return it }
+            return emptyList()
+        }
+        if (isStructuredTimedLyricsJson(source)) parseStructuredTimedLyricsJson(source).takeIf { it.isNotEmpty() }?.let { return it }
+
+        // WebVTT and SubRip: cue timestamps may have multiple text lines.
+        val cueRegex = Regex("(?m)^\\s*(?:(?:WEBVTT|NOTE)[^\\n]*\\n)?(?:\\d+\\s*\\n)?(\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3})\\s*-->\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3})[^\\n]*\\n((?:(?!\\s*\\n).*(?:\\n|$))*)")
+        val cues = cueRegex.findAll(source).mapNotNull { match ->
+            val start = parseClockTimestamp(match.groupValues[1]) ?: return@mapNotNull null
+            val text = match.groupValues[3].lineSequence().joinToString(" ") { it.trim() }
+                .replace(Regex("<[^>]+>"), "").trim()
+            if (text.isBlank()) null else LyricsEntry(start, text)
+        }.toList()
+        if (cues.isNotEmpty()) return cues.sorted()
+
+        // Flexible LRC timestamps: [1:02.3], [01:02], [01:02.34], and multiple stamps per line.
+        val flexibleLrc = source.lines().flatMap { line ->
+            val stamps = Regex("\\[(\\d{1,3}):(\\d{2})(?:[.,](\\d{1,3}))?\\]").findAll(line).toList()
+            if (stamps.isEmpty()) emptyList() else {
+                val text = line.replace(Regex("\\[(\\d{1,3}):(\\d{2})(?:[.,](\\d{1,3}))?\\]"), "").trim()
+                if (text.isBlank() || text.startsWith("ar:", true) || text.startsWith("ti:", true) ||
+                    text.startsWith("al:", true) || text.startsWith("by:", true) || text.startsWith("offset:", true)) emptyList()
+                else stamps.mapNotNull { stamp ->
+                    val minutes = stamp.groupValues[1].toLongOrNull() ?: return@mapNotNull null
+                    val seconds = stamp.groupValues[2].toLongOrNull() ?: return@mapNotNull null
+                    val fraction = stamp.groupValues[3]
+                    val millis = when (fraction.length) { 1 -> fraction.toLong() * 100; 2 -> fraction.toLong() * 10; 3 -> fraction.toLong(); else -> 0L }
+                    LyricsEntry(minutes * 60_000L + seconds * 1_000L + millis, text)
+                }
+            }
+        }
+        if (flexibleLrc.isNotEmpty()) return flexibleLrc.sorted()
+
+        val lrc = parseLyrics(source)
+        if (lrc.isNotEmpty()) return lrc
+
+        // Timestamp-per-line formats such as `00:12.340 text` or `00:00:12,340 text`.
+        val timestamped = source.lines().mapNotNull { line ->
+            val m = Regex("^\\s*\\[?(\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3})\\]?\\s+(.+?)\\s*$").matchEntire(line)
+                ?: return@mapNotNull null
+            val time = parseClockTimestamp(m.groupValues[1]) ?: return@mapNotNull null
+            LyricsEntry(time, m.groupValues[2].trim())
+        }
+        if (timestamped.isNotEmpty()) return timestamped.sorted()
+
+        // Preserve plain text as untimed entries; callers can retain their existing fallback timing.
+        return source.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            .mapIndexed { index, line -> LyricsEntry(index * 2500L, line) }
+    }
+
+    private fun parseClockTimestamp(value: String): Long? {
+        val normalized = value.replace(',', '.')
+        val parts = normalized.split(':')
+        if (parts.size !in 2..3) return null
+        val secondsPart = parts.last().toDoubleOrNull() ?: return null
+        val minutes = parts[parts.size - 2].toLongOrNull() ?: return null
+        val hours = if (parts.size == 3) parts[0].toLongOrNull() ?: return null else 0L
+        return (hours * 3600_000L + minutes * 60_000L + (secondsPart * 1000).toLong()).coerceAtLeast(0L)
     }
 
     fun parseLyrics(lyrics: String): List<LyricsEntry> {

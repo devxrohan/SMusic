@@ -23,6 +23,7 @@ constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val allProviders: List<LyricsProvider> = listOf(
+        LrcRedLyricsProvider,
         LrcLibLyricsProvider,
         KuGouLyricsProvider,
         SimpMusicLyricsProvider,
@@ -37,11 +38,12 @@ constructor(
     )
 
     val preferred = context.dataStore.data
-        .map { it[PreferredLyricsProviderKey].toEnum(PreferredLyricsProvider.LRCLIB) }
+        .map { it[PreferredLyricsProviderKey].toEnum(PreferredLyricsProvider.LRC_RED) }
         .distinctUntilChanged()
 
     private suspend fun providersInPreferredOrder(): List<LyricsProvider> {
-        val preferredProvider = when (context.dataStore.data.first()[PreferredLyricsProviderKey].toEnum(PreferredLyricsProvider.LRCLIB)) {
+        val preferredProvider = when (context.dataStore.data.first()[PreferredLyricsProviderKey].toEnum(PreferredLyricsProvider.LRC_RED)) {
+            PreferredLyricsProvider.LRC_RED -> LrcRedLyricsProvider
             PreferredLyricsProvider.LRCLIB -> LrcLibLyricsProvider
             PreferredLyricsProvider.KUGOU -> KuGouLyricsProvider
             PreferredLyricsProvider.SIMP_MUSIC -> SimpMusicLyricsProvider

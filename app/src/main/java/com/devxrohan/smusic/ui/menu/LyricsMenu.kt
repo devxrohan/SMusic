@@ -65,6 +65,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -98,11 +99,11 @@ fun LyricsMenu(
     val database = LocalDatabase.current
     val coroutineScope = rememberCoroutineScope()
 
-    // AI translation (same flow as AirBeats; Puter / Custom need no API key)
+    // AI translation (Google / Puter / Custom need no API key)
     val openRouterApiKey by rememberPreference(OpenRouterApiKey, "")
     val openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
     val openRouterModel by rememberPreference(OpenRouterModelKey, "gpt-4o-mini")
-    val aiProvider by rememberPreference(AiProviderKey, "Puter")
+    val aiProvider by rememberPreference(AiProviderKey, "Google")
     val deeplApiKey by rememberPreference(DeeplApiKey, "")
     val translateMode by rememberPreference(TranslateModeKey, "Literal")
     var selectedTargetLanguage by rememberPreference(TranslateLanguageKey, "auto")
@@ -110,7 +111,7 @@ fun LyricsMenu(
     var replaceOriginalLyrics by rememberPreference(ReplaceOriginalLyricsWithTranslationKey, false)
     val hasApiKey = when (aiProvider) {
         "DeepL" -> deeplApiKey.isNotBlank()
-        "Puter", "Custom" -> true
+        "Puter", "Custom", "Google" -> true
         else -> openRouterApiKey.isNotBlank()
     }
     val translationStatus by LyricsTranslationHelper.status.collectAsState()
@@ -518,6 +519,7 @@ fun LyricsMenu(
                     Spacer(Modifier.width(8.dp))
 
                     TextButton(
+                        modifier = Modifier.sizeIn(minWidth = 72.dp),
                         enabled = !isTranslating && rawLyrics.isNotBlank(),
                         onClick = {
                             if (!hasApiKey) {
@@ -544,7 +546,10 @@ fun LyricsMenu(
                         }
                     ) {
                         Text(
-                            if (hasTranslations || isCached) stringResource(R.string.retranslate) else stringResource(R.string.Translate)
+                            text = if (hasTranslations || isCached) "Retry" else "Translate",
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip,
                         )
                     }
                 }

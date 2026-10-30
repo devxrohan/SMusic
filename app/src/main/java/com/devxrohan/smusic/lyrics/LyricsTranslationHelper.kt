@@ -68,8 +68,7 @@ object LyricsTranslationHelper {
     fun parseLyricsToEntries(lyrics: String?): List<LyricsEntry> {
         if (lyrics.isNullOrBlank() || lyrics == LyricsEntity.LYRICS_NOT_FOUND) return emptyList()
         return when {
-            SMusicLyricsUtils.isTtml(lyrics) -> SMusicLyricsUtils.parseTtml(lyrics)
-            lyrics.startsWith("[") -> SMusicLyricsUtils.parseLyrics(lyrics)
+            SMusicLyricsUtils.isRecognizedTimedLyrics(lyrics) -> SMusicLyricsUtils.parseAnyLyrics(lyrics)
             else -> lyrics.lines().filter { it.isNotBlank() }.mapIndexed { index, line ->
                 LyricsEntry(time = -1L, text = line.trim())
             }

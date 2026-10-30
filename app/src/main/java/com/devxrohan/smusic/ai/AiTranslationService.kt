@@ -3,6 +3,7 @@ package com.devxrohan.smusic.ai
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,7 +40,7 @@ object AiTranslationService {
         }
 
         val effectiveApiKey = apiKey.trim()
-        if (effectiveApiKey.isBlank() && provider != "Custom" && provider != "Puter") {
+        if (effectiveApiKey.isBlank() && provider != "Custom" && provider != "Puter" && provider != "Google") {
             return@withContext Result.failure(Exception("API Key is required. Please set it in Settings > AI Integration."))
         }
 
@@ -54,6 +55,16 @@ object AiTranslationService {
                 lines = lines,
                 targetLangCode = targetLanguageCode,
                 apiKey = effectiveApiKey,
+                onLog = onLog
+            )
+        }
+
+        // Same no-key approach BitChord uses: Google's free, unauthenticated
+        // "dict-chrome-ex" endpoint. No account, no API key, nothing to configure.
+        if (provider.equals("Google", ignoreCase = true)) {
+            return@withContext translateWithGoogleFree(
+                lines = lines,
+                targetLangCode = targetLanguageCode,
                 onLog = onLog
             )
         }
@@ -239,6 +250,124 @@ object AiTranslationService {
             // contain a translation. Reject the common broken response ["entire paragraph", "", ...].
             lines?.takeIf { it.size == expectedCount && it.all { line -> line.isNotBlank() } }
         }.getOrNull()
+    }
+
+    // ── Free, no-key translation (same approach BitChord uses) ──
+    // Google's own web client ("dict-chrome-ex") requires no API key. Lines are
+    // batched and separated by private-use marker characters so one request can
+    // translate many lyric lines while keeping them in order.
+    private const val GOOGLE_FREE_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
+    private const val GOOGLE_FREE_MAX_BATCH_CHARS = 3500
+    private val googleMarkerRegex = Regex("\uE000[^\uE001]*\uE001")
+
+    private data class GoogleSlot(val index: Int, val text: String)
+    private data class GoogleBatch(val slots: List<GoogleSlot>, val payload: String)
+
+    private fun googleMarker(index: Int): String = "\uE000${index.toString().padStart(4, '0')}\uE001"
+
+    private fun buildGoogleBatches(lines: List<String>): List<GoogleBatch> {
+        val slots = lines.mapIndexed { index, text -> GoogleSlot(index, text) }
+        val result = mutableListOf<GoogleBatch>()
+        var current = mutableListOf<GoogleSlot>()
+        var length = 0
+
+        fun flush() {
+            if (current.isEmpty()) return
+            val payload = buildString {
+                current.forEachIndexed { i, slot ->
+                    if (i > 0) append('\n').append(googleMarker(slot.index)).append('\n')
+                    append(slot.text)
+                }
+            }
+            result += GoogleBatch(current.toList(), payload)
+            current = mutableListOf()
+            length = 0
+        }
+
+        slots.forEach { slot ->
+            val added = slot.text.length + if (current.isEmpty()) 0 else 8
+            if (current.isNotEmpty() && length + added > GOOGLE_FREE_MAX_BATCH_CHARS) flush()
+            current += slot
+            length += added
+        }
+        flush()
+        return result
+    }
+
+    /** segmentIndex 0 = translated text (dt=t), 3 = romanized text (dt=rm). */
+    private fun requestGoogleBatch(batch: GoogleBatch, target: String, dt: String, segmentIndex: Int): List<String>? {
+        val body = FormBody.Builder()
+            .add("client", "dict-chrome-ex")
+            .add("sl", "auto")
+            .add("tl", target)
+            .add("dt", dt)
+            .add("q", batch.payload)
+            .build()
+        val request = Request.Builder()
+            .url(GOOGLE_FREE_ENDPOINT)
+            .header("User-Agent", "SMusic/1.0")
+            .header("Accept", "application/json")
+            .post(body)
+            .build()
+        val response = try {
+            client.newCall(request).execute()
+        } catch (e: Exception) {
+            Timber.w(e, "Free Google Translate request failed")
+            return null
+        }
+        val responseBody = response.use {
+            if (!it.isSuccessful) return null
+            it.body?.string()
+        } ?: return null
+
+        return runCatching {
+            val root = JSONArray(responseBody)
+            val segments = root.getJSONArray(0)
+            val joined = buildString {
+                for (i in 0 until segments.length()) {
+                    val segment = segments.optJSONArray(i) ?: continue
+                    append(segment.optString(segmentIndex, ""))
+                }
+            }
+            val parts = joined.split(googleMarkerRegex).map { it.trim() }
+            parts.takeIf { it.size == batch.slots.size }
+        }.getOrNull()
+    }
+
+    private fun translateWithGoogleFree(
+        lines: List<String>,
+        targetLangCode: String,
+        onLog: ((String) -> Unit)?
+    ): Result<List<String>> {
+        return runCatching {
+            onLog?.invoke("Contacting free Google Translate...")
+
+            // "xx-Latn" is this app's own code for "write it phonetically in the
+            // Latin alphabet" (Hinglish and similar). Google's free endpoint has a
+            // dedicated transliteration mode (dt=rm) for exactly that, rather than
+            // translating the meaning first.
+            val isLatinTarget = targetLangCode.endsWith("-Latn", ignoreCase = true)
+            val target = targetLangCode.substringBefore("-Latn").ifBlank { "en" }
+            val dt = if (isLatinTarget) "rm" else "t"
+            val segmentIndex = if (isLatinTarget) 3 else 0
+
+            val batches = buildGoogleBatches(lines)
+            val resolved = arrayOfNulls<String>(lines.size)
+            for (batch in batches) {
+                val answer = requestGoogleBatch(batch, target, dt, segmentIndex)
+                    ?: error("Free Google Translate did not return a usable response")
+                batch.slots.forEachIndexed { i, slot ->
+                    resolved[slot.index] = answer.getOrNull(i)?.takeIf { it.isNotBlank() }
+                }
+            }
+
+            val output = lines.indices.map { idx -> resolved[idx] ?: lines[idx] }
+            if (output.none { it.isNotBlank() }) {
+                error("Free Google Translate returned no translated text")
+            }
+            onLog?.invoke("Successfully translated ${lines.size} lines")
+            output
+        }.onFailure { e -> Timber.w(e, "Free Google Translate failed") }
     }
 
     private fun translateWithDeepL(

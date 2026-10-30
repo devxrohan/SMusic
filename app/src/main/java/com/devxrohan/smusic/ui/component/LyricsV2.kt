@@ -183,7 +183,7 @@ fun LyricsV2(
     val (lyricsLineSpacing) = rememberPreference(LyricsLineSpacingKey, defaultValue = 1.3f)
     val (targetLanguage) = rememberPreference(TranslateLanguageKey, defaultValue = "auto")
     val (autoTranslate) = rememberPreference(AutoTranslateKey, defaultValue = false)
-    val (aiProvider) = rememberPreference(AiProviderKey, defaultValue = "Puter")
+    val (aiProvider) = rememberPreference(AiProviderKey, defaultValue = "Google")
     val (openRouterApiKey) = rememberPreference(OpenRouterApiKey, defaultValue = "")
     val (deeplApiKey) = rememberPreference(DeeplApiKey, defaultValue = "")
     val (openRouterBaseUrl) = rememberPreference(OpenRouterBaseUrlKey, defaultValue = "https://api.puter.com/v1/chat/completions")
@@ -224,108 +224,69 @@ fun LyricsV2(
     val lyrics = currentLyrics?.lyrics
 
     // ── Parse lyrics into entries ──
-    val isSynced = remember(lyrics) { lyrics != null && (lyrics!!.startsWith("[") || isTtml(lyrics!!)) }
     val isTtmlFormat = remember(lyrics) { lyrics != null && isTtml(lyrics!!) }
 
-    val lyricsEntries: List<LyricsEntry> = remember(lyrics) {
+    val lyricsEntries: List<LyricsEntry> = remember(lyrics, player.duration) {
         if (lyrics == null || lyrics == LYRICS_NOT_FOUND) return@remember emptyList()
         val parsed = when {
-            isTtml(lyrics!!) -> parseTtml(lyrics!!)
-            lyrics!!.startsWith("[") -> parseLyrics(lyrics!!)
+            com.devxrohan.smusic.lyrics.SMusicLyricsUtils.isRecognizedTimedLyrics(lyrics!!) ->
+                com.devxrohan.smusic.lyrics.SMusicLyricsUtils.parseAnyLyrics(lyrics!!)
             else -> lyrics!!.lines()
                 .filter { it.isNotBlank() }
-                .mapIndexed { index, line ->
-                    LyricsEntry(time = -1L, text = line.trim())
-                }
-        }
-        if (parsed.isNotEmpty() && parsed.first().time >= 0) {
-            listOf(HEAD_LYRICS_ENTRY) + parsed
-        } else {
-            parsed
-        }
+                .map { line -> LyricsEntry(time = -1L, text = line.trim()) }
+        }.filter { it.text.isNotBlank() }
+
+        // Untimed lyrics still get a full-line sweep, matching Classic Player.
+        // Spread lines over the track duration, and animate the complete line as
+        // one unit instead of inventing inaccurate per-word timestamps.
+        val allUntimed = parsed.isNotEmpty() && parsed.all { it.time < 0L }
+        val timed = if (allUntimed) {
+            val trackDuration = player.duration.takeIf { it > 0L }
+                ?: (parsed.size * 2500L)
+            parsed.mapIndexed { index, entry ->
+                val startMs = trackDuration * index / parsed.size
+                val endMs = (trackDuration * (index + 1) / parsed.size).coerceAtLeast(startMs + 250L)
+                entry.copy(
+                    time = startMs,
+                    words = listOf(WordTimestamp(entry.text, startMs / 1000.0, endMs / 1000.0)),
+                )
+            }
+        } else parsed
+
+        if (timed.isNotEmpty() && timed.first().time >= 0L) {
+            listOf(HEAD_LYRICS_ENTRY) + timed
+        } else timed
+    }
+
+    // A TTML document is not necessarily synced: lrc.red also returns
+    // lrc:timing="None" documents containing plain <p> lyric lines.
+    val isSynced = remember(lyricsEntries) {
+        lyricsEntries.any { it.time >= 0L }
     }
 
     // ── Synthesize word timings for LRC entries that lack them ──
-    val entriesWithWords: List<LyricsEntry> = remember(lyricsEntries) {
+    val entriesWithWords: List<LyricsEntry> = remember(lyricsEntries, player.duration) {
         if (lyricsEntries.isEmpty()) return@remember emptyList()
         lyricsEntries.mapIndexed { index, entry ->
-            if (entry.words != null || entry.time < 0 || entry.text.isBlank()) {
-                entry // Already has word timings (TTML) or is non-synced
+            if (entry.words != null || entry.time < 0L || entry.text.isBlank()) {
+                entry // Preserve genuine TTML/JSON word timestamps and unsynced entries.
             } else {
-                // Synthesize word-level timings for this LRC line
-                val nextEntryTime = if (index < lyricsEntries.lastIndex) {
-                    lyricsEntries[index + 1].time
-                } else {
-                    entry.time + 5000L // 5s fallback for last line
-                }
-                val lineDurationMs = (nextEntryTime - entry.time).coerceAtLeast(500L)
-                val lineStartSec = entry.time / 1000.0
-
-                val isCjkText = isJapanese(entry.text) || isChinese(entry.text) || isKorean(entry.text)
-                val tokens = if (isCjkText) {
-                    val chars = mutableListOf<String>()
-                    var currentWord = StringBuilder()
-                    entry.text.forEach { char ->
-                        if (char.isWhitespace()) {
-                            if (currentWord.isNotEmpty()) {
-                                chars.add(currentWord.toString())
-                                currentWord.clear()
-                            }
-                            chars.add(char.toString())
-                        } else if (isJapanese(char.toString()) || isChinese(char.toString()) || isKorean(char.toString())) {
-                            if (currentWord.isNotEmpty()) {
-                                chars.add(currentWord.toString())
-                                currentWord.clear()
-                            }
-                            chars.add(char.toString())
-                        } else {
-                            currentWord.append(char)
-                        }
-                    }
-                    if (currentWord.isNotEmpty()) {
-                        chars.add(currentWord.toString())
-                    }
-
-                    // Group spaces onto the preceding word
-                    val groupedTokens = mutableListOf<String>()
-                    var tempStr = StringBuilder()
-                    chars.forEachIndexed { i, c ->
-                        if (c.isBlank()) {
-                            if (groupedTokens.isNotEmpty()) {
-                                groupedTokens[groupedTokens.lastIndex] = groupedTokens.last() + c
-                            }
-                        } else {
-                            groupedTokens.add(c)
-                        }
-                    }
-                    groupedTokens
-                } else {
-                    entry.text.split(Regex("\\s+"))
-                }
-                if (tokens.isEmpty()) return@mapIndexed entry
-
-                // Weight each token by character count for proportional distribution
-                val totalChars = tokens.sumOf { it.length }.coerceAtLeast(1)
-                val words = mutableListOf<WordTimestamp>()
-                var currentOffsetMs = 0.0
-
-                tokens.forEachIndexed { wordIdx, token ->
-                    val weight = token.length.toDouble() / totalChars
-                    val wordDurMs = lineDurationMs * weight
-                    val wordStartSec = lineStartSec + (currentOffsetMs / 1000.0)
-                    val wordEndSec = wordStartSec + (wordDurMs / 1000.0)
-
-                    val wordText = if (wordIdx < tokens.lastIndex && !isCjkText) "$token " else token
-                    words.add(
+                // Like Classic Player, line-timed lyrics without per-word timestamps
+                // animate as one complete sentence. Do not invent fake word timings.
+                val nextEntryTime = lyricsEntries.drop(index + 1)
+                    .firstOrNull { it.time > entry.time }?.time
+                val fallbackEndMs = player.duration.takeIf { it > entry.time } ?: (entry.time + 5000L)
+                val lineEndMs = (nextEntryTime ?: fallbackEndMs)
+                    .coerceAtLeast(entry.time + 500L)
+                entry.copy(
+                    words = listOf(
                         WordTimestamp(
-                            text = wordText,
-                            startTime = wordStartSec,
-                            endTime = wordEndSec,
+                            text = entry.text,
+                            startTime = entry.time / 1000.0,
+                            endTime = lineEndMs / 1000.0,
                         )
                     )
-                    currentOffsetMs += wordDurMs
-                }
-                entry.copy(words = words)
+                )
             }
         }
     }
@@ -341,7 +302,7 @@ fun LyricsV2(
         mediaMetadata?.id?.let { LyricsTranslationHelper.onSongChanged(it) }
     }
 
-    // ── AI Lyrics Translation Sync (same flow as AirBeats) ──
+    // ── AI Lyrics Translation Sync ──
     LaunchedEffect(entriesWithWords, mediaMetadata?.id, targetLanguage, autoTranslate, aiProvider, deeplApiKey, openRouterApiKey, openRouterBaseUrl, openRouterModel, translateMode, customPrompt) {
         val songId = mediaMetadata?.id ?: return@LaunchedEffect
         if (entriesWithWords.isEmpty()) return@LaunchedEffect
@@ -357,7 +318,7 @@ fun LyricsV2(
             // Auto-translate if enabled and not already translated or translating
             if (!hasLoaded && !LyricsTranslationHelper.isTranslating()) {
                 val key = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
-                if (key.isNotBlank() || aiProvider == "Puter" || aiProvider == "Custom") {
+                if (key.isNotBlank() || aiProvider == "Puter" || aiProvider == "Custom" || aiProvider == "Google") {
                     LyricsTranslationHelper.translateLyrics(
                         lyrics = entriesWithWords,
                         targetLanguageCode = targetLanguage,
@@ -1474,7 +1435,7 @@ private fun AnimatedWordV2(
     }
 }
 
-// Helper: Synthesizes word timestamps for translated text lines (ported from AirBeats)
+// Helper: Synthesizes word timestamps for translated text lines
 private fun synthesizeWordTimestamps(
     text: String,
     startTimeMs: Long,

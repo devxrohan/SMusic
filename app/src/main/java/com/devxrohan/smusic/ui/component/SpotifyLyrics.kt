@@ -143,7 +143,7 @@ fun SpotifyLyrics(
     val translationVersion by LyricsTranslationHelper.translationVersion.collectAsState()
     val autoTranslate by rememberPreference(AutoTranslateKey, false)
     val targetLanguage by rememberPreference(TranslateLanguageKey, "auto")
-    val aiProvider by rememberPreference(AiProviderKey, "Puter")
+    val aiProvider by rememberPreference(AiProviderKey, "Google")
     val openRouterApiKey by rememberPreference(OpenRouterApiKey, "")
     val deeplApiKey by rememberPreference(DeeplApiKey, "")
     val openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
@@ -172,7 +172,7 @@ fun SpotifyLyrics(
             )
             if (!hasLoaded && !LyricsTranslationHelper.isTranslating()) {
                 val key = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
-                if (key.isNotBlank() || aiProvider == "Puter" || aiProvider == "Custom") {
+                if (key.isNotBlank() || aiProvider == "Puter" || aiProvider == "Custom" || aiProvider == "Google") {
                     LyricsTranslationHelper.translateLyrics(
                         lyrics = lines,
                         targetLanguageCode = targetLanguage,

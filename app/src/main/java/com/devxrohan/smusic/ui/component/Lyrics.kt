@@ -151,7 +151,6 @@ import com.devxrohan.smusic.extensions.togglePlayPause
 import com.devxrohan.smusic.extensions.toggleRepeatMode
 import com.devxrohan.smusic.lyrics.LyricsEntry
 import com.devxrohan.smusic.lyrics.LyricsUtils.findCurrentLineIndex
-import com.devxrohan.smusic.lyrics.LyricsUtils.parseLyrics
 import com.devxrohan.smusic.ui.component.shimmer.ShimmerHost
 import com.devxrohan.smusic.ui.component.shimmer.TextPlaceholder
 import com.devxrohan.smusic.ui.menu.LyricsMenu
@@ -178,6 +177,14 @@ import kotlin.time.Duration.Companion.seconds
 fun Lyrics(
     sliderPositionProvider: () -> Long?,
     onNavigateBack: (() -> Unit)? = null,
+    // When this composable is embedded inside a screen that already draws its own header/back button/background
+    // (e.g. the "Classic" style inside SMusicLyricsScreen), pass true here so the lyrics content always renders.
+    // Without it, the content below was only ever shown `if (isFullscreen || showLyrics)`, and `showLyrics` is a
+    // persisted preference tied to a *different* toggle (the mini-player's Queue/Lyrics tab) — not to whether this
+    // screen is open. A caller that is clearly already a dedicated lyrics screen shouldn't depend on the state of
+    // that unrelated toggle to decide whether to show anything at all; that mismatch is what made the "Classic"
+    // style look blank while the Karaoke style (which has no such gate) displayed fine.
+    forceShowContent: Boolean = false,
     @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
@@ -264,7 +271,7 @@ fun Lyrics(
 
     val targetLanguage by rememberPreference(TranslateLanguageKey, defaultValue = "auto")
     val autoTranslate by rememberPreference(AutoTranslateKey, defaultValue = false)
-    val aiProvider by rememberPreference(AiProviderKey, defaultValue = "Puter")
+    val aiProvider by rememberPreference(AiProviderKey, defaultValue = "Google")
     val openRouterApiKey by rememberPreference(OpenRouterApiKey, defaultValue = "")
     val deeplApiKey by rememberPreference(DeeplApiKey, defaultValue = "")
     val openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, defaultValue = "https://api.puter.com/v1/chat/completions")
@@ -364,12 +371,26 @@ fun Lyrics(
     val lines = remember(lyrics, scope) {
         if (lyrics == null || lyrics == LYRICS_NOT_FOUND) {
             emptyList()
-        } else if (lyrics.startsWith("[")) {
-            val parsedLines = parseLyrics(lyrics)
-            listOf(LyricsEntry.HEAD_LYRICS_ENTRY) + parsedLines
         } else {
-            lyrics.lines().mapIndexed { index, line ->
-                LyricsEntry(index * 100L, line)
+            // Covers LRC, TTML/XML, structured timed JSON, WebVTT/SubRip and
+            // timestamp-per-line text. Never let raw markup fall through to the
+            // plain splitter below.
+            val parsed = if (com.devxrohan.smusic.lyrics.SMusicLyricsUtils.isRecognizedTimedLyrics(lyrics)) {
+                com.devxrohan.smusic.lyrics.SMusicLyricsUtils.parseAnyLyrics(lyrics)
+            } else {
+                lyrics.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                    .map { line -> LyricsEntry(-1L, line) }
+            }.filter { it.text.isNotBlank() }
+
+            val hasRealTiming = parsed.any { it.time >= 0L }
+            if (hasRealTiming) {
+                listOf(LyricsEntry.HEAD_LYRICS_ENTRY) + parsed
+            } else {
+                // No real timestamps anywhere — plain lyrics, or a timed format
+                // (e.g. untimed TTML) that carries no timing data. Show every
+                // line exactly as-is with no karaoke/scroll animation, the same
+                // way BitChord renders unsynced lyrics.
+                parsed
             }
         }
     }
@@ -396,7 +417,7 @@ fun Lyrics(
         currentSongId?.let { LyricsTranslationHelper.onSongChanged(it) }
     }
 
-    // ── AI Lyrics Translation Sync (same flow as AirBeats) ──
+    // ── AI Lyrics Translation Sync ──
     LaunchedEffect(lines, currentSongId, targetLanguage, translationVersion, autoTranslate) {
         val songId = currentSongId ?: return@LaunchedEffect
         if (lines.isEmpty()) return@LaunchedEffect
@@ -411,7 +432,7 @@ fun Lyrics(
 
             if (!hasLoaded && !LyricsTranslationHelper.isTranslating()) {
                 val key = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
-                if (key.isNotBlank() || aiProvider == "Puter" || aiProvider == "Custom") {
+                if (key.isNotBlank() || aiProvider == "Puter" || aiProvider == "Custom" || aiProvider == "Google") {
                     LyricsTranslationHelper.translateLyrics(
                         lyrics = lines,
                         targetLanguageCode = targetLanguage,
@@ -430,8 +451,8 @@ fun Lyrics(
         }
     }
 
-    val isSynced = remember(lyrics) {
-        !lyrics.isNullOrEmpty() && lyrics.startsWith("[")
+    val isSynced = remember(lines) {
+        lines.any { it.time >= 0L && it !== LyricsEntry.HEAD_LYRICS_ENTRY }
     }
 
     BackHandler(enabled = isSelectionModeActive || isFullscreen) {
@@ -530,8 +551,8 @@ fun Lyrics(
         }
     }
 
-    LaunchedEffect(lyrics) {
-        if (lyrics.isNullOrEmpty() || !lyrics.startsWith("[")) {
+    LaunchedEffect(lyrics, isSynced) {
+        if (lyrics.isNullOrEmpty() || !isSynced) {
             currentLineIndex = -1
             return@LaunchedEffect
         }
@@ -1146,7 +1167,7 @@ fun Lyrics(
                     }
                 )
         ) {
-            if (isFullscreen || showLyrics) {
+            if (isFullscreen || showLyrics || forceShowContent) {
                 val topPadding = if (isFullscreen) {
                     with(LocalDensity.current) {
                         100.dp + WindowInsets.statusBars.asPaddingValues().calculateTopPadding()

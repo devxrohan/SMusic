@@ -6,13 +6,12 @@ import android.content.Intent
 import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
+import java.io.File
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -28,8 +27,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,10 +37,13 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -53,23 +55,33 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.BatteryFull
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Brightness6
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -77,14 +89,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import coil.compose.AsyncImage
 import com.devxrohan.smusic.R
+import com.devxrohan.smusic.ui.component.CommunityLinksRow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -92,13 +109,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import com.devxrohan.smusic.constants.DarkModeKey
+import com.devxrohan.smusic.constants.GuestProfileNameKey
+import com.devxrohan.smusic.constants.GuestProfilePhotoPathKey
 import com.devxrohan.smusic.constants.ThemePresetKey
 import com.devxrohan.smusic.ui.screens.settings.DarkMode
 import com.devxrohan.smusic.ui.theme.ThemePreset
 import com.devxrohan.smusic.ui.theme.ThemePresets
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
+import com.devxrohan.smusic.utils.rememberGuestProfilePhotoPicker
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -119,8 +140,45 @@ fun OnboardingScreen(
 ) {
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
-    var step by remember(currentStep) { mutableStateOf(currentStep.coerceIn(0, 3)) }
-    fun updateStep(value: Int) { step = value; onStepChange(value) }
+    var showGuestProfileSetup by remember { mutableStateOf(false) }
+    if (showGuestProfileSetup) {
+        GuestProfileSetupScreen(
+            onBack = { showGuestProfileSetup = false },
+            onFinished = onFinished,
+        )
+        return
+    }
+    // HorizontalPager (the same, heavily-tested Compose component every major
+    // onboarding flow uses) replaces a hand-rolled detectHorizontalDragGestures
+    // detector here. That custom detector shared the screen with the step
+    // buttons' own clickable handlers and could lose a touch-event race on
+    // some devices/firmware (reported stuck-on-first-step on a Samsung Galaxy
+    // S20 5G) — the swipe never registered and even the "Get started" button
+    // stopped responding. HorizontalPager's gesture handling is first-party
+    // and specifically built to coexist correctly with content inside it.
+    val pagerState = rememberPagerState(
+        initialPage = currentStep.coerceIn(0, 3),
+        pageCount = { 4 },
+    )
+    val pagerScope = rememberCoroutineScope()
+    val step = pagerState.currentPage
+    fun updateStep(value: Int) {
+        pagerScope.launch { pagerState.animateScrollToPage(value.coerceIn(0, 3)) }
+    }
+    // Keep the caller's external step (used to persist/restore progress) in
+    // sync as the pager settles on a page, however it got there (tap, swipe,
+    // or updateStep above).
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect { onStepChange(it) }
+    }
+    // If the caller changes currentStep from the outside (e.g. restoring a
+    // saved step), follow it without fighting the user's own in-progress swipe.
+    LaunchedEffect(currentStep) {
+        val target = currentStep.coerceIn(0, 3)
+        if (pagerState.currentPage != target && !pagerState.isScrollInProgress) {
+            pagerState.scrollToPage(target)
+        }
+    }
     var darkMode by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
     var themePresetId by rememberPreference(ThemePresetKey, ThemePresets.SMUSIC_DEFAULT.id)
     val activity = context as? Activity
@@ -131,6 +189,15 @@ fun OnboardingScreen(
     var notificationsGranted by remember { mutableStateOf(notificationsAllowed()) }
     var audioGranted by remember { mutableStateOf(isGranted(audioPermission)) }
     var notificationAskedOnce by remember { mutableStateOf(false) }
+    // Songs stopping mid-playback on some phones is almost always this: the
+    // standard Android "ignore battery optimizations" permission was never
+    // requested up front (it used to live only inside Voice Assistant
+    // settings, which most people never open), so Doze/App Standby — or an
+    // OEM's own battery manager — eventually suspends the playback service.
+    // Asking here, during onboarding, is what fixes that for new installs.
+    var batteryUnrestricted by remember {
+        mutableStateOf(com.devxrohan.smusic.utils.OemBackgroundHelper.isIgnoringBatteryOptimizations(context))
+    }
 
     fun openNotificationSettings() {
         runCatching { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
@@ -140,7 +207,12 @@ fun OnboardingScreen(
     }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) { notificationsGranted = notificationsAllowed(); audioGranted = isGranted(audioPermission) } }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsGranted = notificationsAllowed(); audioGranted = isGranted(audioPermission)
+                batteryUnrestricted = com.devxrohan.smusic.utils.OemBackgroundHelper.isIgnoringBatteryOptimizations(context)
+            }
+        }
         lifecycleOwner.lifecycle.addObserver(observer); onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     fun requestNotifications() {
@@ -161,49 +233,46 @@ fun OnboardingScreen(
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 repeat(4) { index ->
-                    Box(Modifier.weight(1f).padding(horizontal = 3.dp).height(4.dp).clip(CircleShape).background(if (index <= step) colors.primary else colors.surfaceVariant))
+                    val dotColor by androidx.compose.animation.animateColorAsState(
+                        targetValue = if (index <= step) colors.primary else colors.surfaceVariant,
+                        animationSpec = tween(250),
+                        label = "onboardingDot",
+                    )
+                    Box(Modifier.weight(1f).padding(horizontal = 3.dp).height(4.dp).clip(CircleShape).background(dotColor))
                 }
             }
-            var horizontalDrag by remember { mutableStateOf(0f) }
-            Column(
-                Modifier.weight(1f).fillMaxWidth().padding(vertical = 22.dp)
-                    .pointerInput(step) {
-                        detectHorizontalDragGestures(
-                            onHorizontalDrag = { change, dragAmount ->
-                                horizontalDrag += dragAmount
-                                change.consume()
-                            },
-                            onDragEnd = {
-                                when {
-                                    horizontalDrag < -70f && step < 3 -> updateStep(step + 1)
-                                    horizontalDrag > 70f && step > 0 -> updateStep(step - 1)
-                                }
-                                horizontalDrag = 0f
-                            },
-                            onDragCancel = { horizontalDrag = 0f }
-                        )
-                    },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                AnimatedContent(
-                    targetState = step,
-                    transitionSpec = {
-                        val forward = targetState > initialState
-                        (fadeIn(animationSpec = tween(220)) + slideInHorizontally(
-                            animationSpec = tween(280), initialOffsetX = { width -> if (forward) width / 5 else -width / 5 }
-                        )) togetherWith (fadeOut(animationSpec = tween(150)) + slideOutHorizontally(
-                            animationSpec = tween(180), targetOffsetX = { width -> if (forward) -width / 7 else width / 7 }
-                        ))
-                    },
-                    label = "onboarding-step-transition"
-                ) { animatedStep ->
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                // With zero spacing, the previous page's content touches the
+                // next page's content with no visual gap for the entire swipe,
+                // which is what made the two steps look stuck/glued together
+                // mid-swipe instead of reading as two separate screens sliding
+                // past each other.
+                pageSpacing = 20.dp,
+            ) { page ->
                     Column(
-                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            // Per-page scale + fade driven by how far this page sits from the
+                            // settled page (0 = settled, ±1 = fully off to a side). This is what
+                            // makes the swipe itself feel animated instead of just "a page moved
+                            // across the screen": the outgoing page shrinks and dims while the
+                            // incoming one grows and brightens as it slides in.
+                            .graphicsLayer {
+                                val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                                val closeness = 1f - abs(pageOffset).coerceIn(0f, 1f)
+                                scaleX = lerp(0.88f, 1f, closeness)
+                                scaleY = lerp(0.88f, 1f, closeness)
+                                alpha = lerp(0.4f, 1f, closeness)
+                            }
+                            .padding(vertical = 22.dp)
+                            .verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                when (animatedStep) {
+                when (page) {
                     0 -> {
                         androidx.compose.foundation.Image(
                             painter = painterResource(id = R.drawable.smusic_logo),
@@ -235,6 +304,8 @@ fun OnboardingScreen(
                                 }
                             )
                         }
+                        Spacer(Modifier.height(18.dp))
+                        CommunityLinksRow()
                     }
                     1 -> {
                         StepHeading(Icons.Outlined.Notifications, stringResource(R.string.ui_set_up_your_permissions), stringResource(R.string.ui_allow_notifications_and_music_access_to))
@@ -242,6 +313,30 @@ fun OnboardingScreen(
                         ConfigTile(Icons.Outlined.Notifications, stringResource(R.string.notifications), stringResource(R.string.ui_updates_and_important_messages), { PermissionStatus(notificationsGranted) }, { requestNotifications() })
                         Spacer(Modifier.height(12.dp))
                         ConfigTile(Icons.Outlined.LibraryMusic, stringResource(R.string.ui_local_music), stringResource(R.string.ui_find_audio_files_stored_on_your), { PermissionStatus(audioGranted) }, { requestAudio() })
+                        Spacer(Modifier.height(12.dp))
+                        ConfigTile(
+                            Icons.Outlined.BatteryFull,
+                            stringResource(R.string.onboarding_keep_playing_in_background_title),
+                            stringResource(R.string.onboarding_keep_playing_in_background_desc),
+                            { PermissionStatus(batteryUnrestricted) },
+                            {
+                                if (!batteryUnrestricted) {
+                                    com.devxrohan.smusic.utils.OemBackgroundHelper.requestIgnoreBatteryOptimizations(context)
+                                }
+                            },
+                        )
+                        if (com.devxrohan.smusic.utils.OemBackgroundHelper.isKnownAggressiveOem()) {
+                            Spacer(Modifier.height(10.dp))
+                            TextButton(onClick = { com.devxrohan.smusic.utils.OemBackgroundHelper.openAutostartSettings(context) }) {
+                                Text(
+                                    stringResource(
+                                        R.string.onboarding_also_allow_oem_autostart,
+                                        com.devxrohan.smusic.utils.OemBackgroundHelper.autostartScreenLabel(),
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(10.dp))
                         Text(stringResource(R.string.ui_you_can_change_permissions_any_time), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
                     }
@@ -276,24 +371,38 @@ fun OnboardingScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable { onFinished() }, color = colors.surfaceContainerHigh, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, colors.outlineVariant)) {
+                        Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable { showGuestProfileSetup = true }, color = colors.surfaceContainerHigh, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, colors.outlineVariant)) {
                             Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.MusicNote, null, tint = colors.primary, modifier = Modifier.size(26.dp)); Spacer(Modifier.width(14.dp))
-                                Column(Modifier.weight(1f)) { Text(stringResource(R.string.ui_continue_as_guest), color = colors.onSurface, fontWeight = FontWeight.Bold); Text(stringResource(R.string.ui_start_listening_without_signing_in), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                                Icon(Icons.Outlined.MusicNote, null, tint = colors.primary, modifier = Modifier.size(26.dp))
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.ui_continue_as_guest), color = colors.onSurface, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.ui_start_listening_without_signing_in), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Icon(Icons.Outlined.ArrowForward, null, tint = colors.onSurfaceVariant)
                             }
                         }
                     }
                 }
                     }
-                }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (step > 0 && step < 3) TextButton(onClick = { updateStep(step - 1) }, modifier = Modifier.height(54.dp)) { Text(stringResource(R.string.back)) }
-                    Surface(Modifier.weight(1f).height(56.dp).clip(RoundedCornerShape(18.dp)).clickable {
-                        if (step < 3) updateStep(step + 1) else onFinished()
+                    if (step > 0 && step < 3) TextButton(onClick = { updateStep(step - 1) }, modifier = Modifier.heightIn(min = 54.dp)) { Text(stringResource(R.string.back)) }
+                    // heightIn(min=...) instead of a fixed height: on a narrow phone, or with
+                    // the device font/display size turned up, "Continue without an account"
+                    // can need two lines — a fixed height would clip it, this just grows.
+                    Surface(Modifier.weight(1f).heightIn(min = 56.dp).clip(RoundedCornerShape(18.dp)).clickable {
+                        if (step < 3) updateStep(step + 1) else showGuestProfileSetup = true
                     }, color = colors.primary, shape = RoundedCornerShape(18.dp)) {
-                        Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (step == 3) "Continue without an account" else if (step == 0) "Get started" else "Continue", color = colors.onPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (step == 3) "Continue as Guest" else if (step == 0) "Get started" else "Continue",
+                                color = colors.onPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                            )
                             if (step != 3) {
                                 Spacer(Modifier.width(10.dp))
                                 Icon(Icons.Outlined.ArrowForward, null, tint = colors.onPrimary)
@@ -303,6 +412,86 @@ fun OnboardingScreen(
                 }
         }
 
+    }
+
+
+}
+
+@Composable
+private fun GuestProfileSetupScreen(onBack: () -> Unit, onFinished: () -> Unit) {
+    val context = LocalContext.current
+    val colors = MaterialTheme.colorScheme
+    var guestProfileName by rememberPreference(GuestProfileNameKey, "")
+    var guestProfilePhotoPath by rememberPreference(GuestProfilePhotoPathKey, "")
+    var nameInput by remember { mutableStateOf(guestProfileName) }
+    val pickPhoto = rememberGuestProfilePhotoPicker { newPath ->
+        val oldPath = guestProfilePhotoPath
+        guestProfilePhotoPath = newPath
+        if (oldPath.isNotBlank() && oldPath != newPath) runCatching { File(oldPath).delete() }
+    }
+    // There's no on-screen Back button on this step any more — the device/
+    // gesture back action takes its place and returns to onboarding instead
+    // of closing the app.
+    BackHandler(onBack = onBack)
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(colors.background)
+            // ime is excluded here and handled by imePadding below instead,
+            // so the keyboard's inset isn't applied twice and the content
+            // only shifts up by exactly the keyboard's height.
+            .windowInsetsPadding(WindowInsets.safeDrawing.exclude(WindowInsets.ime))
+            .imePadding()
+            .padding(horizontal = 24.dp, vertical = 18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Guest profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = colors.onBackground)
+
+        // The photo + name fields live in their own scrollable, weighted
+        // area between the title and the Continue button. When the keyboard
+        // opens and shrinks the space this area has, it's this area that
+        // shrinks and (if needed) scrolls — the Continue button below it is
+        // a separate sibling, so it never gets squeezed into/over the name
+        // field; it just settles in place right above the keyboard.
+        //
+        // Plain top-down scroll on purpose, not a centered Box: a scroll
+        // container that tries to vertically centre content taller than
+        // itself ends up pinning that content's top above the scroll's own
+        // top edge — with no way to scroll further up to reach it, that
+        // top part (the photo, here) is permanently cut off on any screen
+        // short enough for this area to actually need scrolling.
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(
+                Modifier.size(132.dp).clip(CircleShape).background(colors.surfaceContainerHigh).clickable { pickPhoto() },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (guestProfilePhotoPath.isNotBlank() && File(guestProfilePhotoPath).exists()) {
+                    AsyncImage(File(guestProfilePhotoPath), contentDescription = "Guest profile photo", modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                } else {
+                    Icon(painterResource(R.drawable.person), contentDescription = null, tint = colors.primary, modifier = Modifier.size(58.dp))
+                }
+            }
+            TextButton(onClick = { pickPhoto() }) { Text(if (guestProfilePhotoPath.isBlank()) "Add profile photo" else "Change profile photo") }
+            Spacer(Modifier.height(28.dp))
+            Text("What should we call you?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = colors.onBackground)
+            Text("Your profile stays on this device.", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
+            OutlinedTextField(value = nameInput, onValueChange = { nameInput = it.take(40) }, label = { Text("Your name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        }
+        Spacer(Modifier.height(16.dp))
+        Surface(Modifier.fillMaxWidth().heightIn(min = 54.dp).clip(RoundedCornerShape(18.dp)).clickable {
+            guestProfileName = nameInput.trim().ifBlank { "Guest" }
+            onFinished()
+        }, color = colors.primary, shape = RoundedCornerShape(18.dp)) {
+            Box(Modifier.padding(16.dp), contentAlignment = Alignment.Center) { Text("Continue", color = colors.onPrimary, fontWeight = FontWeight.Bold) }
+        }
     }
 }
 

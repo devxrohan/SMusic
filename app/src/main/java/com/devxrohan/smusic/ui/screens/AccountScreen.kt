@@ -34,6 +34,8 @@ import com.devxrohan.smusic.constants.AccountNameKey
 import com.devxrohan.smusic.constants.AccountEmailKey
 import com.devxrohan.smusic.constants.AccountChannelHandleKey
 import com.devxrohan.smusic.constants.AccountPhotoUrlKey
+import com.devxrohan.smusic.constants.GuestProfileNameKey
+import com.devxrohan.smusic.constants.GuestProfilePhotoPathKey
 import com.devxrohan.smusic.innertube.utils.parseCookieString
 import com.devxrohan.smusic.ui.component.IconButton
 import com.devxrohan.smusic.ui.component.LocalMenuState
@@ -68,6 +70,8 @@ fun AccountScreen(
     val accountEmail = prefs[AccountEmailKey].orEmpty()
     val accountHandle = prefs[AccountChannelHandleKey].orEmpty()
     val accountPhoto = prefs[AccountPhotoUrlKey].orEmpty()
+    val guestName = prefs[GuestProfileNameKey].orEmpty().ifBlank { "Guest" }
+    val guestPhotoPath = prefs[GuestProfilePhotoPathKey].orEmpty()
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -83,18 +87,20 @@ fun AccountScreen(
             Box(Modifier.size(92.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 if (isYouTubeLoggedIn && accountPhoto.startsWith("https://")) {
                     AsyncImage(model = accountPhoto, contentDescription = stringResource(R.string.ui_youtube_profile_photo), modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                } else if (!isYouTubeLoggedIn && guestPhotoPath.isNotBlank() && java.io.File(guestPhotoPath).exists()) {
+                    AsyncImage(model = java.io.File(guestPhotoPath), contentDescription = "Guest profile picture", modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
                 } else {
                     Icon(painterResource(R.drawable.person), contentDescription = stringResource(R.string.ui_smusic_profile), modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             }
             Text(
-                text = if (!isYouTubeLoggedIn) "SMusic profile" else accountName.ifBlank { "YouTube account" },
+                text = if (!isYouTubeLoggedIn) guestName else accountName.ifBlank { "YouTube account" },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 12.dp),
             )
             Text(
-                text = if (!isYouTubeLoggedIn) "Your personal SMusic listening space" else accountEmail.ifBlank { accountHandle.ifBlank { "YouTube Music connected" } },
+                text = if (!isYouTubeLoggedIn) "Guest mode · Profile saved on this device" else accountEmail.ifBlank { accountHandle.ifBlank { "YouTube Music connected" } },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
@@ -112,6 +118,11 @@ fun AccountScreen(
                     }
                 }, modifier = Modifier.weight(1f), enabled = isYouTubeLoggedIn || accountName.isNotBlank() || accountEmail.isNotBlank()
             ) { Text(stringResource(R.string.account_sign_out)) }
+        }
+        if (!isYouTubeLoggedIn) {
+            OutlinedButton(onClick = { navController.navigate("settings/account") }, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text("Edit guest profile")
+            }
         }
         if (isYouTubeLoggedIn) {
             YouTubeAccountContent(navController, viewModel, modifier = Modifier.weight(1f))

@@ -39,7 +39,7 @@ fun SMusicTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     pureBlack: Boolean = false,
     expressive: Boolean = true,
-    appFont: AppFont = AppFont.LINOTTE,
+    appFont: AppFont = AppFont.APPLE,
     themeColor: Color = DefaultThemeColor,
     themePresetId: String = ThemePresets.SMUSIC_DEFAULT.id,
     content: @Composable () -> Unit,

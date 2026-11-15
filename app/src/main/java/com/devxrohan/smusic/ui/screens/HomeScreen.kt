@@ -1,10 +1,14 @@
 package com.devxrohan.smusic.ui.screens
 
+import java.io.File
+
 import com.devxrohan.smusic.constants.InnerTubeCookieKey
 import com.devxrohan.smusic.constants.AccountPhotoUrlKey
 import com.devxrohan.smusic.constants.AccountEmailKey
 import com.devxrohan.smusic.constants.AccountNameKey
 import com.devxrohan.smusic.constants.AccountChannelHandleKey
+import com.devxrohan.smusic.constants.GuestProfileNameKey
+import com.devxrohan.smusic.constants.GuestProfilePhotoPathKey
 import com.devxrohan.smusic.constants.VisitorDataKey
 import androidx.compose.material3.ripple
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -207,12 +211,12 @@ fun HomeScreen(
     val pulseDiscover by viewModel.pulseDiscover.collectAsState()
     val pulseYtShelves by viewModel.pulseYtShelves.collectAsState()
 
-    val (appFontKey, _) = rememberPreference(AppFontKey, defaultValue = AppFont.LINOTTE.key)
+    val (appFontKey, _) = rememberPreference(AppFontKey, defaultValue = AppFont.APPLE.key)
     val appFont = remember(appFontKey) { AppFont.fromKey(appFontKey) }
 
     val (homeHeaderStyle, _) = rememberEnumPreference(
         HomeHeaderStyleKey,
-        defaultValue = HomeHeaderStyle.SMUSIC
+        defaultValue = HomeHeaderStyle.NONE
     )
 
     val (quickPicksCardWidth, _) = rememberPreference(
@@ -221,7 +225,7 @@ fun HomeScreen(
     )
     val (quickPicksCardHeight, _) = rememberPreference(
         com.devxrohan.smusic.constants.QuickPicksCardHeightKey,
-        defaultValue = 310f
+        defaultValue = 265f
     )
 
     val allLocalItems by viewModel.allLocalItems.collectAsState()
@@ -352,6 +356,7 @@ fun HomeScreen(
             isActive = item.id in listOf(mediaMetadata?.album?.id, mediaMetadata?.id),
             isPlaying = isPlaying,
             coroutineScope = scope,
+            showInLibraryBadge = false,
             thumbnailRatio = 1f,
             modifier = Modifier
                 .combinedClickable(
@@ -379,7 +384,8 @@ fun HomeScreen(
                                 is SongItem -> YouTubeSongMenu(
                                     song = item,
                                     navController = navController,
-                                    onDismiss = menuState::dismiss
+                                    onDismiss = menuState::dismiss,
+                                    showLibraryAction = false,
                                 )
 
                                 is AlbumItem -> YouTubeAlbumMenu(
@@ -490,7 +496,7 @@ fun HomeScreen(
                     item {
                         val picks = quickPicks.orEmpty()
                         val distinctPicks = remember(picks) { picks.distinctBy { it.id } }
-                        if (homeHeaderStyle == HomeHeaderStyle.FEATURED) {
+                        if (homeHeaderStyle == HomeHeaderStyle.APPLE_LISTEN) {
                             Text(
                                 text = stringResource(R.string.ui_listen_now),
                                 fontFamily = appFont.getFontFamily(),
@@ -911,7 +917,7 @@ fun HomeScreen(
 
                                 SongListItem(
                                     song = song!!,
-                                    showInLibraryIcon = true,
+                                    showInLibraryIcon = false,
                                     isActive = song!!.id == mediaMetadata?.id,
                                     isPlaying = isPlaying,
                                     modifier = Modifier
@@ -1031,11 +1037,13 @@ fun ModernHomeTopBarInline(
             val (accountName, _) = rememberPreference(AccountNameKey, defaultValue = "")
             val (accountEmail, _) = rememberPreference(AccountEmailKey, defaultValue = "")
             val (accountPhotoUrl, _) = rememberPreference(AccountPhotoUrlKey, defaultValue = "")
+            val (guestProfileName, _) = rememberPreference(GuestProfileNameKey, defaultValue = "")
+            val (guestProfilePhotoPath, _) = rememberPreference(GuestProfilePhotoPathKey, defaultValue = "")
             val (innerTubeCookie, _) = rememberPreference(InnerTubeCookieKey, defaultValue = "")
             val hasYouTubeAccount = remember(innerTubeCookie) {
                 innerTubeCookie.isNotBlank() && "SAPISID" in com.devxrohan.smusic.innertube.utils.parseCookieString(innerTubeCookie)
             }
-            val profileLabel = if (!hasYouTubeAccount) "SMusic profile" else accountName.ifBlank { accountEmail.ifBlank { "YouTube profile" } }
+            val profileLabel = if (!hasYouTubeAccount) guestProfileName.ifBlank { "Guest" } else accountName.ifBlank { accountEmail.ifBlank { "YouTube profile" } }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1082,6 +1090,13 @@ fun ModernHomeTopBarInline(
                                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                                 contentScale = ContentScale.Crop
                             )
+                        } else if (!hasYouTubeAccount && guestProfilePhotoPath.isNotBlank() && File(guestProfilePhotoPath).exists()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current).data(File(guestProfilePhotoPath)).crossfade(true).build(),
+                                contentDescription = profileLabel,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = ContentScale.Crop,
+                            )
                         } else {
                             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
                                 Icon(painter = painterResource(R.drawable.person), contentDescription = profileLabel, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -1126,6 +1141,13 @@ fun ModernHomeTopBarInline(
                                             modifier = Modifier.fillMaxSize().clip(CircleShape),
                                             contentScale = ContentScale.Crop
                                         )
+                                    } else if (!hasYouTubeAccount && guestProfilePhotoPath.isNotBlank() && File(guestProfilePhotoPath).exists()) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(LocalContext.current).data(File(guestProfilePhotoPath)).crossfade(true).build(),
+                                            contentDescription = profileLabel,
+                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                            contentScale = ContentScale.Crop,
+                                        )
                                     } else {
                                         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
                                             Icon(painterResource(R.drawable.person), null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -1141,7 +1163,7 @@ fun ModernHomeTopBarInline(
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        text = if (hasYouTubeAccount) accountEmail.ifBlank { "YouTube Music connected" } else "Listening on this device",
+                                        text = if (hasYouTubeAccount) accountEmail.ifBlank { "YouTube Music connected" } else "Guest mode · This device only",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -1181,6 +1203,12 @@ fun ModernHomeTopBarInline(
                                 }
                             }
 
+                            if (!hasYouTubeAccount) {
+                                ProfileRow(R.drawable.account, "Edit guest profile", "Change your name or profile picture") {
+                                    showProfileMenu = false
+                                    navController.navigate("settings/account")
+                                }
+                            }
                             if (hasYouTubeAccount) {
                                 ProfileRow(R.drawable.account, stringResource(R.string.ui_account_amp_sync), stringResource(R.string.ui_feed_library_and_pulse_together)) {
                                     showProfileMenu = false; navController.navigate("account")

@@ -262,7 +262,6 @@ import kotlin.time.Duration.Companion.days
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.isActive
 
@@ -475,7 +474,7 @@ class MainActivity : ComponentActivity() {
 
             val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
             val pureBlack = false
-            val appFontKey by rememberPreference(AppFontKey, defaultValue = AppFont.LINOTTE.key)
+            val appFontKey by rememberPreference(AppFontKey, defaultValue = AppFont.APPLE.key)
             val appFont = remember(appFontKey) { AppFont.fromKey(appFontKey) }
             val isSystemInDarkTheme = isSystemInDarkTheme()
             val useDarkTheme =
@@ -587,12 +586,31 @@ class MainActivity : ComponentActivity() {
                     com.devxrohan.smusic.constants.OnboardingCompletedKey,
                     defaultValue = false
                 )
+                var onboardingShouldShow by remember { mutableStateOf<Boolean?>(null) }
+
+                // Decide only once per app data lifetime. This is important when a
+                // new user updates SMusic before finishing onboarding: the install
+                // timestamps change after an update, but the onboarding decision
+                // must remain pending until the user finishes it.
                 androidx.compose.runtime.LaunchedEffect(isFreshInstall) {
-                    // Existing installations skip onboarding, but they must still
-                    // receive the normal foreground update check.
-                    if (!isFreshInstall && !onboardingCompleted) {
-                        onOnboardingCompletedChange(true)
+                    var shouldShow = false
+                    this@MainActivity.dataStore.edit { preferences ->
+                        if (preferences[com.devxrohan.smusic.constants.OnboardingDetectionInitializedKey] != true) {
+                            if (!isFreshInstall && preferences[com.devxrohan.smusic.constants.OnboardingCompletedKey] != true) {
+                                // Migration for users who installed SMusic before this
+                                // onboarding gate existed. Never inspect database size.
+                                preferences[com.devxrohan.smusic.constants.OnboardingCompletedKey] = true
+                            }
+                            preferences[com.devxrohan.smusic.constants.OnboardingDetectionInitializedKey] = true
+                        }
+                        shouldShow = preferences[com.devxrohan.smusic.constants.OnboardingCompletedKey] != true
                     }
+                    onboardingShouldShow = shouldShow
+                }
+
+                val completeOnboarding: () -> Unit = {
+                    onOnboardingCompletedChange(true)
+                    onboardingShouldShow = false
                 }
 
                 // The updater is allowed to prepare its state while onboarding is
@@ -613,26 +631,19 @@ class MainActivity : ComponentActivity() {
                 val onboardingNavEntry by navController.currentBackStackEntryAsState()
                 val onboardingNavRoute = onboardingNavEntry?.destination?.route
 
-                if (isFreshInstall && !onboardingCompleted && !(onboardingNavRoute == "youtube_login" && onboardingLoginDestinationReady)) {
-                    // A full-window layer inside the activity itself (not a Dialog): it draws behind the status
-                    // bar and the gesture/navigation bar exactly like the app does, so nothing of the app
-                    // can show through at the edges. It also swallows touches and the back button.
+                if (onboardingShouldShow == true && !(onboardingNavRoute == "youtube_login" && onboardingLoginDestinationReady)) {
+                    // The onboarding screen owns its normal Compose controls and pager.
+                    // This layer only draws the onboarding surface above Home; it must
+                    // not install a parent click/pointer interceptor.
                     androidx.activity.compose.BackHandler(enabled = true) { }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .zIndex(1000f)
                             .background(MaterialTheme.colorScheme.background)
-                            .pointerInput(Unit) {
-                                awaitPointerEventScope {
-                                    while (true) {
-                                        awaitPointerEvent().changes.forEach { it.consume() }
-                                    }
-                                }
-                            }
                     ) {
                         com.devxrohan.smusic.ui.screens.OnboardingScreen(
-                            onFinished = { onOnboardingCompletedChange(true) },
+                            onFinished = completeOnboarding,
                             currentStep = onboardingStep,
                             onStepChange = { onboardingStep = it },
                             onAddAccount = {
@@ -705,7 +716,7 @@ class MainActivity : ComponentActivity() {
                                     // Returning from login: finish onboarding only when a YouTube
                                     // session was actually saved. Back/cancel restores onboarding.
                                     if (onboardingYouTubeCookie.isNotBlank()) {
-                                        onOnboardingCompletedChange(true)
+                                        completeOnboarding()
                                     }
                                     onboardingLoginFlowActive = false
                                     onboardingLoginScreenOpened = false
@@ -793,7 +804,7 @@ class MainActivity : ComponentActivity() {
 
                             val navBarScaleForInsets by rememberPreference(
                                 com.devxrohan.smusic.constants.NavBarScaleKey,
-                                defaultValue = 1f
+                                defaultValue = 1.11f
                             )
                             val (navBarStyle) = rememberEnumPreference(
                                 com.devxrohan.smusic.constants.NavBarStyleKey,
@@ -1277,7 +1288,7 @@ class MainActivity : ComponentActivity() {
                                                 val alpha = 1f
                                                 val navBarScale by rememberPreference(
                                                     com.devxrohan.smusic.constants.NavBarScaleKey,
-                                                    defaultValue = 1f
+                                                    defaultValue = 1.11f
                                                 )
                                                 // ═══════════════════════════════════════════════════════
                                                 // LIQUID GLASS NAV BAR — works on both dark & light themes

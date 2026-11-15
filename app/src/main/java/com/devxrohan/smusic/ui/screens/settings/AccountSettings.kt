@@ -1,11 +1,19 @@
 package com.devxrohan.smusic.ui.screens.settings
 
 import android.widget.Toast
+import java.io.File
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -24,6 +32,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
 import androidx.navigation.NavController
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.LocalDatabase
@@ -31,6 +40,8 @@ import com.devxrohan.smusic.constants.AccountChannelHandleKey
 import com.devxrohan.smusic.constants.AccountEmailKey
 import com.devxrohan.smusic.constants.AccountNameKey
 import com.devxrohan.smusic.constants.AccountPhotoUrlKey
+import com.devxrohan.smusic.constants.GuestProfileNameKey
+import com.devxrohan.smusic.constants.GuestProfilePhotoPathKey
 import com.devxrohan.smusic.constants.DiscordNameKey
 import com.devxrohan.smusic.constants.DiscordTokenKey
 import com.devxrohan.smusic.constants.DiscordUsernameKey
@@ -46,6 +57,7 @@ import com.devxrohan.smusic.ui.component.PreferenceEntry
 import com.devxrohan.smusic.ui.component.SettingsGeneralCategory
 import com.devxrohan.smusic.ui.component.SettingsPage
 import com.devxrohan.smusic.utils.rememberPreference
+import com.devxrohan.smusic.utils.rememberGuestProfilePhotoPicker
 import com.devxrohan.smusic.utils.signOutYouTubeAccount
 import kotlinx.coroutines.launch
 
@@ -61,6 +73,16 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
     var accountEmail by rememberPreference(AccountEmailKey, "")
     var accountChannelHandle by rememberPreference(AccountChannelHandleKey, "")
     var accountPhotoUrl by rememberPreference(AccountPhotoUrlKey, "")
+    var guestProfileName by rememberPreference(GuestProfileNameKey, "")
+    var guestProfilePhotoPath by rememberPreference(GuestProfilePhotoPathKey, "")
+    var showGuestNameDialog by remember { mutableStateOf(false) }
+    var guestNameInput by remember { mutableStateOf(guestProfileName) }
+    val pickGuestPhoto = rememberGuestProfilePhotoPicker { savedPath ->
+        val previousPath = guestProfilePhotoPath
+        guestProfilePhotoPath = savedPath
+        if (previousPath.isNotBlank() && previousPath != savedPath) runCatching { File(previousPath).delete() }
+        Toast.makeText(context, "Profile picture updated", Toast.LENGTH_SHORT).show()
+    }
     var discordToken by rememberPreference(DiscordTokenKey, "")
     var discordUsername by rememberPreference(DiscordUsernameKey, "")
     var discordName by rememberPreference(DiscordNameKey, "")
@@ -74,6 +96,51 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
     var visitorInput by remember { mutableStateOf("") }
 
     SettingsPage(title = stringResource(R.string.account), navController = navController, scrollBehavior = scrollBehavior) {
+        if (!isYouTubeLoggedIn) {
+            SettingsGeneralCategory(
+                title = "Guest mode",
+                items = listOf(
+                    {
+                        PreferenceEntry(
+                            title = { Text(guestProfileName.ifBlank { "Guest" }) },
+                            description = "Your profile is saved on this device. No account or sign-in required.",
+                            icon = {
+                                if (guestProfilePhotoPath.isNotBlank() && File(guestProfilePhotoPath).exists()) {
+                                    AsyncImage(
+                                        model = File(guestProfilePhotoPath), contentDescription = "Guest profile picture",
+                                        modifier = androidx.compose.ui.Modifier.size(40.dp).clip(CircleShape), contentScale = ContentScale.Crop,
+                                    )
+                                } else {
+                                    Icon(painterResource(R.drawable.person), contentDescription = null)
+                                }
+                            },
+                            onClick = { guestNameInput = guestProfileName; showGuestNameDialog = true },
+                        )
+                    },
+                    {
+                        PreferenceEntry(
+                            title = { Text("Change profile picture") },
+                            description = "Choose a photo from your phone's gallery",
+                            icon = { Icon(painterResource(R.drawable.account), contentDescription = null) },
+                            onClick = { pickGuestPhoto() },
+                        )
+                    },
+                    {
+                        PreferenceEntry(
+                            title = { Text("Remove profile picture") },
+                            description = "Use the default profile icon instead",
+                            icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                            isEnabled = guestProfilePhotoPath.isNotBlank(),
+                            onClick = {
+                                runCatching { File(guestProfilePhotoPath).delete() }
+                                guestProfilePhotoPath = ""
+                                Toast.makeText(context, "Profile picture removed", Toast.LENGTH_SHORT).show()
+                            },
+                        )
+                    },
+                ),
+            )
+        }
         SettingsGeneralCategory(
             title = stringResource(R.string.ui_youtube_music),
             items = listOf(
@@ -147,6 +214,30 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
                     )
                 },
             ),
+        )
+    }
+
+    if (showGuestNameDialog) {
+        AlertDialog(
+            onDismissRequest = { showGuestNameDialog = false },
+            title = { Text("Edit guest name") },
+            text = {
+                OutlinedTextField(
+                    value = guestNameInput,
+                    onValueChange = { guestNameInput = it.take(40) },
+                    label = { Text("Display name") },
+                    singleLine = true,
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    guestProfileName = guestNameInput.trim().ifBlank { "Guest" }
+                    showGuestNameDialog = false
+                    Toast.makeText(context, "Guest name updated", Toast.LENGTH_SHORT).show()
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { showGuestNameDialog = false }) { Text("Cancel") } },
         )
     }
 

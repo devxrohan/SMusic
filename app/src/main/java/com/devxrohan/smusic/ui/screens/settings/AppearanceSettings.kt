@@ -67,7 +67,7 @@ fun AppearanceSettings(
 
     val (appFontKey, onAppFontKeyChange) = rememberPreference(
         com.devxrohan.smusic.constants.AppFontKey,
-        defaultValue = com.devxrohan.smusic.constants.AppFont.LINOTTE.key
+        defaultValue = com.devxrohan.smusic.constants.AppFont.APPLE.key
     )
     val appFont = remember(appFontKey) { com.devxrohan.smusic.constants.AppFont.fromKey(appFontKey) }
 
@@ -83,12 +83,12 @@ fun AppearanceSettings(
 
     val (navBarScale, onNavBarScaleChange) = rememberPreference(
         com.devxrohan.smusic.constants.NavBarScaleKey,
-        defaultValue = 1f
+        defaultValue = 1.11f
     )
 
     val (homeHeaderStyle, onHomeHeaderStyleChange) = rememberEnumPreference(
         com.devxrohan.smusic.constants.HomeHeaderStyleKey,
-        defaultValue = com.devxrohan.smusic.constants.HomeHeaderStyle.SMUSIC
+        defaultValue = com.devxrohan.smusic.constants.HomeHeaderStyle.NONE
     )
 
     val (quickPicksCardWidth, onQuickPicksCardWidthChange) = rememberPreference(
@@ -97,7 +97,7 @@ fun AppearanceSettings(
     )
     val (quickPicksCardHeight, onQuickPicksCardHeightChange) = rememberPreference(
         com.devxrohan.smusic.constants.QuickPicksCardHeightKey,
-        defaultValue = 262f
+        defaultValue = 265f
     )
     var showQuickPicksSizeDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -316,7 +316,7 @@ fun AppearanceSettings(
                                 valueText = {
                                     when (it) {
                                         com.devxrohan.smusic.constants.HomeHeaderStyle.SMUSIC -> stringResource(R.string.home_header_style_smusic)
-                                        com.devxrohan.smusic.constants.HomeHeaderStyle.FEATURED -> stringResource(R.string.home_header_style_featured)
+                                        com.devxrohan.smusic.constants.HomeHeaderStyle.APPLE_LISTEN -> stringResource(R.string.home_header_style_apple_listen)
                                         com.devxrohan.smusic.constants.HomeHeaderStyle.NONE -> stringResource(R.string.home_header_style_none)
                                     }
                                 }

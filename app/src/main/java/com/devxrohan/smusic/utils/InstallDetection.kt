@@ -2,20 +2,16 @@ package com.devxrohan.smusic.utils
 
 import android.content.Context
 
-fun Context.isFreshInstall(): Boolean {
-    val genuinelyFreshApk = runCatching {
-        val info = packageManager.getPackageInfo(packageName, 0)
-        info.firstInstallTime == info.lastUpdateTime
-    }.getOrDefault(false)
-    if (genuinelyFreshApk) return true
-
-    // Not a fresh APK install — but Clear Data wipes the Room database too
-    // (unlike a normal app update, which leaves it untouched). A song
-    // database that doesn't exist yet, or is empty/schema-only, means
-    // there's no real prior library to speak of, so treat this the same
-    // as fresh for onboarding purposes.
-    return runCatching {
-        val dbFile = getDatabasePath("song.db")
-        !dbFile.exists() || dbFile.length() < 50_000L
-    }.getOrDefault(false)
-}
+/**
+ * Detects a genuinely new package installation.
+ *
+ * PackageInfo timestamps survive app updates and clearing app data. Therefore an
+ * existing installation is not mistaken for a first install just because its
+ * Room database is missing, empty, or still being created. The caller persists
+ * the result once in DataStore so an update during onboarding cannot change the
+ * original decision.
+ */
+fun Context.isFreshInstall(): Boolean = runCatching {
+    val packageInfo = packageManager.getPackageInfo(packageName, 0)
+    packageInfo.firstInstallTime == packageInfo.lastUpdateTime
+}.getOrDefault(false)

@@ -563,6 +563,13 @@ fun Queue(
                             .secondaryContainer
                             .copy(alpha = 0.90f),
                     )
+                    // Consume taps on the fixed queue header so they cannot reach
+                    // the scrolling song row underneath it.
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    )
                     .windowInsetsPadding(
                         WindowInsets.systemBars
                             .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),

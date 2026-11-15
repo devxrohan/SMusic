@@ -124,7 +124,7 @@ fun LibraryPlaylistsScreen(
         Playlist(
             playlist = PlaylistEntity(
                 id = UUID.randomUUID().toString(),
-                name = "Import YouTube"
+                name = "Import from YouTube"
             ),
             songCount = 0,
             thumbnails = emptyList(),
@@ -132,7 +132,7 @@ fun LibraryPlaylistsScreen(
 
     var showYouTubeImportDialog by remember { mutableStateOf(false) }
     var showSpotifyImportDialog by remember { mutableStateOf(false) }
-    // AI playlist generation (ported from SMusic): reuses SMusic's listening history (most
+    // AI playlist generation: reuses SMusic's listening history (most
     // played / liked / recent) to prompt a user-configured AI provider, then resolves and saves
     // the suggestions as a real local playlist via AiRecommendationHelper.
 
@@ -180,7 +180,7 @@ fun LibraryPlaylistsScreen(
     }
 
     val shortcuts = listOf(
-        Triple(importYouTubePlaylist.playlist.name, R.drawable.youtube_logo, "import_yt"),
+        Triple("Import from YouTube", R.drawable.youtube_logo, "import_yt"),
         Triple(stringResource(R.string.import_from_spotify), R.drawable.spotify, "import_spotify"),
     )
     val summary = pluralStringResource(R.plurals.n_playlist, playlists.size, playlists.size)

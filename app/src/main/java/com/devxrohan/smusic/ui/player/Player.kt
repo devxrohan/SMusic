@@ -181,6 +181,8 @@ import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalDownloadUtil
 import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
+import com.devxrohan.smusic.constants.DownloadQuality
+import com.devxrohan.smusic.constants.DownloadQualityKey
 import com.devxrohan.smusic.constants.DarkModeKey
 import com.devxrohan.smusic.constants.DefaultPlayPauseButtonShape
 import com.devxrohan.smusic.constants.DefaultSmallButtonsShape
@@ -206,6 +208,9 @@ import com.devxrohan.smusic.lyrics.LyricsUtils.parseLyrics
 import com.devxrohan.smusic.models.MediaMetadata
 import com.devxrohan.smusic.playback.ExoDownloadService
 import com.devxrohan.smusic.ui.component.AppConfig
+import com.devxrohan.smusic.ui.component.AudioQualityTag
+import com.devxrohan.smusic.ui.component.AudioPipelineDialog
+import com.devxrohan.smusic.ui.component.SongDetailsDialog
 import com.devxrohan.smusic.ui.component.BottomSheet
 import com.devxrohan.smusic.ui.component.BottomSheetState
 import com.devxrohan.smusic.ui.component.bottomSheetDraggable
@@ -215,6 +220,7 @@ import com.devxrohan.smusic.ui.component.PlayerSliderTrack
 import com.devxrohan.smusic.ui.component.ResizableIconButton
 import com.devxrohan.smusic.ui.component.rememberBottomSheetState
 import com.devxrohan.smusic.ui.menu.PlayerMenu
+import com.devxrohan.smusic.ui.menu.DownloadQualityDialog
 import com.devxrohan.smusic.ui.menu.AddToPlaylistDialog
 import com.devxrohan.smusic.innertube.YouTube
 import androidx.compose.runtime.rememberCoroutineScope
@@ -305,6 +311,8 @@ fun BottomSheetPlayer(
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
+    // Audio format is consumed by multiple player styles in this parent scope.
+    val currentFormat by playerConnection.currentFormat.collectAsState(initial = null)
     val currentLyrics by playerConnection.currentLyrics.collectAsState(initial = null)
     val primaryArtistId = mediaMetadata?.artists?.firstOrNull { it.id != null }?.id
     val primaryArtist by remember(primaryArtistId) {
@@ -340,7 +348,7 @@ fun BottomSheetPlayer(
     }
 
     val showLyrics by rememberPreference(ShowLyricsKey, defaultValue = false)
-    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SQUIGGLY)
+    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
 
     var position by rememberSaveable(playbackState) {
         mutableLongStateOf(playerConnection.player.currentPosition)
@@ -756,79 +764,15 @@ fun BottomSheetPlayer(
         }
     }
 
-    val currentFormat by playerConnection.currentFormat.collectAsState(initial = null)
-
     var showDetailsDialog by rememberSaveable {
         mutableStateOf(false)
     }
 
     if (showDetailsDialog) {
-        AlertDialog(
-            properties = DialogProperties(usePlatformDefaultWidth = false),
-            onDismissRequest = { showDetailsDialog = false },
+        SongDetailsDialog(
+            mediaMetadata = mediaMetadata,
+            onDismiss = { showDetailsDialog = false },
             containerColor = if (useBlackBackground) Color.Black else AlertDialogDefaults.containerColor,
-            icon = {
-                Icon(
-                    painter = painterResource(R.drawable.info),
-                    contentDescription = null,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { showDetailsDialog = false },
-                ) {
-                    Text(stringResource(android.R.string.ok))
-                }
-            },
-            text = {
-                Column(
-                    modifier =
-                        Modifier
-                            .sizeIn(minWidth = 280.dp, maxWidth = 560.dp)
-                            .verticalScroll(rememberScrollState()),
-                ) {
-                    listOf(
-                        stringResource(R.string.song_title) to mediaMetadata?.title,
-                        stringResource(R.string.song_artists) to mediaMetadata?.artists?.joinToString { it.name },
-                        stringResource(R.string.media_id) to mediaMetadata?.id,
-                        "Itag" to currentFormat?.itag?.toString(),
-                        stringResource(R.string.mime_type) to currentFormat?.mimeType,
-                        stringResource(R.string.codecs) to currentFormat?.codecs,
-                        stringResource(R.string.bitrate) to currentFormat?.bitrate?.let { "${it / 1000} Kbps" },
-                        stringResource(R.string.sample_rate) to currentFormat?.sampleRate?.let { "$it Hz" },
-                        stringResource(R.string.loudness) to currentFormat?.loudnessDb?.let { "$it dB" },
-                        stringResource(R.string.volume) to "${(playerConnection.player.volume * 100).toInt()}%",
-                        stringResource(R.string.file_size) to
-                                currentFormat?.contentLength?.let {
-                                    Formatter.formatShortFileSize(
-                                        context,
-                                        it
-                                    )
-                                },
-                    ).forEach { (label, text) ->
-                        val displayText = text ?: stringResource(R.string.unknown)
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        Text(
-                            text = displayText,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier =
-                                Modifier.clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {
-                                        clipboardManager.setText(AnnotatedString(displayText))
-                                        Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT)
-                                            .show()
-                                    },
-                                ),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-            },
         )
     }
 
@@ -850,10 +794,19 @@ fun BottomSheetPlayer(
         }
     )
 
+    // Only Classic exposes a collapsed queue strip that can be swiped upward.
+    // Every other player style opens its queue exclusively through its own queue button;
+    // keeping both bounds at zero removes the hidden sheet's gesture/peek hit target.
+    val classicQueueSwipeEnabled = playerScreenStyle == PlayerScreenStyle.CLASSIC
+    val queuePeekBound = if (classicQueueSwipeEnabled) {
+        QueuePeekHeight + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+    } else {
+        0.dp
+    }
     val queueSheetState =
         rememberBottomSheetState(
-            dismissedBound = QueuePeekHeight + WindowInsets.systemBars.asPaddingValues()
-                .calculateBottomPadding(),
+            dismissedBound = queuePeekBound,
+            collapsedBound = queuePeekBound,
             expandedBound = state.expandedBound,
         )
 
@@ -2713,7 +2666,7 @@ fun BottomSheetPlayer(
             AppleQueue(
                 state = queueSheetState
             )
-        } else if (playerScreenStyle == PlayerScreenStyle.CLASSIC || !queueSheetState.isCollapsed) {
+        } else if (classicQueueSwipeEnabled || !queueSheetState.isCollapsed) {
             val bgCol = if (useBlackBackground) Color.Black else MaterialTheme.colorScheme.surfaceContainer
 
             Queue(
@@ -4410,8 +4363,47 @@ fun ClassicPlayerScreen(
     val isLiked = currentSong?.song?.liked == true
     val download by LocalDownloadUtil.current.getDownload(mediaMetadata?.id ?: "")
         .collectAsState(initial = null)
+    val currentFormat by playerConnection.currentFormat.collectAsState(initial = null)
+    var showClassicDetailsDialog by rememberSaveable { mutableStateOf(false) }
+    var showClassicAudioPipelineDialog by rememberSaveable { mutableStateOf(false) }
+    var showClassicDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
+    var classicDownloadQuality by rememberEnumPreference(DownloadQualityKey, DownloadQuality.HIGH)
+    val classicCoroutineScope = rememberCoroutineScope()
     val shuffleModeEnabled = playerConnection.player.shuffleModeEnabled
     val repeatMode = playerConnection.player.repeatMode
+
+    // Keep the Classic Player download action identical to the quality flow in PlayerMenu.
+    // The selected quality is persisted through the same independent download-quality key.
+    if (showClassicDownloadQualityDialog) {
+        DownloadQualityDialog(
+            selectedQuality = classicDownloadQuality,
+            onQualitySelected = { classicDownloadQuality = it },
+            onDismiss = { showClassicDownloadQualityDialog = false },
+            onConfirm = {
+                val metadata = mediaMetadata
+                showClassicDownloadQualityDialog = false
+                if (metadata != null) {
+                    classicCoroutineScope.launch {
+                        context.dataStore.edit {
+                            it[DownloadQualityKey] = classicDownloadQuality.name
+                        }
+                        database.transaction { insert(metadata) }
+                        val request = DownloadRequest
+                            .Builder(metadata.id, metadata.id.toUri())
+                            .setCustomCacheKey(metadata.id)
+                            .setData(metadata.title.toByteArray())
+                            .build()
+                        DownloadService.sendAddDownload(
+                            context,
+                            ExoDownloadService::class.java,
+                            request,
+                            false,
+                        )
+                    }
+                }
+            },
+        )
+    }
 
     val accent by animateColorAsState(
         targetValue = dominantColor,
@@ -4503,6 +4495,22 @@ fun ClassicPlayerScreen(
             },
         )
     }
+
+    if (showClassicDetailsDialog) {
+        SongDetailsDialog(
+            mediaMetadata = mediaMetadata,
+            onDismiss = { showClassicDetailsDialog = false },
+        )
+    }
+
+    if (showClassicAudioPipelineDialog) {
+        AudioPipelineDialog(
+            currentFormat = currentFormat,
+            mediaMetadata = mediaMetadata,
+            onDismiss = { showClassicAudioPipelineDialog = false },
+        )
+    }
+
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Classic keeps its normal layout. The cover is only a soft background layer;
@@ -4689,9 +4697,28 @@ fun ClassicPlayerScreen(
                     .fillMaxWidth()
                     .height(24.dp)
             )
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(makeTimeString(sliderPosition ?: position), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
-                Text(makeTimeString(duration), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(
+                    makeTimeString(sliderPosition ?: position),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                )
+                AudioQualityTag(
+                    currentFormat = currentFormat,
+                    mediaMetadata = mediaMetadata,
+                    tint = Color.White,
+                    onClick = { showClassicAudioPipelineDialog = true },
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                Text(
+                    makeTimeString(duration),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                )
             }
 
             Spacer(Modifier.height(controlsGap))
@@ -4795,33 +4822,39 @@ fun ClassicPlayerScreen(
                         modifier = Modifier.size(20.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showSleepTimerDialog = true }
                     )
                 }
+                val classicDownloadScale by animateFloatAsState(
+                    targetValue = if (download?.state == androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING) 0.88f else 1f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                    label = "classicDownloadScale",
+                )
+                val classicDownloadAlpha by animateFloatAsState(
+                    targetValue = if (download?.state == androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING) 0.78f else 1f,
+                    animationSpec = tween(220),
+                    label = "classicDownloadAlpha",
+                )
                 Icon(
                     painter = painterResource(
                         when (download?.state) {
                             androidx.media3.exoplayer.offline.Download.STATE_COMPLETED -> R.drawable.offline
+                            androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING -> R.drawable.pause
+                            androidx.media3.exoplayer.offline.Download.STATE_FAILED -> R.drawable.error
                             else -> R.drawable.download
                         }
                     ),
-                    contentDescription = null,
-                    tint = Color.White,
+                    contentDescription = stringResource(R.string.download),
+                    tint = if (download?.state == androidx.media3.exoplayer.offline.Download.STATE_FAILED) MaterialTheme.colorScheme.error else Color.White,
                     modifier = Modifier
                         .size(20.dp)
+                        .scale(classicDownloadScale)
+                        .alpha(classicDownloadAlpha)
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             mediaMetadata?.let { metadata ->
                                 if (download?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) {
                                     androidx.media3.exoplayer.offline.DownloadService.sendRemoveDownload(
                                         context, com.devxrohan.smusic.playback.ExoDownloadService::class.java, metadata.id, false,
                                     )
-                                } else {
-                                    database.transaction { insert(metadata) }
-                                    val request = androidx.media3.exoplayer.offline.DownloadRequest
-                                        .Builder(metadata.id, metadata.id.toUri())
-                                        .setCustomCacheKey(metadata.id)
-                                        .setData(metadata.title.toByteArray())
-                                        .build()
-                                    androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
-                                        context, com.devxrohan.smusic.playback.ExoDownloadService::class.java, request, false,
-                                    )
+                                } else if (download?.state != androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING) {
+                                    showClassicDownloadQualityDialog = true
                                 }
                             }
                         }
@@ -4845,7 +4878,7 @@ fun ClassicPlayerScreen(
                                         mediaMetadata = song.toMediaMetadata(),
                                         navController = navController,
                                         playerBottomSheetState = bottomSheetState,
-                                        onShowDetailsDialog = {},
+                                        onShowDetailsDialog = { showClassicDetailsDialog = true },
                                         onDismiss = menuState::dismiss,
                                     )
                                 }

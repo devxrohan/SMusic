@@ -98,7 +98,7 @@ fun ApplePlayer(
     onRepeatClick: () -> Unit = {},
     onOpenFullscreenLyrics: () -> Unit = {},
 ) {
-    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SQUIGGLY)
+    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
 
     Box(modifier = Modifier.fillMaxSize().bottomSheetDraggable(state)
     ) {

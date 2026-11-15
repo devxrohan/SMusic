@@ -146,7 +146,7 @@ fun GalaxyPlayer(
 ) {
     val scope = rememberCoroutineScope()
     val showGalaxySlider by rememberPreference(ShowGalaxySliderKey, defaultValue = true)
-    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SQUIGGLY)
+    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
     var isDraggingSlider by remember { mutableStateOf(false) }
     var draggingSliderValue by remember { mutableStateOf(0f) }
     var selectedTab by remember { mutableIntStateOf(1) } // 0: Lyrics, 1: Browse, 2: Queue

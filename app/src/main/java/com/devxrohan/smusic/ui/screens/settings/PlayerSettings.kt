@@ -124,7 +124,7 @@ fun PlayerSettings(
     )
     val (sliderStyle, onSliderStyleChange) = rememberEnumPreference(
         SliderStyleKey,
-        defaultValue = SliderStyle.SQUIGGLY
+        defaultValue = SliderStyle.SLIM
     )
     var showSliderOptionDialog by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showAudioFxStudio by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }

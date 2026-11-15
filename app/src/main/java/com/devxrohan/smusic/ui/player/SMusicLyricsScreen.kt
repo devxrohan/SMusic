@@ -122,7 +122,7 @@ fun SMusicLyricsScreen(
     val repeatMode by playerConnection.repeatMode.collectAsState()
     val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
     val playerVolume = playerConnection.service.playerVolume.collectAsState()
-    
+
     val currentLyrics by playerConnection.currentLyrics.collectAsState(initial = null)
     val currentFormat by playerConnection.currentFormat.collectAsState(initial = null)
     var showAudioPipelineDialog by rememberSaveable { mutableStateOf(false) }
@@ -131,7 +131,7 @@ fun SMusicLyricsScreen(
         com.devxrohan.smusic.constants.LyricsScreenStyle.LYRICS_2
     )
     val useLyricsV2 = lyricsScreenStyle == com.devxrohan.smusic.constants.LyricsScreenStyle.LYRICS_2
-    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SQUIGGLY)
+    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
     val rotateBackground by rememberPreference(RotateBackgroundKey, defaultValue = false)
 
     val infiniteTransition = rememberInfiniteTransition(label = "backgroundRotation")
@@ -179,7 +179,7 @@ fun SMusicLyricsScreen(
             duration = player.duration
         }
     }
-    
+
     // Track loading state: when buffering or when user is seeking
     val isLoading = playbackState == STATE_BUFFERING || sliderPosition != null
 
@@ -284,7 +284,7 @@ fun SMusicLyricsScreen(
                                 modifier = Modifier.size(24.dp)
                             )
                         }
-                        
+
                         // Now Playing info in center
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -303,7 +303,7 @@ fun SMusicLyricsScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        
+
                         // More button (right)
                         Box(
                             modifier = Modifier
@@ -335,7 +335,7 @@ fun SMusicLyricsScreen(
                             )
                         }
                     }
-                    
+
                     // Main content row
                     Row(
                         modifier = Modifier
@@ -369,7 +369,7 @@ fun SMusicLyricsScreen(
                                 }
                             }
                         }
-                        
+
                         // Left side - Controls only (from slider to volume)
                         Column(
                             modifier = Modifier
@@ -602,7 +602,7 @@ fun SMusicLyricsScreen(
                                 modifier = Modifier.size(24.dp)
                             )
                         }
-                        
+
                         // Centered content
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -621,7 +621,7 @@ fun SMusicLyricsScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        
+
                         // More button (right)
                         Box(
                             modifier = Modifier

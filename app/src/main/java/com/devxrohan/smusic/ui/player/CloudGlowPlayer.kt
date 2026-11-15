@@ -98,7 +98,7 @@ fun CloudGlowPlayerScreen(
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val playerBackground = PlayerBackgroundStyle.DEFAULT
-    val sliderStyle by rememberEnumPreference(SliderStyleKey, defaultValue = SliderStyle.SQUIGGLY)
+    val sliderStyle by rememberEnumPreference(SliderStyleKey, defaultValue = SliderStyle.SLIM)
 
     val enableLiquidGlass = false
     val backdrop = LocalBackdrop.current

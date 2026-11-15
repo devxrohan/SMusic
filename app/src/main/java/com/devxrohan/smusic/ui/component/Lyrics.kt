@@ -193,7 +193,7 @@ fun Lyrics(
     val scope = rememberCoroutineScope()
 
     val isFullscreen = onNavigateBack != null
-    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
+    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
     val landscapeOffset = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val scrollLyrics by rememberPreference(LyricsScrollKey, true)
 
@@ -1582,8 +1582,10 @@ fun Lyrics(
             }
         }
 
-        // Buttons for floating mode (not full screen) - SE MANTIENEN IGUAL
-        if (!isFullscreen) {
+        // Keep the floating lyrics menu in previews, but hide this duplicate
+        // menu when the Classic lyrics page is forced open from the player.
+        // The player header already provides the main three-dot menu there.
+        if (!isFullscreen && !forceShowContent) {
             mediaMetadata?.let { metadata ->
                 if (isSelectionModeActive) {
                     // Selection mode buttons are now shown in the AnimatedVisibility above

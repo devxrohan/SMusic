@@ -1,976 +1,453 @@
+/*
+ * SMusic Project Original (2026)
+ * Licensed Under GPL-3.0 | see git history for contributors
+ */
+
 package com.devxrohan.smusic.ui.component
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.CropPortrait
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.StayCurrentPortrait
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
-import androidx.palette.graphics.Palette
-import coil.ImageLoader
-import coil.request.ImageRequest
 import com.devxrohan.smusic.R
+import com.devxrohan.smusic.constants.AppFont
+import com.devxrohan.smusic.constants.AppFontKey
+import com.devxrohan.smusic.lyrics.LyricsEntry
 import com.devxrohan.smusic.models.MediaMetadata
-import com.devxrohan.smusic.utils.ComposeToImage
-import kotlinx.coroutines.Dispatchers
+import com.devxrohan.smusic.utils.LyricsShareRenderer
+import com.devxrohan.smusic.utils.LyricsVideoRenderer
+import com.devxrohan.smusic.utils.rememberPreference
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlin.math.min
 
+/** What a producing screen hands [ShareLyricsDialog]: the picked text, plus the
+ * same lines' own timing when the screen has it (the lyrics screen does — the
+ * overflow-menu entry point doesn't, and passes an empty list), which is what
+ * lets "Video" mode animate in sync instead of just evenly-paced. */
+data class ShareLyricsData(
+    val text: String,
+    val entries: List<LyricsEntry> = emptyList(),
+    val songTitle: String,
+    val artists: String,
+)
+
+private enum class ShareMode { CARD, STORY, VIDEO }
+
+/** Share actions for lyrics that have already been selected on the lyrics screen. */
 @SuppressLint("LocalContextGetResourceValueCall")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShareLyricsDialog(
-    lyricsText: String,
-    songTitle: String,
-    artists: String,
-    mediaMetadata: MediaMetadata?,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { it != SheetValue.Hidden }
-    )
-
-    var showColorPickerSheet by remember { mutableStateOf(false) }
-    var showProgressDialog by remember { mutableStateOf(false) }
-
-    if (!showColorPickerSheet) {
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            dragHandle = { BottomSheetDefaults.DragHandle() },
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier.size(40.dp)
-                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.media3_icon_share),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = stringResource(R.string.share_lyrics),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.close),
-                            contentDescription = stringResource(R.string.cancel),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "$songTitle • $artists",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        onClick = {
-                            val shareIntent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                type = "text/plain"
-                                val songLink = "https://play.smusic.app/song?id=${mediaMetadata?.id}"
-                                putExtra(Intent.EXTRA_TEXT, "\"$lyricsText\"\n\n$songTitle - $artists\n$songLink")
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_lyrics)))
-                            onDismiss()
-                        },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.media3_icon_share),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = stringResource(R.string.share_as_text),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = { showColorPickerSheet = true },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.image),
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = stringResource(R.string.share_as_image),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = stringResource(R.string.cancel),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-
-    if (showColorPickerSheet) {
-        ShareLyricsImageCustomizationSheet(
-            lyricsText = lyricsText,
-            songTitle = songTitle,
-            artists = artists,
-            mediaMetadata = mediaMetadata,
-            onDismiss = {
-                showColorPickerSheet = false
-                onDismiss()
-            },
-            onBack = { showColorPickerSheet = false },
-            showProgressDialog = showProgressDialog,
-            onShowProgressDialog = { showProgressDialog = it }
-        )
-    }
-
-    if (showProgressDialog) {
-        ModalBottomSheet(
-            onDismissRequest = { },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) {
-            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    Text(
-                        text = stringResource(R.string.generating_image) + "\n" + stringResource(R.string.please_wait),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ShareLyricsImageCustomizationSheet(
-    lyricsText: String,
-    songTitle: String,
-    artists: String,
+    data: ShareLyricsData,
     mediaMetadata: MediaMetadata?,
     onDismiss: () -> Unit,
-    onBack: () -> Unit,
-    showProgressDialog: Boolean,
-    onShowProgressDialog: (Boolean) -> Unit
 ) {
+    val (lyricsText, entries, songTitle, artists) = data
     val context = LocalContext.current
-    val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val coverUrl = mediaMetadata?.thumbnailUrl
-    val paletteColors = remember { mutableStateListOf<Color>() }
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scrollState = rememberScrollState()
+    val selectedText = lyricsText.trim()
 
-    var selectedCustomization by remember { mutableStateOf(colorPresets[0].customization) }
-    var isPresetSelectorExpanded by remember { mutableStateOf(true) }
-    var isAdvancedSettingsExpanded by remember { mutableStateOf(false) }
-    var isLayoutSettingsExpanded by remember { mutableStateOf(false) }
-    var isTextSettingsExpanded by remember { mutableStateOf(false) }
-    var isStyleSettingsExpanded by remember { mutableStateOf(false) }
+    val appFontKey by rememberPreference(AppFontKey, defaultValue = AppFont.APPLE.key)
+    val appFont = remember(appFontKey) { AppFont.fromKey(appFontKey) }
+    var mode by remember { mutableStateOf(ShareMode.CARD) }
+    var image by remember(selectedText, songTitle, artists) { mutableStateOf<Bitmap?>(null) }
+    var failed by remember(selectedText, songTitle, artists) { mutableStateOf(false) }
+    var saved by remember(selectedText, songTitle, artists) { mutableStateOf(false) }
 
-    LaunchedEffect(coverUrl) {
-        if (coverUrl != null) {
-            withContext(Dispatchers.IO) {
-                try {
-                    val loader = ImageLoader(context)
-                    val req = ImageRequest.Builder(context).data(coverUrl).allowHardware(false).build()
-                    val drawable = loader.execute(req).drawable
-                    if (drawable != null) {
-                        val bitmap = drawable.toBitmap()
-                        val palette = Palette.from(bitmap).generate()
-                        val colors = listOfNotNull(
-                            palette.getLightVibrantColor(Color.Black.toArgb()).takeIf { it != Color.Black.toArgb() },
-                            palette.getVibrantColor(Color.Black.toArgb()).takeIf { it != Color.Black.toArgb() },
-                            palette.getDarkVibrantColor(Color.Black.toArgb()).takeIf { it != Color.Black.toArgb() },
-                            palette.getLightMutedColor(Color.Black.toArgb()).takeIf { it != Color.Black.toArgb() },
-                            palette.getMutedColor(Color.Black.toArgb()).takeIf { it != Color.Black.toArgb() },
-                            palette.getDarkMutedColor(Color.Black.toArgb()).takeIf { it != Color.Black.toArgb() }
-                        ).map { Color(it) }.distinct()
-                        if (colors.isNotEmpty()) {
-                            paletteColors.clear()
-                            paletteColors.addAll(colors)
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
+    var videoUri by remember(selectedText, songTitle, artists) { mutableStateOf<Uri?>(null) }
+    var videoHasAudio by remember { mutableStateOf(true) }
+    var videoGenerating by remember { mutableStateOf(false) }
+    var videoProgress by remember { mutableFloatStateOf(0f) }
+    var videoStage by remember { mutableStateOf("") }
+    var videoFailed by remember { mutableStateOf(false) }
+    var videoPreview by remember(selectedText, songTitle, artists) { mutableStateOf<Bitmap?>(null) }
+
+    suspend fun generateVideo(): Uri? {
+        videoGenerating = true
+        videoFailed = false
+        videoProgress = 0f
+        val result = runCatching {
+            LyricsVideoRenderer.render(
+                context = context,
+                entries = entries,
+                fallbackText = selectedText,
+                songTitle = songTitle,
+                artistName = artists,
+                artworkUrl = mediaMetadata?.thumbnailUrl,
+                appFont = appFont,
+                mediaMetadata = mediaMetadata,
+                onProgress = { p -> videoProgress = p.fraction; videoStage = p.stage },
+            )
+        }.onFailure { videoFailed = true }.getOrNull()
+        videoGenerating = false
+        videoUri = result?.uri
+        videoHasAudio = result?.hasAudio ?: true
+        if (result != null && !result.hasAudio) {
+            Toast.makeText(context, "Video created without audio — couldn't load this song's audio", Toast.LENGTH_LONG).show()
         }
+        return result?.uri
+    }
+
+    // A still preview of the video's first frame — same backdrop/brand/artwork
+    // as Card/Story, with the fixed-position fade lyric treatment.
+    LaunchedEffect(selectedText, songTitle, artists, mediaMetadata?.thumbnailUrl, appFont, mode) {
+        if (mode != ShareMode.VIDEO || selectedText.isBlank()) return@LaunchedEffect
+        videoPreview = runCatching {
+            LyricsVideoRenderer.renderPreview(
+                context = context,
+                entries = entries,
+                fallbackText = selectedText,
+                songTitle = songTitle,
+                artistName = artists,
+                artworkUrl = mediaMetadata?.thumbnailUrl,
+                appFont = appFont,
+            )
+        }.getOrNull()
+    }
+
+    LaunchedEffect(selectedText, songTitle, artists, mediaMetadata?.thumbnailUrl, appFont, mode) {
+        if (mode == ShareMode.VIDEO) return@LaunchedEffect
+        image = null
+        failed = false
+        saved = false
+        if (selectedText.isBlank()) return@LaunchedEffect
+        image = runCatching {
+            val cardText = selectedText.lines().filter { it.isNotBlank() }.take(5).joinToString("\n")
+            LyricsShareRenderer.render(
+                context = context,
+                lyricsText = cardText,
+                songTitle = songTitle,
+                artistName = artists,
+                artworkUrl = mediaMetadata?.thumbnailUrl,
+                appFont = appFont,
+                story = mode == ShareMode.STORY,
+            )
+        }.onFailure { failed = true }.getOrNull()
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
     ) {
-        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.arrow_back),
-                            contentDescription = stringResource(R.string.back),
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.customize_image),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.close),
-                        contentDescription = stringResource(R.string.cancel),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            CustomizationCard(
-                title = stringResource(R.string.select_theme),
-                isExpanded = isPresetSelectorExpanded,
-                onExpandChange = { isPresetSelectorExpanded = it }
-            ) {
-                if (paletteColors.isNotEmpty()) {
-                    Text(
-                        text = stringResource(R.string.from_cover),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    ) {
-                        items(paletteColors) { color ->
-                            val customization = ImageCustomization(
-                                backgroundColor = color,
-                                textColor = if (color.isDark()) Color.White else Color.Black,
-                                secondaryTextColor = if (color.isDark()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
-                                isDark = color.isDark()
-                            )
-                            BottomSheetColorCustomizationItem(
-                                customization = customization,
-                                presetName = stringResource(R.string.cover_color),
-                                isSelected = selectedCustomization.backgroundColor == customization.backgroundColor,
-                                onClick = { selectedCustomization = customization }
-                            )
-                        }
-                    }
-                }
-
-                Text(
-                    text = stringResource(R.string.theme_presets),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(colorPresets) { preset ->
-                        BottomSheetColorCustomizationItem(
-                            customization = preset.customization,
-                            presetName = preset.name,
-                            isSelected = selectedCustomization.backgroundColor == preset.customization.backgroundColor,
-                            onClick = { selectedCustomization = preset.customization }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            CustomizationCard(
-                title = stringResource(R.string.ui_style_settings),
-                isExpanded = isStyleSettingsExpanded,
-                onExpandChange = { isStyleSettingsExpanded = it }
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SettingSection(title = stringResource(R.string.ui_cover_art_style)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = selectedCustomization.coverArtStyle == CoverArtStyle.ROUNDED,
-                                onClick = { selectedCustomization = selectedCustomization.copy(coverArtStyle = CoverArtStyle.ROUNDED) },
-                                label = { Text(stringResource(R.string.aod_shape_rounded), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.coverArtStyle == CoverArtStyle.CIRCLE,
-                                onClick = { selectedCustomization = selectedCustomization.copy(coverArtStyle = CoverArtStyle.CIRCLE) },
-                                label = { Text(stringResource(R.string.aod_shape_circle), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.coverArtStyle == CoverArtStyle.SQUARE,
-                                onClick = { selectedCustomization = selectedCustomization.copy(coverArtStyle = CoverArtStyle.SQUARE) },
-                                label = { Text(stringResource(R.string.aod_control_style_square), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    SettingSection(title = stringResource(R.string.ui_lyrics_style)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = selectedCustomization.lyricsStyle == LyricsStyle.NORMAL,
-                                onClick = { selectedCustomization = selectedCustomization.copy(lyricsStyle = LyricsStyle.NORMAL) },
-                                label = { Text(stringResource(R.string.normal), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.lyricsStyle == LyricsStyle.ITALIC,
-                                onClick = { selectedCustomization = selectedCustomization.copy(lyricsStyle = LyricsStyle.ITALIC) },
-                                label = { Text(stringResource(R.string.italic), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.lyricsStyle == LyricsStyle.CONDENSED,
-                                onClick = { selectedCustomization = selectedCustomization.copy(lyricsStyle = LyricsStyle.CONDENSED) },
-                                label = { Text(stringResource(R.string.condensed), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    SwitchSetting(
-                        title = stringResource(R.string.ui_show_accent_line),
-                        checked = selectedCustomization.showAccentLine,
-                        onCheckedChange = {
-                            selectedCustomization = selectedCustomization.copy(
-                                showAccentLine = it,
-                                accentColor = if (it && selectedCustomization.accentColor == null)
-                                    selectedCustomization.textColor else selectedCustomization.accentColor
-                            )
-                        }
-                    )
-
-                    SliderSetting(
-                        title = stringResource(R.string.ui_line_spacing),
-                        value = selectedCustomization.lyricsLineSpacing,
-                        valueRange = 1.0f..1.8f,
-                        steps = 15,
-                        onValueChange = { selectedCustomization = selectedCustomization.copy(lyricsLineSpacing = it) },
-                        valueLabel = String.format(java.util.Locale.US, "%.1f", selectedCustomization.lyricsLineSpacing)
-                    )
-
-                    SliderSetting(
-                        title = stringResource(R.string.ui_element_spacing),
-                        value = selectedCustomization.spacingBetweenElements,
-                        valueRange = 8f..32f,
-                        steps = 23,
-                        onValueChange = { selectedCustomization = selectedCustomization.copy(spacingBetweenElements = it) },
-                        valueLabel = "${selectedCustomization.spacingBetweenElements.toInt()}dp"
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            CustomizationCard(
-                title = stringResource(R.string.ui_background_settings),
-                isExpanded = isAdvancedSettingsExpanded,
-                onExpandChange = { isAdvancedSettingsExpanded = it }
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SettingSection(title = stringResource(R.string.ui_background_style)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = selectedCustomization.backgroundStyle == BackgroundStyle.SOLID,
-                                onClick = { selectedCustomization = selectedCustomization.copy(backgroundStyle = BackgroundStyle.SOLID) },
-                                label = { Text(stringResource(R.string.solid), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.backgroundStyle == BackgroundStyle.GRADIENT,
-                                onClick = { selectedCustomization = selectedCustomization.copy(backgroundStyle = BackgroundStyle.GRADIENT) },
-                                label = { Text(stringResource(R.string.gradient), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.backgroundStyle == BackgroundStyle.PATTERN,
-                                onClick = { selectedCustomization = selectedCustomization.copy(backgroundStyle = BackgroundStyle.PATTERN) },
-                                label = { Text(stringResource(R.string.pattern), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    SliderSetting(
-                        title = stringResource(R.string.ui_corner_radius),
-                        value = selectedCustomization.cornerRadius,
-                        valueRange = 0f..40f,
-                        steps = 39,
-                        onValueChange = { selectedCustomization = selectedCustomization.copy(cornerRadius = it) },
-                        valueLabel = "${selectedCustomization.cornerRadius.toInt()}dp"
-                    )
-
-                    if (selectedCustomization.backgroundStyle == BackgroundStyle.PATTERN) {
-                        SliderSetting(
-                            title = stringResource(R.string.ui_pattern_opacity),
-                            value = selectedCustomization.patternOpacity,
-                            valueRange = 0.01f..0.15f,
-                            steps = 0,
-                            onValueChange = { selectedCustomization = selectedCustomization.copy(patternOpacity = it) },
-                            valueLabel = "${(selectedCustomization.patternOpacity * 100).toInt()}%"
-                        )
-                    }
-
-                    SwitchSetting(
-                        title = stringResource(R.string.ui_border),
-                        checked = selectedCustomization.borderEnabled,
-                        onCheckedChange = { selectedCustomization = selectedCustomization.copy(borderEnabled = it) }
-                    )
-
-                    if (selectedCustomization.borderEnabled) {
-                        SliderSetting(
-                            title = stringResource(R.string.ui_border_width),
-                            value = selectedCustomization.borderWidth,
-                            valueRange = 1f..8f,
-                            steps = 6,
-                            onValueChange = { selectedCustomization = selectedCustomization.copy(borderWidth = it) },
-                            valueLabel = "${selectedCustomization.borderWidth.toInt()}dp"
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            CustomizationCard(
-                title = stringResource(R.string.ui_text_settings),
-                isExpanded = isTextSettingsExpanded,
-                onExpandChange = { isTextSettingsExpanded = it }
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SettingSection(title = stringResource(R.string.ui_font_style)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = selectedCustomization.fontStyle == FontStyle.REGULAR,
-                                onClick = { selectedCustomization = selectedCustomization.copy(fontStyle = FontStyle.REGULAR) },
-                                label = { Text(stringResource(R.string.regular), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.fontStyle == FontStyle.BOLD,
-                                onClick = { selectedCustomization = selectedCustomization.copy(fontStyle = FontStyle.BOLD) },
-                                label = { Text(stringResource(R.string.bold), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.fontStyle == FontStyle.EXTRA_BOLD,
-                                onClick = { selectedCustomization = selectedCustomization.copy(fontStyle = FontStyle.EXTRA_BOLD) },
-                                label = { Text(stringResource(R.string.ui_extra_bold), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    SettingSection(title = stringResource(R.string.ui_text_alignment)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = selectedCustomization.textAlignment == TextAlignment.LEFT,
-                                onClick = { selectedCustomization = selectedCustomization.copy(textAlignment = TextAlignment.LEFT) },
-                                label = { Text(stringResource(R.string.left), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.textAlignment == TextAlignment.CENTER,
-                                onClick = { selectedCustomization = selectedCustomization.copy(textAlignment = TextAlignment.CENTER) },
-                                label = { Text(stringResource(R.string.center), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = selectedCustomization.textAlignment == TextAlignment.RIGHT,
-                                onClick = { selectedCustomization = selectedCustomization.copy(textAlignment = TextAlignment.RIGHT) },
-                                label = { Text(stringResource(R.string.right), fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    SwitchSetting(
-                        title = stringResource(R.string.ui_text_shadow),
-                        checked = selectedCustomization.textShadowEnabled,
-                        onCheckedChange = { selectedCustomization = selectedCustomization.copy(textShadowEnabled = it) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            CustomizationCard(
-                title = stringResource(R.string.ui_layout_settings),
-                isExpanded = isLayoutSettingsExpanded,
-                onExpandChange = { isLayoutSettingsExpanded = it }
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    SwitchSetting(
-                        title = stringResource(R.string.ui_show_cover_art),
-                        checked = selectedCustomization.showCoverArt,
-                        onCheckedChange = { selectedCustomization = selectedCustomization.copy(showCoverArt = it) }
-                    )
-
-                    if (selectedCustomization.showCoverArt) {
-                        SwitchSetting(
-                            title = stringResource(R.string.ui_show_song_title),
-                            checked = selectedCustomization.showSongTitle,
-                            onCheckedChange = { selectedCustomization = selectedCustomization.copy(showSongTitle = it) }
-                        )
-
-                        SwitchSetting(
-                            title = stringResource(R.string.ui_show_artist_name),
-                            checked = selectedCustomization.showArtistName,
-                            onCheckedChange = { selectedCustomization = selectedCustomization.copy(showArtistName = it) }
-                        )
-                    }
-
-                    SwitchSetting(
-                        title = stringResource(R.string.ui_show_logo),
-                        checked = selectedCustomization.showLogo,
-                        onCheckedChange = { selectedCustomization = selectedCustomization.copy(showLogo = it) }
-                    )
-
-                    if (selectedCustomization.showLogo) {
-                        SettingSection(title = stringResource(R.string.ui_logo_position)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(
-                                    selected = selectedCustomization.logoPosition == LogoPosition.BOTTOM_LEFT,
-                                    onClick = { selectedCustomization = selectedCustomization.copy(logoPosition = LogoPosition.BOTTOM_LEFT) },
-                                    label = { Text(stringResource(R.string.ui_bottom_left), fontSize = 11.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FilterChip(
-                                    selected = selectedCustomization.logoPosition == LogoPosition.BOTTOM_RIGHT,
-                                    onClick = { selectedCustomization = selectedCustomization.copy(logoPosition = LogoPosition.BOTTOM_RIGHT) },
-                                    label = { Text(stringResource(R.string.ui_bottom_right), fontSize = 11.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        SettingSection(title = stringResource(R.string.ui_logo_size)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(
-                                    selected = selectedCustomization.logoSize == LogoSize.SMALL,
-                                    onClick = { selectedCustomization = selectedCustomization.copy(logoSize = LogoSize.SMALL) },
-                                    label = { Text(stringResource(R.string.small), fontSize = 12.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FilterChip(
-                                    selected = selectedCustomization.logoSize == LogoSize.MEDIUM,
-                                    onClick = { selectedCustomization = selectedCustomization.copy(logoSize = LogoSize.MEDIUM) },
-                                    label = { Text(stringResource(R.string.medium), fontSize = 12.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FilterChip(
-                                    selected = selectedCustomization.logoSize == LogoSize.LARGE,
-                                    onClick = { selectedCustomization = selectedCustomization.copy(logoSize = LogoSize.LARGE) },
-                                    label = { Text(stringResource(R.string.large), fontSize = 12.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-
-                    SliderSetting(
-                        title = stringResource(R.string.ui_padding),
-                        value = selectedCustomization.padding,
-                        valueRange = 16f..64f,
-                        steps = 47,
-                        onValueChange = { selectedCustomization = selectedCustomization.copy(padding = it) },
-                        valueLabel = "${selectedCustomization.padding.toInt()}dp"
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 720.dp)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(
-                text = stringResource(R.string.preview),
-                style = MaterialTheme.typography.titleMedium,
+                text = stringResource(R.string.share_lyrics),
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 24.dp)
+                modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            BoxWithConstraints(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (mediaMetadata != null) {
-                    val previewSize = remember(maxWidth) { min(maxWidth.value - 48f, 380f).dp }
-                    Box(modifier = Modifier.size(previewSize), contentAlignment = Alignment.Center) {
-                        LyricsImageCardPreview(
-                            lyricText = lyricsText,
-                            mediaMetadata = mediaMetadata,
-                            customization = selectedCustomization,
-                            modifier = Modifier.fillMaxSize()
+            val bitmap = image
+            val ratio = bitmap?.let { it.width.toFloat() / it.height } ?: (9f / 16f)
+            val previewModifier = Modifier
+                .fillMaxWidth((0.72f * ratio).coerceIn(0.4f, 0.9f))
+                .heightIn(max = 300.dp)
+                .aspectRatio(ratio)
+                .clip(RoundedCornerShape(20.dp))
+            when {
+                mode == ShareMode.VIDEO -> Box(modifier = previewModifier, contentAlignment = Alignment.Center) {
+                    val preview = videoPreview
+                    if (preview != null) {
+                        Image(
+                            bitmap = preview.asImageBitmap(),
+                            contentDescription = stringResource(R.string.share_lyrics_image),
+                            modifier = Modifier.matchParentSize().clip(RoundedCornerShape(20.dp)),
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier.matchParentSize().background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
+                        }
                     }
+                    if (videoGenerating || videoUri != null || videoFailed) {
+                        Box(
+                            modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.45f)).clip(RoundedCornerShape(20.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                when {
+                                    videoGenerating -> {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(28.dp),
+                                            strokeWidth = 2.5.dp,
+                                            color = Color.White,
+                                            progress = { videoProgress },
+                                        )
+                                        Text(videoStage, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                                    }
+                                    videoUri != null -> {
+                                        Icon(Icons.Filled.Videocam, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+                                        Text("Video ready", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                                    }
+                                    videoFailed -> {
+                                        Text("Couldn't create video", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                bitmap != null -> Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = stringResource(R.string.share_lyrics_image),
+                    modifier = previewModifier,
+                )
+                !failed -> Box(
+                    modifier = previewModifier.background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilterChip(
+                    selected = mode == ShareMode.CARD,
+                    onClick = { mode = ShareMode.CARD },
+                    label = { Text("Card") },
+                    leadingIcon = {
+                        Icon(Icons.Filled.CropPortrait, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                )
+                FilterChip(
+                    selected = mode == ShareMode.STORY,
+                    onClick = { mode = ShareMode.STORY },
+                    label = { Text("Story") },
+                    leadingIcon = {
+                        Icon(Icons.Filled.StayCurrentPortrait, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                )
+                FilterChip(
+                    selected = mode == ShareMode.VIDEO,
+                    onClick = { mode = ShareMode.VIDEO },
+                    label = { Text("Video") },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Videocam, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                )
+            }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onBack,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+            Spacer(modifier = Modifier.height(18.dp))
+            if (mode == ShareMode.VIDEO) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = stringResource(R.string.back),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        scope.launch {
-                            onShowProgressDialog(true)
-                            try {
-                                val screenWidth = configuration.screenWidthDp
-                                val screenHeight = configuration.screenHeightDp
-
-                                val image = ComposeToImage.createLyricsImage(
-                                    context = context,
-                                    coverArtUrl = coverUrl,
-                                    songTitle = songTitle,
-                                    artistName = artists,
-                                    lyrics = lyricsText,
-                                    width = (screenWidth * density.density).toInt(),
-                                    height = (screenHeight * density.density).toInt(),
-                                    backgroundColor = selectedCustomization.backgroundColor.toArgb(),
-                                    textColor = selectedCustomization.textColor.toArgb(),
-                                    secondaryTextColor = selectedCustomization.secondaryTextColor.toArgb(),
-                                    showCoverArt = selectedCustomization.showCoverArt,
-                                    showLogo = selectedCustomization.showLogo,
-                                    backgroundStyle = selectedCustomization.backgroundStyle.name,
-                                    gradientColors = selectedCustomization.gradientColors?.map { it.toArgb() }?.toIntArray(),
-                                    fontStyle = selectedCustomization.fontStyle.name,
-                                    logoPosition = selectedCustomization.logoPosition.name,
-                                    cornerRadius = selectedCustomization.cornerRadius,
-                                    patternOpacity = selectedCustomization.patternOpacity,
-                                    textAlignment = selectedCustomization.textAlignment.name,
-                                    padding = selectedCustomization.padding,
-                                    showArtistName = selectedCustomization.showArtistName,
-                                    showSongTitle = selectedCustomization.showSongTitle,
-                                    textShadowEnabled = selectedCustomization.textShadowEnabled,
-                                    borderEnabled = selectedCustomization.borderEnabled,
-                                    borderColor = selectedCustomization.borderColor.toArgb(),
-                                    borderWidth = selectedCustomization.borderWidth,
-                                    logoSize = selectedCustomization.logoSize.name,
-                                    coverArtStyle = selectedCustomization.coverArtStyle.name,
-                                    lyricsStyle = selectedCustomization.lyricsStyle.name,
-                                    showAccentLine = selectedCustomization.showAccentLine,
-                                    accentColor = selectedCustomization.accentColor?.toArgb(),
-                                    spacingBetweenElements = selectedCustomization.spacingBetweenElements,
-                                    lyricsLineSpacing = selectedCustomization.lyricsLineSpacing
-                                )
-
-                                val timestamp = System.currentTimeMillis()
-                                val safeArtistName = artists.replace("[^a-zA-Z0-9\\s]".toRegex(), "").trim().replace("\\s+".toRegex(), "_")
-                                val safeSongTitle = songTitle.replace("[^a-zA-Z0-9\\s]".toRegex(), "").trim().replace("\\s+".toRegex(), "_")
-
-                                val filename = if (safeArtistName.isNotEmpty() && safeSongTitle.isNotEmpty()) {
-                                    "lyrics_${safeArtistName}_${safeSongTitle}_$timestamp"
-                                } else if (safeSongTitle.isNotEmpty()) {
-                                    "lyrics_${safeSongTitle}_$timestamp"
-                                } else {
-                                    "lyrics_$timestamp"
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                val uri = videoUri ?: generateVideo() ?: return@launch
+                                runCatching {
+                                    context.contentResolver.openInputStream(uri)?.close()
+                                    saved = true
+                                    Toast.makeText(context, "Video saved", Toast.LENGTH_SHORT).show()
                                 }
+                            }
+                        },
+                        enabled = !videoGenerating,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Icon(painterResource(R.drawable.download), contentDescription = null, modifier = Modifier.size(17.dp))
+                            Text(
+                                text = if (videoUri != null) "Saved" else if (videoGenerating) "Creating…" else "Create video",
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                            )
+                        }
+                    }
 
-                                val uri = ComposeToImage.saveBitmapAsFile(context, image, filename)
-
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val uri = videoUri ?: generateVideo() ?: return@launch
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "image/png"
+                                    type = "video/mp4"
                                     putExtra(Intent.EXTRA_STREAM, uri)
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 }
-
-                                context.startActivity(Intent.createChooser(shareIntent, "Share Lyrics"))
-
-                                onShowProgressDialog(false)
-                                onDismiss()
-
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Failed to create image: ${e.message}", Toast.LENGTH_SHORT).show()
-                                onShowProgressDialog(false)
+                                context.startActivity(Intent.createChooser(shareIntent, "Share video"))
                             }
+                        },
+                        enabled = !videoGenerating,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Icon(painterResource(R.drawable.share), contentDescription = null, modifier = Modifier.size(17.dp))
+                            Text(if (videoGenerating) "Creating…" else "Share video", fontSize = 11.sp, maxLines = 1)
                         }
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Text(
-                        text = stringResource(R.string.share_lyrics_image),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-}
-
-@Composable
-private fun CustomizationCard(
-    title: String,
-    isExpanded: Boolean,
-    onExpandChange: (Boolean) -> Unit,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                IconButton(onClick = { onExpandChange(!isExpanded) }, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isExpanded) stringResource(R.string.collapse) else stringResource(R.string.expand),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = isExpanded,
-                enter = slideInVertically() + fadeIn(),
-                exit = slideOutVertically() + fadeOut()
-            ) {
-                Column(modifier = Modifier.padding(top = 16.dp), content = content)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingSection(title: String, content: @Composable () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-        content()
-    }
-}
-
-@Composable
-private fun SliderSetting(
-    title: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int,
-    onValueChange: (Float) -> Unit,
-    valueLabel: String
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "$title: $valueLabel",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        Slider(value = value, onValueChange = onValueChange, valueRange = valueRange, steps = steps)
-    }
-}
-
-@Composable
-private fun SwitchSetting(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(text = title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-fun Color.isDark(): Boolean {
-    val luminance = 0.299f * this.red + 0.587f * this.green + 0.114f * this.blue
-    return luminance < 0.5f
-}
-
-@Composable
-fun BottomSheetColorCustomizationItem(
-    customization: ImageCustomization,
-    presetName: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.1f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "scale"
-    )
-
-    Column(
-        modifier = modifier.width(60.dp).clickable { onClick() },
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier.size(48.dp).scale(scale).clip(RoundedCornerShape(12.dp))
-                .background(
-                    brush = if (customization.backgroundStyle == BackgroundStyle.GRADIENT && customization.gradientColors != null) {
-                        Brush.linearGradient(customization.gradientColors)
-                    } else {
-                        Brush.linearGradient(listOf(customization.backgroundColor, customization.backgroundColor))
                     }
-                )
-                .border(
-                    width = if (isSelected) 2.dp else 1.dp,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(12.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(text = "Aa", color = customization.textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                if (videoGenerating) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LinearProgressIndicator(
+                        progress = { videoProgress },
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val songLink = mediaMetadata?.id?.let { "https://play.smusic.app/song?id=$it" }
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, buildString {
+                                    append("\"").append(selectedText).append("\"\n\n")
+                                    append(songTitle).append(" - ").append(artists)
+                                    songLink?.let { append("\n").append(it) }
+                                })
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_lyrics)))
+                            onDismiss()
+                        },
+                        enabled = selectedText.isNotBlank(),
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Icon(painterResource(R.drawable.share), contentDescription = null, modifier = Modifier.size(17.dp))
+                            Text("Share text", fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val drawn = image ?: return@OutlinedButton
+                            scope.launch {
+                                runCatching {
+                                    LyricsShareRenderer.saveToFile(context, drawn, "lyrics_saved_${System.currentTimeMillis()}")
+                                    saved = true
+                                    Toast.makeText(context, "Image saved", Toast.LENGTH_SHORT).show()
+                                }.onFailure {
+                                    Toast.makeText(context, "Failed to save image: ${it.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        enabled = image != null,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Icon(painterResource(R.drawable.download), contentDescription = null, modifier = Modifier.size(17.dp))
+                            Text(if (saved) "Saved" else "Save image", fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            val drawn = image ?: return@Button
+                            scope.launch {
+                                runCatching {
+                                    val uri = LyricsShareRenderer.saveToFile(context, drawn, "lyrics_${System.currentTimeMillis()}")
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "image/png"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_as_image)))
+                                }.onFailure {
+                                    failed = true
+                                    Toast.makeText(context, "Failed to create image: ${it.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        enabled = image != null,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Icon(painterResource(R.drawable.share), contentDescription = null, modifier = Modifier.size(17.dp))
+                            Text("Share image", fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+            }
         }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = presetName,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isSelected) 1f else 0.7f),
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(60.dp)
-        )
     }
 }

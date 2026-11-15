@@ -1,8 +1,11 @@
 package com.devxrohan.smusic.constants
 
+import android.content.Context
+import android.graphics.Typeface
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.core.content.res.ResourcesCompat
 import com.devxrohan.smusic.R
 
 enum class AppFont(val title: String, val key: String) {
@@ -59,6 +62,34 @@ enum class AppFont(val title: String, val key: String) {
             BEST_SOULMATE -> FontFamily(Font(R.font.best_soulmate))
             BADDIE -> FontFamily(Font(R.font.pacifico_regular))
         }
+    }
+
+    /**
+     * The same face as [getFontFamily], but as an Android [Typeface] for code that
+     * draws straight onto a [android.graphics.Canvas] (e.g. the lyrics share card)
+     * rather than through a Composable. [bold] picks the heaviest weight this font
+     * ships for display-style text, or its regular weight otherwise.
+     */
+    fun getTypeface(context: Context, bold: Boolean = true): Typeface {
+        val resId = when (this) {
+            SYSTEM -> null
+            LINOTTE -> R.font.linotte
+            POPPINS -> if (bold) R.font.poppins_bold else R.font.poppins_regular
+            SF_PRO -> R.font.sfprodisplaybold
+            APPLE -> if (bold) R.font.sf_pro_display_heavy else R.font.sf_pro_display_regular
+            ANYBODY -> R.font.anybody
+            GREAT_VIBES -> R.font.great_vibes
+            SANS_SERIF -> return Typeface.create(Typeface.SANS_SERIF, if (bold) Typeface.BOLD else Typeface.NORMAL)
+            SERIF -> return Typeface.create(Typeface.SERIF, if (bold) Typeface.BOLD else Typeface.NORMAL)
+            MONOSPACE -> return Typeface.create(Typeface.MONOSPACE, if (bold) Typeface.BOLD else Typeface.NORMAL)
+            CURSIVE -> R.font.great_vibes
+            GOTHAM -> if (bold) R.font.gotham_bold else R.font.gotham_regular
+            TORMENT_PULSATION -> R.font.torment_pulsation
+            BEST_SOULMATE -> R.font.best_soulmate
+            BADDIE -> R.font.pacifico_regular
+        }
+        val loaded = resId?.let { runCatching { ResourcesCompat.getFont(context, it) }.getOrNull() }
+        return loaded ?: if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
     }
 
     companion object {

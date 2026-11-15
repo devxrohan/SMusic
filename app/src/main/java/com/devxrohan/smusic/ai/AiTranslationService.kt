@@ -30,7 +30,6 @@ object AiTranslationService {
         baseUrl: String,
         model: String,
         mode: String,
-        customPrompt: String? = null,
         provider: String = "OpenRouter",
         maxRetries: Int = 3,
         onLog: ((String) -> Unit)? = null
@@ -59,7 +58,7 @@ object AiTranslationService {
             )
         }
 
-        // Free, no-key translation approach: Google's free, unauthenticated
+        // A no-key approach: Google's free, unauthenticated
         // "dict-chrome-ex" endpoint. No account, no API key, nothing to configure.
         if (provider.equals("Google", ignoreCase = true)) {
             return@withContext translateWithGoogleFree(
@@ -101,10 +100,6 @@ object AiTranslationService {
                     append("Translate the following $lineCount song lyrics lines into $targetLanguageName.\n")
                     append("Preserve the rhyme, rhythm, and artistic meaning suitable for singing.\n")
                 }
-            }
-
-            if (!customPrompt.isNullOrBlank()) {
-                append("\nUser Custom Instructions:\n$customPrompt\n")
             }
 
             append("\nOriginal Lyrics are provided as a JSON array of $lineCount separate lines. Translate each array item independently, preserve the exact order, and do not combine lines:\n")
@@ -252,7 +247,7 @@ object AiTranslationService {
         }.getOrNull()
     }
 
-    // ── Free, no-key translation (the free, no-key translation approach) ──
+    // ── Free, no-key translation ──
     // Google's own web client ("dict-chrome-ex") requires no API key. Lines are
     // batched and separated by private-use marker characters so one request can
     // translate many lyric lines while keeping them in order.

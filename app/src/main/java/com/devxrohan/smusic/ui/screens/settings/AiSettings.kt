@@ -39,7 +39,6 @@ import androidx.navigation.NavController
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.AiProviderKey
 import com.devxrohan.smusic.constants.AutoTranslateKey
-import com.devxrohan.smusic.constants.CustomPromptKey
 import com.devxrohan.smusic.constants.DeeplApiKey
 import com.devxrohan.smusic.constants.DeeplFormalityKey
 import com.devxrohan.smusic.constants.AiTranslationLanguages
@@ -85,7 +84,6 @@ fun AiSettings(
     var openRouterModel by rememberPreference(OpenRouterModelKey, "gpt-4o-mini")
     var translateLanguage by rememberPreference(TranslateLanguageKey, "auto")
     var translateMode by rememberPreference(TranslateModeKey, "Literal")
-    var customPrompt by rememberPreference(CustomPromptKey, "")
     var autoTranslate by rememberPreference(AutoTranslateKey, false)
     var replaceOriginalLyrics by rememberPreference(ReplaceOriginalLyricsWithTranslationKey, false)
     var deeplApiKey by rememberPreference(DeeplApiKey, "")
@@ -507,15 +505,6 @@ fun AiSettings(
                             }
                         },
                         onValueSelected = { translateMode = it }
-                    )
-                },
-                {
-                    EditTextPreference(
-                        title = { Text(stringResource(R.string.ui_custom_prompt_instructions)) },
-                        icon = { Icon(painterResource(R.drawable.edit), contentDescription = null) },
-                        value = customPrompt,
-                        onValueChange = { customPrompt = it },
-                        singleLine = false
                     )
                 },
                 {

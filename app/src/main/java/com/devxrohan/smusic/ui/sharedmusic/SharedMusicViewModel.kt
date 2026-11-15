@@ -33,13 +33,10 @@ sealed class SharedMusicUiState {
 }
 
 /**
- * New (not a direct SMusic port): SMusic wires its share-to-identify flow through a larger
- * multi-provider usecase/songs abstraction (providers/, songs/, usecases/ packages) which were
- * not ported — see ACCOUNT_INTEGRATION_REPORT.md. This reuses SMusic's own, already-working
- * Shazam pipeline (the same ShazamSignatureGenerator/Shazam.recognize() MusicRecognitionScreen.kt
- * already uses for mic input) and feeds it audio extracted from the shared video/audio file via
- * the ported AudioExtractor + AudioSegmentSelector, trying a few candidate windows until one
- * resolves — the same "try several windows" strategy SMusic' selector encodes.
+ * Reuses SMusic's own, already-working Shazam pipeline (the same
+ * ShazamSignatureGenerator/Shazam.recognize() MusicRecognitionScreen.kt already uses for mic
+ * input) and feeds it audio extracted from the shared video/audio file via AudioExtractor +
+ * AudioSegmentSelector, trying a few candidate windows until one resolves.
  */
 @HiltViewModel
 class SharedMusicViewModel @Inject constructor(

@@ -33,10 +33,9 @@ import com.devxrohan.smusic.R
 import com.devxrohan.smusic.ui.component.IconButton
 
 /**
- * Entry point shown before YouTubeLoginScreen's WebView is launched — ported in spirit from
- * SMusic' LoginScreen (which there just delegates into its full OnboardingScreen flow).
- * SMusic keeps its own existing onboarding untouched, so this is a focused account-login
- * explainer that leads straight into [YouTubeLoginScreen].
+ * Entry point shown before YouTubeLoginScreen's WebView is launched. SMusic keeps its own
+ * existing onboarding untouched, so this is a focused account-login explainer that leads
+ * straight into [YouTubeLoginScreen].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

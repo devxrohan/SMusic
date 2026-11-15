@@ -7,8 +7,7 @@ import androidx.compose.ui.graphics.luminance
 /**
  * A complete look — background, surfaces, text, and accent together — not
  * just an accent hue. Selecting one restyles the whole app, not a single
- * swatch. Ported from the Elite Music (com.elite.music) project's
- * ThemePreset system — same 11 presets, same colors.
+ * swatch.
  */
 data class ThemePreset(
     val id: String,
@@ -39,7 +38,7 @@ object ThemePresets {
         accent = Color(accent)
     )
 
-    /** "SMusic" is our own default — same red brand, not part of the Elite Music port, kept first so it stays the fallback. */
+    /** "SMusic" is our own default — same red brand, kept first so it stays the fallback. */
     val SMUSIC_DEFAULT = dark("smusic_default", "SMusic", 0xFF0A0A0A, 0xFF121212, 0xFF1C1C1E, 0xFF262628, 0xFFE53935)
 
     val DARK = listOf(

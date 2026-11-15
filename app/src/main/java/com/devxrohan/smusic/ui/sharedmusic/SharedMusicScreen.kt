@@ -32,8 +32,7 @@ import com.devxrohan.smusic.R
 import androidx.compose.ui.res.stringResource
 
 /**
- * New, SMusic-styled result screen for the share-to-identify flow (SMusic' 837-line
- * SharedMusicScreen.kt was not ported verbatim — see ACCOUNT_INTEGRATION_REPORT.md for why).
+ * Result screen for the share-to-identify flow, styled to match the rest of SMusic.
  */
 @Composable
 fun SharedMusicScreen(
@@ -139,8 +138,7 @@ fun SharedMusicScreen(
                     )
                     Text(
                         text = "Resolving audio directly from a shared link (e.g. downloading a " +
-                            "Reel/Short from its URL) was not ported from SMusic — see " +
-                            "ACCOUNT_INTEGRATION_REPORT.md. Share the video/audio file itself instead.",
+                            "Reel/Short from its URL) isn't supported. Share the video/audio file itself instead.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 12.dp),

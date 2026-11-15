@@ -314,7 +314,7 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/privacy") {
         PrivacySettings(navController, scrollBehavior)
     }
-    // --- Account integration (ported from SMusic) ---
+    // --- Account integration ---
     composable("settings/account") {
         com.devxrohan.smusic.ui.screens.settings.AccountSettings(navController, scrollBehavior)
     }

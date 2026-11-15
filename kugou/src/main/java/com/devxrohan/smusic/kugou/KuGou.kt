@@ -45,7 +45,6 @@ private const val HEAD_CUT_LIMIT = 30
 
 /**
  * KuGou Lyrics Library
- * Modified from [ViMusic](https://github.com/vfsfitvnm/ViMusic)
  */
 object KuGou {
     var useTraditionalChinese: Boolean = false

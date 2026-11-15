@@ -16,9 +16,7 @@ import dagger.hilt.android.AndroidEntryPoint
  * Entry point for "Find Music" in Android's share sheet — the activity the user asked for:
  * sharing an Instagram Reel / YouTube Short video via Share -> SMusic -> Find Music.
  * Registered for ACTION_SEND/ACTION_SEND_MULTIPLE with video, audio, and plain-text MIME types in the
- * manifest. Ported logic from SMusic' SharedMusicIdentificationActivity.kt, but delegates
- * recognition to SMusic's own Shazam pipeline via [SharedMusicViewModel] instead of SMusic'
- * provider/usecase abstraction (see ACCOUNT_INTEGRATION_REPORT.md).
+ * manifest. Delegates recognition to SMusic's own Shazam pipeline via [SharedMusicViewModel].
  */
 @AndroidEntryPoint
 class SharedMusicIdentificationActivity : ComponentActivity() {

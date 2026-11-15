@@ -58,6 +58,7 @@ import androidx.navigation.NavController
 import com.devxrohan.smusic.BuildConfig
 import com.devxrohan.smusic.LocalPlayerAwareWindowInsets
 import com.devxrohan.smusic.LocalPlayerConnection
+import com.devxrohan.smusic.ui.component.CommunityTextLinks
 import com.devxrohan.smusic.ui.screens.library.SMusicSectionHeader
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.utils.rememberPreference
@@ -448,6 +449,9 @@ fun VersionCard(navController: NavController) {
                 )
             }
         }
+
+        Spacer(Modifier.height(8.dp))
+        CommunityTextLinks(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
 

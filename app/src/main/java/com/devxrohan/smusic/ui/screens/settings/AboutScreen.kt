@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.devxrohan.smusic.R
+import com.devxrohan.smusic.ui.component.CommunityLinksRow
 
 const val AboutRoute = "settings/about"
 
@@ -114,6 +115,8 @@ fun AboutScreen(
             )
 
             Spacer(modifier = Modifier.height(36.dp))
+
+            CommunityLinksRow(modifier = Modifier.padding(bottom = 22.dp))
 
             Text(
                 text = stringResource(R.string.features),

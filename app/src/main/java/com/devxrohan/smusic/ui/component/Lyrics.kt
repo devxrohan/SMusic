@@ -2,7 +2,6 @@ package com.devxrohan.smusic.ui.component
 
 import com.devxrohan.smusic.constants.AiProviderKey
 import com.devxrohan.smusic.constants.AutoTranslateKey
-import com.devxrohan.smusic.constants.CustomPromptKey
 import com.devxrohan.smusic.constants.DeeplApiKey
 import com.devxrohan.smusic.constants.OpenRouterApiKey
 import com.devxrohan.smusic.constants.OpenRouterBaseUrlKey
@@ -135,7 +134,6 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.Player.STATE_ENDED
 import coil.compose.AsyncImage
-import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.DarkModeKey
@@ -159,7 +157,6 @@ import com.devxrohan.smusic.ui.utils.fadingEdge
 import com.devxrohan.smusic.utils.makeTimeString
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
-import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -186,6 +183,7 @@ fun Lyrics(
     // style look blank while the Karaoke style (which has no such gate) displayed fine.
     forceShowContent: Boolean = false,
     @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
+    onSelectionChanged: (String) -> Unit = {},
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val menuState = LocalMenuState.current
@@ -193,7 +191,6 @@ fun Lyrics(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val scope = rememberCoroutineScope()
-    val database = LocalDatabase.current
 
     val isFullscreen = onNavigateBack != null
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
@@ -244,20 +241,23 @@ fun Lyrics(
     // States for sharing
     var showProgressDialog by remember { mutableStateOf(false) }
     var showShareDialog by remember { mutableStateOf(false) }
-    var shareDialogData by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var shareDialogData by remember { mutableStateOf<com.devxrohan.smusic.ui.component.ShareLyricsData?>(null) }
 
     val lazyListState = rememberLazyListState()
     var isAnimating by remember { mutableStateOf(false) }
     val maxSelectionLimit = 5
 
-    // Optimized cache system
-    var lyricsCache by remember { mutableStateOf<Map<String, LyricsEntity>>(emptyMap()) }
-    var currentLyricsEntity by remember(currentSongId) {
-        mutableStateOf<LyricsEntity?>(lyricsCache[currentSongId])
-    }
-    var isLoadingLyrics by remember(currentSongId) { mutableStateOf(false) }
-
+    // The single shared, cached lyrics for this song — the exact same value
+    // every other lyrics screen reads (see MusicService.ensureLyricsFetched).
+    // This screen used to keep its own independent cache and run its own
+    // independent fetch whenever that cache missed, racing MusicService's own
+    // fetch-on-song-start; since a provider lookup can legitimately return a
+    // different result on each independent call, that's what let this screen
+    // (and the lyrics it then wrote back to the database) disagree with every
+    // other lyrics screen for the very same song.
     val lyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
+    val currentLyricsEntity = lyricsEntity
+    val isLoadingLyrics = lyricsEntity == null
     val lyrics = remember(lyricsEntity) { lyricsEntity?.lyrics?.trim() }
 
     val playbackState by playerConnection.playbackState.collectAsState()
@@ -277,7 +277,6 @@ fun Lyrics(
     val openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, defaultValue = "https://api.puter.com/v1/chat/completions")
     val openRouterModel by rememberPreference(OpenRouterModelKey, defaultValue = "gpt-4o-mini")
     val translateMode by rememberPreference(TranslateModeKey, defaultValue = "Literal")
-    val customPrompt by rememberPreference(CustomPromptKey, defaultValue = "")
     val replaceOriginalLyrics by rememberPreference(ReplaceOriginalLyricsWithTranslationKey, defaultValue = false)
     val translationVersion by LyricsTranslationHelper.translationVersion.collectAsState()
 
@@ -296,79 +295,18 @@ fun Lyrics(
     }
     val textColor = expressiveAccent
 
-    LaunchedEffect(currentSongId) {
-        currentSongId?.let { songId ->
-            if (lyricsCache.containsKey(songId)) {
-                currentLyricsEntity = lyricsCache[songId]
-                return@LaunchedEffect
-            }
-
-            isLoadingLyrics = true
-
-            withContext(Dispatchers.IO) {
-                try {
-                    val existingLyrics = try {
-                        database.getLyrics(songId)
-                    } catch (e: Throwable) {
-                        null
-                    }
-
-                    if (existingLyrics != null) {
-                        val newCache = lyricsCache.toMutableMap().apply {
-                            put(songId, existingLyrics)
-                        }
-                        lyricsCache = newCache
-                        currentLyricsEntity = existingLyrics
-                    } else {
-                        try {
-                            val entryPoint = EntryPointAccessors.fromApplication(
-                                context.applicationContext,
-                                com.devxrohan.smusic.di.LyricsHelperEntryPoint::class.java
-                            )
-                            val lyricsHelper = entryPoint.lyricsHelper()
-                            val fetchedLyrics: String? = mediaMetadata?.let { lyricsHelper.getLyrics(it) }
-
-                            val entity = if (!fetchedLyrics.isNullOrBlank()) {
-                                LyricsEntity(songId, fetchedLyrics)
-                            } else {
-                                LyricsEntity(songId, LYRICS_NOT_FOUND)
-                            }
-
-                            try {
-                                database.query {
-                                    upsert(entity)
-                                }
-                            } catch (e: Throwable) {}
-
-                            val newCache = lyricsCache.toMutableMap().apply {
-                                put(songId, entity)
-                            }
-                            lyricsCache = newCache
-                            currentLyricsEntity = entity
-                        } catch (e: Throwable) {
-                            val errorEntity = LyricsEntity(songId, LYRICS_NOT_FOUND)
-                            val newCache = lyricsCache.toMutableMap().apply {
-                                put(songId, errorEntity)
-                            }
-                            lyricsCache = newCache
-                            currentLyricsEntity = errorEntity
-                        }
-                    }
-                } catch (e: Exception) {
-                    val errorEntity = LyricsEntity(songId, LYRICS_NOT_FOUND)
-                    val newCache = lyricsCache.toMutableMap().apply {
-                        put(songId, errorEntity)
-                    }
-                    lyricsCache = newCache
-                    currentLyricsEntity = errorEntity
-                } finally {
-                    isLoadingLyrics = false
-                }
-            }
+    LaunchedEffect(currentSongId, lyricsEntity) {
+        val metadata = mediaMetadata ?: return@LaunchedEffect
+        if (lyricsEntity == null) {
+            // No-op if MusicService's fetch-on-song-start already has this
+            // cached or already has a fetch in flight for it — see
+            // MusicService.ensureLyricsFetched for why this is the only
+            // place allowed to actually call the lyrics providers.
+            runCatching { playerConnection.service.ensureLyricsFetched(metadata) }
         }
     }
 
-    val lines = remember(lyrics, scope) {
+    val lines = remember(lyrics, scope, duration) {
         if (lyrics == null || lyrics == LYRICS_NOT_FOUND) {
             emptyList()
         } else {
@@ -383,16 +321,34 @@ fun Lyrics(
             }.filter { it.text.isNotBlank() }
 
             val hasRealTiming = parsed.any { it.time >= 0L }
-            if (hasRealTiming) {
-                listOf(LyricsEntry.HEAD_LYRICS_ENTRY) + parsed
-            } else {
-                // No real timestamps anywhere — plain lyrics, or a timed format
-                // (e.g. untimed TTML) that carries no timing data. Show every
-                // line exactly as-is with no karaoke/scroll animation, the same
-                // way unsynced lyrics are rendered.
-                parsed
+            when {
+                hasRealTiming -> listOf(LyricsEntry.HEAD_LYRICS_ENTRY) + parsed
+                parsed.isNotEmpty() -> {
+                    // No real timestamps anywhere — plain lyrics, or a timed
+                    // format (e.g. untimed TTML) that carries no timing data.
+                    // Spread each line evenly across the track's duration (or a
+                    // fixed per-line pace until the duration is known) so this
+                    // screen still highlights, auto-scrolls and animates the
+                    // current line the same way a fully synced song does,
+                    // instead of showing a flat, static wall of text.
+                    val trackDuration = duration.takeIf { it > 0L && it != C.TIME_UNSET }
+                        ?: (parsed.size * 2500L)
+                    val synthetic = parsed.mapIndexed { index, entry ->
+                        entry.copy(time = trackDuration * index / parsed.size)
+                    }
+                    listOf(LyricsEntry.HEAD_LYRICS_ENTRY) + synthetic
+                }
+                else -> parsed
             }
         }
+    }
+
+    LaunchedEffect(selectedIndices.toList(), lines) {
+        onSelectionChanged(
+            selectedIndices.sorted()
+                .mapNotNull { lines.getOrNull(it)?.text }
+                .joinToString("\n")
+        )
     }
 
     LaunchedEffect(lines) {
@@ -440,7 +396,6 @@ fun Lyrics(
                         baseUrl = openRouterBaseUrl,
                         model = openRouterModel,
                         mode = translateMode,
-                        customPrompt = customPrompt.takeIf { it.isNotBlank() },
                         provider = aiProvider,
                         context = context,
                         songId = songId,
@@ -767,15 +722,15 @@ fun Lyrics(
                                 onClick = {
                                     if (selectedIndices.isNotEmpty()) {
                                         val sortedIndices = selectedIndices.sorted()
-                                        val selectedLyricsText = sortedIndices
-                                            .mapNotNull { lines.getOrNull(it)?.text }
-                                            .joinToString("\n")
+                                        val selectedEntries = sortedIndices.mapNotNull { lines.getOrNull(it) }
+                                        val selectedLyricsText = selectedEntries.joinToString("\n") { it.text }
 
                                         if (selectedLyricsText.isNotBlank()) {
-                                            shareDialogData = Triple(
-                                                selectedLyricsText,
-                                                mediaMetadata?.title ?: "",
-                                                mediaMetadata?.artists?.joinToString { it.name }
+                                            shareDialogData = com.devxrohan.smusic.ui.component.ShareLyricsData(
+                                                text = selectedLyricsText,
+                                                entries = selectedEntries,
+                                                songTitle = mediaMetadata?.title ?: "",
+                                                artists = mediaMetadata?.artists?.joinToString { it.name }
                                                     ?: ""
                                             )
                                             showShareDialog = true
@@ -806,6 +761,9 @@ fun Lyrics(
                                             LyricsMenu(
                                                 lyricsProvider = { currentLyricsEntity },
                                                 mediaMetadataProvider = { metadata },
+                                                selectedLyricsText = selectedIndices.sorted()
+                                                    .mapNotNull { lines.getOrNull(it)?.text }
+                                                    .joinToString("\n"),
                                                 onDismiss = menuState::dismiss
                                             )
                                         }
@@ -1527,15 +1485,15 @@ fun Lyrics(
                                         .clickable(enabled = selectedIndices.isNotEmpty()) {
                                             if (selectedIndices.isNotEmpty()) {
                                                 val sortedIndices = selectedIndices.sorted()
-                                                val selectedLyricsText = sortedIndices
-                                                    .mapNotNull { lines.getOrNull(it)?.text }
-                                                    .joinToString("\n")
+                                                val selectedEntries = sortedIndices.mapNotNull { lines.getOrNull(it) }
+                                                val selectedLyricsText = selectedEntries.joinToString("\n") { it.text }
 
                                                 if (selectedLyricsText.isNotBlank()) {
-                                                    shareDialogData = Triple(
-                                                        selectedLyricsText,
-                                                        mediaMetadata?.title ?: "",
-                                                        mediaMetadata?.artists?.joinToString { it.name } ?: ""
+                                                    shareDialogData = com.devxrohan.smusic.ui.component.ShareLyricsData(
+                                                        text = selectedLyricsText,
+                                                        entries = selectedEntries,
+                                                        songTitle = mediaMetadata?.title ?: "",
+                                                        artists = mediaMetadata?.artists?.joinToString { it.name } ?: ""
                                                     )
                                                     showShareDialog = true
                                                 }
@@ -1644,6 +1602,9 @@ fun Lyrics(
                                     LyricsMenu(
                                         lyricsProvider = { currentLyricsEntity },
                                         mediaMetadataProvider = { metadata },
+                                        selectedLyricsText = selectedIndices.sorted()
+                                            .mapNotNull { lines.getOrNull(it)?.text }
+                                            .joinToString("\n"),
                                         onDismiss = menuState::dismiss
                                     )
                                 }
@@ -1681,132 +1642,13 @@ fun Lyrics(
 
     if (showShareDialog && shareDialogData != null) {
         ShareLyricsDialog(
-            lyricsText = shareDialogData!!.first,
-            songTitle = shareDialogData!!.second,
-            artists = shareDialogData!!.third,
+            data = shareDialogData!!,
             mediaMetadata = mediaMetadata,
             onDismiss = {
                 showShareDialog = false
                 shareDialogData = null
             }
         )
-    }
-}
-
-@SuppressLint("LocalContextGetResourceValueCall")
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ShareLyricsDialog(
-    lyricsText: String,
-    songTitle: String,
-    artists: String,
-    mediaMetadata: com.devxrohan.smusic.models.MediaMetadata?,
-    onDismiss: () -> Unit,
-    onShareAsImage: (String, String, String) -> Unit = { _, _, _ -> }
-) {
-    val context = LocalContext.current
-
-    BasicAlertDialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(0.85f)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text(
-                    text = stringResource(R.string.share_lyrics),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Share as text
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val shareIntent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                type = "text/plain"
-                                val songLink =
-                                    "https://play.smusic.app/song?id=${mediaMetadata?.id}"
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "\"$lyricsText\"\n\n$songTitle - $artists\n$songLink"
-                                )
-                            }
-                            context.startActivity(
-                                Intent.createChooser(
-                                    shareIntent,
-                                    context.getString(R.string.share_lyrics)
-                                )
-                            )
-                            onDismiss()
-                        }
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.media3_icon_share),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = stringResource(R.string.share_as_text),
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                // Share as image
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onShareAsImage(lyricsText, songTitle, artists)
-                        }
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.media3_icon_share),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = stringResource(R.string.share_as_image),
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                // Cancel button
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    Text(
-                        text = stringResource(R.string.cancel),
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier
-                            .clickable { onDismiss() }
-                            .padding(vertical = 8.dp, horizontal = 12.dp)
-                    )
-                }
-            }
-        }
     }
 }
 

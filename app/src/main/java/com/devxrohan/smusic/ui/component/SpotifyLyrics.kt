@@ -5,7 +5,6 @@ import com.devxrohan.smusic.constants.AutoTranslateKey
 import com.devxrohan.smusic.constants.ReplaceOriginalLyricsWithTranslationKey
 import com.devxrohan.smusic.constants.TranslateLanguageKey
 import com.devxrohan.smusic.constants.AiProviderKey
-import com.devxrohan.smusic.constants.CustomPromptKey
 import com.devxrohan.smusic.constants.DeeplApiKey
 import com.devxrohan.smusic.constants.OpenRouterApiKey
 import com.devxrohan.smusic.constants.OpenRouterBaseUrlKey
@@ -17,9 +16,11 @@ import android.graphics.drawable.BitmapDrawable
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -77,18 +79,15 @@ import androidx.palette.graphics.Palette
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
-import com.devxrohan.smusic.db.entities.LyricsEntity
 import com.devxrohan.smusic.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.devxrohan.smusic.extensions.togglePlayPause
 import com.devxrohan.smusic.lyrics.LyricsEntry
-import com.devxrohan.smusic.lyrics.LyricsUtils.parseLyrics
+import com.devxrohan.smusic.lyrics.SMusicLyricsUtils
 import com.devxrohan.smusic.ui.menu.LyricsMenu
 import com.devxrohan.smusic.ui.utils.highQualityThumbnail
 import com.devxrohan.smusic.utils.makeTimeString
-import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -100,6 +99,7 @@ private val SpotifyLyricsFontFamily = FontFamily(
     Font(R.font.poppins_bold, FontWeight.Bold),
 )
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SpotifyLyrics(
     onNavigateBack: () -> Unit,
@@ -107,13 +107,18 @@ fun SpotifyLyrics(
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val menuState = LocalMenuState.current
-    val database = LocalDatabase.current
     val context = LocalContext.current
 
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
-    val serviceLyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
-    var fetchedLyricsEntity by remember { mutableStateOf<LyricsEntity?>(null) }
-    val currentLyricsEntity = fetchedLyricsEntity ?: serviceLyricsEntity
+    // The single shared, cached lyrics for this song — the exact same value
+    // every other lyrics screen (Classic player strip, the karaoke-style
+    // Lyrics screen) reads. This screen used to run its own independent
+    // lyrics fetch whenever this was empty, racing MusicService's own
+    // fetch-on-song-start; since lyricsHelper.getLyrics() can return a
+    // different provider's result on each independent call, that meant this
+    // screen could show different lyrics (or different timing) than every
+    // other screen for the very same song. See MusicService.ensureLyricsFetched.
+    val currentLyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
     val playbackState by playerConnection.playbackState.collectAsState()
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
@@ -129,14 +134,15 @@ fun SpotifyLyrics(
     var lyricsSurfaceColor by remember { mutableStateOf(Color(0xFF311000)) }
 
     val lyrics = currentLyricsEntity?.lyrics?.trim()
+    // Use the same robust parser as every other lyrics screen in the app: it
+    // recognizes LRC, enhanced/word-level LRC, TTML (XML), WebVTT/SubRip and
+    // structured timed JSON, and only falls back to plain untimed lines (shown
+    // whole, one every ~2.5s) when a song truly has no timestamps at all.
+    // This is what stops raw XML/timestamp text from leaking onto this screen.
     val lines = remember(lyrics) {
         when {
             lyrics.isNullOrBlank() || lyrics == LYRICS_NOT_FOUND -> emptyList()
-            lyrics.startsWith("[") -> parseLyrics(lyrics)
-            else -> lyrics.lines()
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .mapIndexed { index, line -> LyricsEntry(index * 2500L, line) }
+            else -> SMusicLyricsUtils.parseAnyLyrics(lyrics)
         }
     }
     val replaceOriginalLyrics by rememberPreference(ReplaceOriginalLyricsWithTranslationKey, false)
@@ -149,7 +155,6 @@ fun SpotifyLyrics(
     val openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
     val openRouterModel by rememberPreference(OpenRouterModelKey, "gpt-4o-mini")
     val translateMode by rememberPreference(TranslateModeKey, "Literal")
-    val customPrompt by rememberPreference(CustomPromptKey, "")
     val translateScope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(mediaMetadata?.id) {
@@ -180,7 +185,6 @@ fun SpotifyLyrics(
                         baseUrl = openRouterBaseUrl,
                         model = openRouterModel,
                         mode = translateMode,
-                        customPrompt = customPrompt.takeIf { it.isNotBlank() },
                         provider = aiProvider,
                         context = context,
                         songId = songId,
@@ -191,9 +195,12 @@ fun SpotifyLyrics(
         }
     }
     val activeLineIndex = remember(lines, position) {
-        lines.indexOfLast { it.time <= position }.coerceAtLeast(0)
+        if (lines.isEmpty()) 0
+        else SMusicLyricsUtils.findCurrentLineIndex(lines, position).coerceAtLeast(0)
     }
     val listState = rememberLazyListState()
+    var isSelectionModeActive by remember(mediaMetadata?.id) { mutableStateOf(false) }
+    val selectedIndices = remember(mediaMetadata?.id) { mutableStateListOf<Int>() }
     val safeDuration = duration.takeIf { it > 0 } ?: 0L
     val shownPosition = sliderPosition ?: position
 
@@ -223,38 +230,13 @@ fun SpotifyLyrics(
         }
     }
 
-    LaunchedEffect(mediaMetadata?.id, serviceLyricsEntity) {
+    LaunchedEffect(mediaMetadata?.id) {
         val metadata = mediaMetadata ?: return@LaunchedEffect
-        if (!serviceLyricsEntity?.lyrics.isNullOrBlank() && serviceLyricsEntity?.lyrics != LYRICS_NOT_FOUND) {
-            fetchedLyricsEntity = serviceLyricsEntity
-            return@LaunchedEffect
-        }
-
-        withContext(Dispatchers.IO) {
-            val entity = runCatching { database.getLyrics(metadata.id) }.getOrNull()
-                ?.takeUnless { it.lyrics.isBlank() || it.lyrics == LYRICS_NOT_FOUND }
-                ?: runCatching {
-                    val entryPoint = EntryPointAccessors.fromApplication(
-                        context.applicationContext,
-                        com.devxrohan.smusic.di.LyricsHelperEntryPoint::class.java,
-                    )
-                    val fetchedLyrics = entryPoint.lyricsHelper().getLyrics(metadata)
-                    LyricsEntity(
-                        id = metadata.id,
-                        lyrics = fetchedLyrics.takeUnless { it.isBlank() } ?: LYRICS_NOT_FOUND,
-                    ).also { fetched ->
-                        runCatching {
-                            database.query {
-                                upsert(fetched)
-                            }
-                        }
-                    }
-                }.getOrNull()
-
-            withContext(Dispatchers.Main) {
-                fetchedLyricsEntity = entity
-            }
-        }
+        // No-op if MusicService's own fetch-on-song-start already has this
+        // cached or already has one in flight — this only matters for the
+        // rare case where this screen opens before that prefetch has had a
+        // chance to run at all.
+        runCatching { playerConnection.service.ensureLyricsFetched(metadata) }
     }
 
     LaunchedEffect(playbackState) {
@@ -343,6 +325,9 @@ fun SpotifyLyrics(
                             LyricsMenu(
                                 lyricsProvider = { currentLyricsEntity },
                                 mediaMetadataProvider = { metadata },
+                                selectedLyricsText = selectedIndices.sorted()
+                                    .mapNotNull { lines.getOrNull(it)?.text }
+                                    .joinToString("\n"),
                                 onDismiss = menuState::dismiss,
                             )
                         }
@@ -380,9 +365,29 @@ fun SpotifyLyrics(
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable(enabled = lines[index].time > 0) {
-                                        playerConnection.player.seekTo(lines[index].time)
-                                    }
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (selectedIndices.contains(index)) Color.White.copy(alpha = 0.18f)
+                                        else Color.Transparent
+                                    )
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (isSelectionModeActive) {
+                                                if (selectedIndices.contains(index)) selectedIndices.remove(index)
+                                                else if (selectedIndices.size < 6) selectedIndices.add(index)
+                                                if (selectedIndices.isEmpty()) isSelectionModeActive = false
+                                            } else if (lines[index].time > 0) {
+                                                playerConnection.player.seekTo(lines[index].time)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (!isSelectionModeActive) isSelectionModeActive = true
+                                            if (!selectedIndices.contains(index) && selectedIndices.size < 6) {
+                                                selectedIndices.add(index)
+                                            }
+                                        },
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }

@@ -15,6 +15,7 @@ import android.os.Build
 import android.text.format.Formatter
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -42,6 +43,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -80,7 +82,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.IconButton
 import com.devxrohan.smusic.db.MusicDatabase
 import androidx.compose.foundation.lazy.LazyColumn
@@ -133,7 +135,6 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.drawWithCache
@@ -149,7 +150,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -161,6 +161,7 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.animation.animateColorAsState
 import com.devxrohan.smusic.models.toMediaMetadata
 import com.devxrohan.smusic.ui.menu.SongMenu
+import com.devxrohan.smusic.ui.component.LyricsMiniKaraokeLine
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.ColorUtils
 import androidx.core.net.toUri
@@ -201,7 +202,6 @@ import com.devxrohan.smusic.db.entities.LyricsEntity
 import com.devxrohan.smusic.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.devxrohan.smusic.db.entities.ArtistEntity
 import com.devxrohan.smusic.lyrics.LyricsEntry
-import com.devxrohan.smusic.lyrics.WordTimestamp
 import com.devxrohan.smusic.lyrics.LyricsUtils.parseLyrics
 import com.devxrohan.smusic.models.MediaMetadata
 import com.devxrohan.smusic.playback.ExoDownloadService
@@ -230,7 +230,6 @@ import androidx.datastore.preferences.core.edit
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
 import com.devxrohan.smusic.ui.utils.highQualityThumbnail
-import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -395,41 +394,21 @@ fun BottomSheetPlayer(
         playerConnection.service.addToQueueAutomix(automix[0], 0)
     }
 
+    // spotifyLyricsEntity used to run its own independent lyrics fetch,
+    // racing MusicService's own fetch-on-song-start — that's what let the
+    // Spotify/Galaxy player styles (and their mini-player lyrics preview)
+    // show a different provider's lyrics than every other lyrics screen for
+    // the very same song. It's now simply a mirror of the one shared,
+    // cached source; see MusicService.ensureLyricsFetched.
     LaunchedEffect(playerScreenStyle, mediaMetadata?.id, currentLyrics) {
         val metadata = mediaMetadata
         if ((playerScreenStyle != PlayerScreenStyle.SPOTIFY && playerScreenStyle != PlayerScreenStyle.GALAXY) || metadata == null) {
             spotifyLyricsEntity = null
             return@LaunchedEffect
         }
-        if (!currentLyrics?.lyrics.isNullOrBlank() && currentLyrics?.lyrics != LYRICS_NOT_FOUND) {
-            spotifyLyricsEntity = currentLyrics
-            return@LaunchedEffect
-        }
-
-        withContext(Dispatchers.IO) {
-            val entity = runCatching { database.getLyrics(metadata.id) }.getOrNull()
-                ?.takeUnless { it.lyrics.isBlank() || it.lyrics == LYRICS_NOT_FOUND }
-                ?: runCatching {
-                    val entryPoint = EntryPointAccessors.fromApplication(
-                        context.applicationContext,
-                        com.devxrohan.smusic.di.LyricsHelperEntryPoint::class.java,
-                    )
-                    val fetchedLyrics = entryPoint.lyricsHelper().getLyrics(metadata)
-                    LyricsEntity(
-                        id = metadata.id,
-                        lyrics = fetchedLyrics.takeUnless { it.isBlank() } ?: LYRICS_NOT_FOUND,
-                    ).also { fetched ->
-                        runCatching {
-                            database.query {
-                                upsert(fetched)
-                            }
-                        }
-                    }
-                }.getOrNull()
-
-            withContext(Dispatchers.Main) {
-                spotifyLyricsEntity = entity
-            }
+        spotifyLyricsEntity = currentLyrics
+        if (currentLyrics?.lyrics.isNullOrBlank() || currentLyrics?.lyrics == LYRICS_NOT_FOUND) {
+            runCatching { playerConnection.service.ensureLyricsFetched(metadata) }
         }
     }
 
@@ -1529,7 +1508,7 @@ fun BottomSheetPlayer(
 
                 ResizableIconButton(
                     icon = if (currentSong?.song?.liked == true) R.drawable.favorite else R.drawable.favorite_border,
-                    color = if (currentSong?.song?.liked == true) MaterialTheme.colorScheme.error else TextBackgroundColor,
+                    color = TextBackgroundColor,
                     modifier = Modifier.size(32.dp).padding(4.dp).scale(likeScale),
                     onClick = { likeBounce++; playerConnection.toggleLike() },
                 )
@@ -4115,13 +4094,14 @@ fun ClassicControlsContent(
 }
 
 /**
- * Animated single-line lyric strip for the Classic player.
- *
- * The important part is that the lyric clock is independent of the player's
- * relatively coarse position callbacks. We use the last reported position as
- * an anchor and advance it on the frame clock while playing. The highlighted
- * copy is then clipped continuously across the measured text, rather than
- * switching whole words with a recomposition-sized animation.
+ * Compact lyric strip for the Classic player. Which animation plays is based
+ * purely on whether the current line itself has real word-level timing — not
+ * on which lyrics screen style (Karaoke/Classic) happens to be selected, so
+ * it behaves the same on both pages: a word-timed line bounces with the
+ * karaoke animation, and a line with no word timing pops/fades in as one
+ * complete line (see ClassicWholeLineText) instead of just snapping to the
+ * new text. The playhead is frame-smoothed so provider timestamps stay
+ * responsive.
  */
 @Composable
 private fun ClassicLyricLineStrip(
@@ -4134,35 +4114,22 @@ private fun ClassicLyricLineStrip(
     modifier: Modifier = Modifier,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
-    val context = LocalContext.current
-    val database = LocalDatabase.current
     val lyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
     val lyrics = lyricsEntity?.lyrics
     val isLoading = lyricsEntity == null
 
-    // Fetch lyrics from the same background path used by the full lyrics screen.
-    // This keeps the Classic strip alive and animated without requiring the user
-    // to open the lyrics page first.
+    // This used to run its own independent lyrics fetch here whenever
+    // lyricsEntity was still null, racing MusicService's own
+    // fetch-on-song-start for the very same song — two independent provider
+    // lookups can legitimately disagree, so this strip could end up showing
+    // (and caching) different lyrics than the full lyrics screen for the
+    // exact same song. It now just asks the single shared fetch path to make
+    // sure a fetch is happening (a no-op if one already is), and otherwise
+    // purely observes lyricsEntity above like every other lyrics screen does.
     LaunchedEffect(mediaMetadata?.id, lyricsEntity) {
         val metadata = mediaMetadata ?: return@LaunchedEffect
-        if (lyricsEntity != null) return@LaunchedEffect
-        withContext(Dispatchers.IO) {
-            runCatching {
-                database.getLyrics(metadata.id)
-            }.getOrNull()?.let { cached ->
-                if (cached.lyrics.isNotBlank() && cached.lyrics != LYRICS_NOT_FOUND) return@withContext
-            }
-
-            runCatching {
-                val entryPoint = EntryPointAccessors.fromApplication(
-                    context.applicationContext,
-                    com.devxrohan.smusic.di.LyricsHelperEntryPoint::class.java,
-                )
-                val fetched = entryPoint.lyricsHelper().getLyrics(metadata)
-                if (fetched.isNotBlank()) {
-                    database.query { upsert(LyricsEntity(metadata.id, fetched)) }
-                }
-            }
+        if (lyricsEntity == null) {
+            runCatching { playerConnection.service.ensureLyricsFetched(metadata) }
         }
     }
 
@@ -4172,10 +4139,10 @@ private fun ClassicLyricLineStrip(
             com.devxrohan.smusic.lyrics.SMusicLyricsUtils.parseAnyLyrics(lyrics)
         } else {
             lyrics.lines().filter { it.isNotBlank() }.map { LyricsEntry(-1L, it.trim()) }
-        }.filter { it.text.isNotBlank() }
+        }.filter { it.text.isNotBlank() || it.sungUntilMs != null }
 
-        // For untimed text, use a line-level timeline across the track. The
-        // ClassicSweptLyricText renderer then reveals the whole sentence smoothly.
+        // For untimed text, use a line-level timeline across the track so the
+        // strip still advances from line to line roughly in time with the song.
         val allUntimed = parsed.isNotEmpty() && parsed.all { it.time < 0L }
         val resolved = if (allUntimed) {
             val trackDuration = duration.takeIf { it > 0L } ?: parsed.size * 2500L
@@ -4196,9 +4163,9 @@ private fun ClassicLyricLineStrip(
     )
 
     if (isLoading) {
-        // The player keeps a real text status in the player while the provider
-        // race is running. Rotate the status softly instead of showing a
-        // skeleton or waiting for the lyrics page to be opened.
+        // Keep a real text status in the player while the provider race is
+        // running. Rotate the status softly instead of showing a skeleton or
+        // waiting for the lyrics page to be opened.
         val loadingLines = remember {
             listOf(
                 "Loading lyrics",
@@ -4223,7 +4190,9 @@ private fun ClassicLyricLineStrip(
             label = "classicLyricsLoadingText",
             modifier = modifier
                 .fillMaxWidth()
-                .heightIn(min = 30.dp, max = 42.dp)
+                .height(28.dp)
+                // Keep the strip's touch/layout height compact, but allow the
+                // karaoke word's 4dp upward float to draw outside this box.
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -4258,28 +4227,76 @@ private fun ClassicLyricLineStrip(
         }
     }
     val currentLine = lines[currentIndex]
-    val words = currentLine.words.orEmpty()
 
-    // The strip itself stays left-pinned. Long lines are clipped horizontally
-    // while the timed sweep follows the current word.
+    // The strip stays left-pinned; only real word-timed entries use karaoke motion.
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 30.dp, max = 42.dp)
+            .height(28.dp)
+            // Do not clip the word-bounce animation at the strip boundary.
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
             ),
-        contentAlignment = Alignment.CenterStart,
+        // Anchor the lyric baseline toward the seek bar instead of vertically
+        // centering it in the strip; this keeps the lyric visually attached
+        // while preserving the slider's own style-specific geometry.
+        contentAlignment = Alignment.BottomStart,
     ) {
-        ClassicSweptLyricText(
-            line = currentLine,
-            positionMs = livePosition,
-            lineEndMs = lines.getOrNull(currentIndex + 1)?.time?.takeIf { it > currentLine.time }
-                ?: (currentLine.time + 4000L),
-            modifier = Modifier.fillMaxWidth(),
+        val wordTimed = !currentLine.words.isNullOrEmpty()
+        if (wordTimed) {
+            LyricsMiniKaraokeLine(
+                words = currentLine.words.orEmpty(),
+                positionMs = livePosition,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            // Untimed text and line-only timestamps stay as one complete
+            // line — same on both lyrics screen styles. No synthetic sweep
+            // is stretched over gaps.
+            ClassicWholeLineText(
+                text = currentLine.text,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+/**
+ * Renders a complete lyric line when no genuine word-level timing is available,
+ * or when Classic lyrics screen style is selected. Pops and fades in on every
+ * line change instead of cutting straight to the new text.
+ */
+@Composable
+private fun ClassicWholeLineText(text: String, modifier: Modifier = Modifier) {
+    AnimatedContent(
+        targetState = text,
+        transitionSpec = {
+            // A small "pop" — scale up from slightly smaller while fading in —
+            // reads as a nicer entrance than a flat crossfade for a short line.
+            (fadeIn(tween(260, easing = FastOutSlowInEasing)) +
+                androidx.compose.animation.scaleIn(
+                    initialScale = 0.92f,
+                    animationSpec = tween(260, easing = FastOutSlowInEasing),
+                )) togetherWith
+                fadeOut(tween(160, easing = FastOutSlowInEasing))
+        },
+        label = "classicLyricLine",
+        modifier = modifier.fillMaxWidth(),
+    ) { animatedText ->
+        Text(
+            text = animatedText,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clipToBounds(),
         )
     }
 }
@@ -4342,114 +4359,6 @@ private fun rememberClassicLyricPosition(
     return smoothPosition
 }
 
-/**
- * Two identical text layers, using a two-layer progress sweep: the lower copy is
- * dim and the upper copy is clipped to the portion already sung. Because the
- * clip boundary is calculated from the measured text, it moves continuously
- * through the word instead of popping from one whole-word colour to another.
- */
-@Composable
-private fun ClassicSweptLyricText(
-    line: LyricsEntry,
-    positionMs: Long,
-    lineEndMs: Long,
-    modifier: Modifier = Modifier,
-) {
-    var layout by remember(line) { mutableStateOf<TextLayoutResult?>(null) }
-    val words = line.words.orEmpty()
-
-    // Map every timed word back to its real character range in the rendered
-    // line. This is important for spaces/punctuation: cumulative word lengths
-    // alone make the sweep drift away from the actual sung word.
-    val wordRanges = remember(line) {
-        val ranges = mutableListOf<Triple<Int, Int, WordTimestamp>>()
-        var searchFrom = 0
-        for (word in words) {
-            val needle = word.text.trim()
-            if (needle.isEmpty()) continue
-            val found = line.text.indexOf(needle, searchFrom)
-            if (found >= 0) {
-                ranges += Triple(found, found + needle.length, word)
-                searchFrom = found + needle.length
-            }
-        }
-        ranges
-    }
-
-    val revealChars = remember(wordRanges, positionMs, line.time, lineEndMs, line.text.length) {
-        if (wordRanges.isEmpty()) {
-            val start = line.time.coerceAtLeast(0L)
-            val end = lineEndMs.coerceAtLeast(start + 1L)
-            val progress = ((positionMs - start).toFloat() / (end - start).toFloat()).coerceIn(0f, 1f)
-            return@remember line.text.length * progress
-        }
-        var reveal = 0f
-        for ((start, end, word) in wordRanges) {
-            val startMs = (word.startTime * 1000.0).toLong()
-            val endMs = (word.endTime * 1000.0).toLong().coerceAtLeast(startMs + 1L)
-            when {
-                positionMs >= endMs -> reveal = end.toFloat()
-                positionMs <= startMs -> break
-                else -> {
-                    val progress = ((positionMs - startMs).toFloat() /
-                        (endMs - startMs).toFloat()).coerceIn(0f, 1f)
-                    reveal = start + (end - start) * progress
-                    break
-                }
-            }
-        }
-        reveal.coerceIn(0f, line.text.length.toFloat())
-    }
-
-    val revealX = layout?.let { measured ->
-        val maxOffset = measured.layoutInput.text.length
-        when {
-            revealChars <= 0f -> 0f
-            revealChars >= maxOffset -> measured.size.width.toFloat()
-            else -> {
-                val whole = revealChars.toInt().coerceIn(0, maxOffset)
-                val fraction = revealChars - whole
-                val a = measured.getHorizontalPosition(whole, usePrimaryDirection = true)
-                val b = measured.getHorizontalPosition(
-                    (whole + 1).coerceAtMost(maxOffset),
-                    usePrimaryDirection = true,
-                )
-                a + (b - a) * fraction
-            }
-        }
-    } ?: 0f
-
-    Box(modifier = modifier) {
-        Text(
-            text = line.text,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = Color.White.copy(alpha = 0.42f),
-            maxLines = 1,
-            overflow = TextOverflow.Clip,
-            onTextLayout = { layout = it },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            text = line.text,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Clip,
-            modifier = Modifier
-                .fillMaxWidth()
-                .drawWithContent {
-                    if (revealX > 0f) {
-                        clipRect(left = 0f, top = 0f, right = revealX, bottom = size.height) {
-                            this@drawWithContent.drawContent()
-                        }
-                    }
-                },
-        )
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClassicPlayerScreen(
@@ -4468,11 +4377,33 @@ fun ClassicPlayerScreen(
     dominantColor: Color,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
+    // Keep Classic's system-back behavior consistent with the other player styles.
+    BackHandler(enabled = !bottomSheetState.isCollapsed && !bottomSheetState.isDismissed) {
+        bottomSheetState.collapseSoft()
+    }
     val context = LocalContext.current
     val menuState = LocalMenuState.current
     val database = LocalDatabase.current
     val haptic = LocalHapticFeedback.current
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
+    val screenConfiguration = LocalConfiguration.current
+    val compactClassicLayout = screenConfiguration.screenHeightDp < 820 || screenConfiguration.screenWidthDp < 360
+    // Keep the cover broad on regular phones. Metadata uses the exact same inset,
+    // so title/artist and artwork edges remain aligned on every device.
+    val classicHorizontalPadding = if (screenConfiguration.screenWidthDp < 360) 14.dp else 18.dp
+    // Match the artwork's left/right edges to the title and artist column below.
+    // Classic also bypasses the carousel side-peek width in Thumbnail, so the
+    // cover can use the full metadata content width consistently on each phone.
+    val classicArtworkPadding = 0.dp
+    val classicArtworkSize = (screenConfiguration.screenWidthDp.dp - classicHorizontalPadding - classicHorizontalPadding - 16.dp)
+        .coerceAtLeast(1.dp)
+    // Match the title/artist and seek bar edges to the unchanged artwork width.
+    val classicContentHorizontalPadding = classicHorizontalPadding + 8.dp
+    // Give the cover more of the vertical budget on compact phones. The artwork
+    // remains a true square and its horizontal edges stay aligned with metadata.
+    val artworkToMetadataGap = if (compactClassicLayout) 6.dp else 12.dp
+    val metadataToLyricsGap = if (compactClassicLayout) 14.dp else 18.dp
+    val controlsGap = if (compactClassicLayout) 6.dp else 10.dp
     var classicPendingSeekPosition by remember { mutableStateOf<Long?>(null) }
 
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
@@ -4610,10 +4541,13 @@ fun ClassicPlayerScreen(
         ) {
             // Keep the artwork as the normal Classic thumbnail. The background image
             // above is decorative only and never replaces this foreground artwork.
-            Box(
+            BoxWithConstraints(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
             ) {
+                // Preserve the existing artwork size whenever it fits, but constrain it
+                // to the actual available area on shorter or narrower devices.
+                val responsiveArtworkSize = minOf(classicArtworkSize, maxWidth, maxHeight).coerceAtLeast(1.dp)
                 Thumbnail(
                     sliderPositionProvider = { sliderPosition },
                     onOpenFullscreenLyrics = onOpenFullscreenLyrics,
@@ -4621,19 +4555,25 @@ fun ClassicPlayerScreen(
                     artworkScale = 1f,
                     useCustomCornerRadius = true,
                     textColor = Color.White,
-                    modifier = Modifier,
+                    // Smaller inset than the shared default (32dp) so the
+                    // square itself gets noticeably more room, consistently
+                    // on every screen size, without dropping the "Playing
+                    // from" lines above it.
+                    artworkPadding = classicArtworkPadding,
+                    artworkSize = responsiveArtworkSize,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
 
             // Keep metadata (title, artist, like button) clearly below the artwork.
             // This fixed gap also reserves space when Thumbnail fills its weighted area.
             // Density-independent dp, so this reads the same physical size on any phone.
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(artworkToMetadataGap))
 
             Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = PlayerHorizontalPadding),
+                .padding(horizontal = classicContentHorizontalPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(
@@ -4677,7 +4617,7 @@ fun ClassicPlayerScreen(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(if (isLiked) accent else Color.White.copy(alpha = 0.12f))
+                        .background(Color.White.copy(alpha = 0.12f))
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             playerConnection.toggleLike()
@@ -4694,7 +4634,7 @@ fun ClassicPlayerScreen(
             }
 
             // Visible breathing room below the title/artist row before lyrics.
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(metadataToLyricsGap))
 
             ClassicLyricLineStrip(
                 mediaMetadata = mediaMetadata,
@@ -4706,9 +4646,9 @@ fun ClassicPlayerScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            // Keep the seek bar hugging the lyric strip — only a hairline gap,
-            // not the larger breathing room used elsewhere in this column.
-            Spacer(Modifier.height(4.dp))
+            // The lyric strip is bottom-aligned; start the seek bar immediately
+            // after it so the visible track sits close to the lyric line.
+            Spacer(Modifier.height(0.dp))
 
             val classicSliderColors = SliderDefaults.colors(
                 thumbColor = Color.White,
@@ -4747,14 +4687,14 @@ fun ClassicPlayerScreen(
                 // are untouched, so this can't conflict with any slider style.
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(28.dp)
+                    .height(24.dp)
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(makeTimeString(sliderPosition ?: position), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
                 Text(makeTimeString(duration), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(controlsGap))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -4779,7 +4719,7 @@ fun ClassicPlayerScreen(
                 )
                 Box(
                     modifier = Modifier
-                        .size(78.dp)
+                        .size(if (compactClassicLayout) 68.dp else 72.dp)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
@@ -4823,12 +4763,12 @@ fun ClassicPlayerScreen(
                 )
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(if (compactClassicLayout) 8.dp else 12.dp))
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = if (compactClassicLayout) 6.dp else 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {

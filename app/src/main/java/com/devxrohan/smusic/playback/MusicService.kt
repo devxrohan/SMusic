@@ -71,6 +71,7 @@ import com.devxrohan.smusic.innertube.models.WatchEndpoint
 import com.devxrohan.smusic.jossredconnect.JossRedClient
 import com.devxrohan.smusic.MainActivity
 import com.devxrohan.smusic.R
+import com.devxrohan.smusic.constants.LyricsCacheEngineVersionKey
 import com.devxrohan.smusic.constants.AudioNormalizationKey
 import com.devxrohan.smusic.constants.AudioFxAndDjEnabledKey
 import com.devxrohan.smusic.constants.BypassAllAudioEffectsKey
@@ -89,6 +90,14 @@ import com.devxrohan.smusic.constants.DjSaturationKey
 import com.devxrohan.smusic.constants.DjTurntableLinkedKey
 import com.devxrohan.smusic.constants.DjTempoSpeedKey
 import com.devxrohan.smusic.constants.DjPitchKey
+import com.devxrohan.smusic.constants.EightDEnabledKey
+import com.devxrohan.smusic.constants.SpatialSoundEnabledKey
+import com.devxrohan.smusic.constants.DjBassCutHzKey
+import com.devxrohan.smusic.constants.DjWowDepthKey
+import com.devxrohan.smusic.constants.DjVinylNoiseLevelKey
+import com.devxrohan.smusic.constants.DjPumpDepthKey
+import com.devxrohan.smusic.constants.DjBassShelfGainKey
+import com.devxrohan.smusic.constants.EightDLevelKey
 import com.devxrohan.smusic.constants.AudioQuality
 import com.devxrohan.smusic.constants.AudioQualityKey
 import com.devxrohan.smusic.constants.AutoLoadMoreKey
@@ -152,6 +161,9 @@ import com.devxrohan.smusic.utils.reportException
 import com.google.common.util.concurrent.MoreExecutors
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -222,6 +234,91 @@ class MusicService :
 
     @Inject
     lateinit var lyricsHelper: LyricsHelper
+
+    // Every lyrics screen (Classic player strip, the karaoke-style Lyrics
+    // screen, the Spotify-style lyrics screen, legacy Lyrics) used to run its
+    // *own* independent "fetch lyrics for this song" call whenever it didn't
+    // see something already cached yet. lyricsHelper.getLyrics() tries several
+    // providers and keeps whichever answers first/best, so two independent
+    // calls for the very same song could each end up keeping a different
+    // provider's result — one screen would show one provider's lyrics/timing,
+    // another screen the same song's lyrics from a different provider, and
+    // whichever call finished last would silently overwrite the database with
+    // its own result, changing what every other screen showed too. This is
+    // the single place that is now allowed to actually fetch: every screen
+    // calls this instead of fetching on its own, a songId can only have one
+    // fetch in flight at a time, and everything just observes the one shared
+    // `database.lyrics(id)` flow (via PlayerConnection.currentLyrics) for the
+    // result — so every screen is guaranteed to agree.
+    private val lyricsFetchInFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Unit>>()
+
+    private val lyricsCacheVersionMutex = Mutex()
+
+    private suspend fun ensureLyricsCacheVersion() = lyricsCacheVersionMutex.withLock {
+        val version = dataStore.data.first()[LyricsCacheEngineVersionKey] ?: 0
+        if (version < 3) {
+            database.query { clearLyricsCache() }
+            dataStore.edit { it[LyricsCacheEngineVersionKey] = 3 }
+        }
+    }
+
+    suspend fun ensureLyricsFetched(mediaMetadata: com.devxrohan.smusic.models.MediaMetadata) {
+        ensureLyricsCacheVersion()
+        if (database.lyrics(mediaMetadata.id).first() != null) return
+        val deferred = lyricsFetchInFlight.getOrPut(mediaMetadata.id) {
+            scope.async {
+                val lyrics = runCatching { lyricsHelper.getLyrics(mediaMetadata) }.getOrNull()
+                    ?.takeUnless { it.isBlank() }
+                    ?: com.devxrohan.smusic.db.entities.LyricsEntity.LYRICS_NOT_FOUND
+                runCatching {
+                    database.query {
+                        upsert(LyricsEntity(id = mediaMetadata.id, lyrics = lyrics))
+                    }
+                }
+                Unit
+            }
+        }
+        try {
+            deferred.await()
+        } finally {
+            lyricsFetchInFlight.remove(mediaMetadata.id, deferred)
+        }
+    }
+
+    /**
+     * Unlike [ensureLyricsFetched], this always fetches — used when the
+     * person explicitly asks for a specific provider's lyrics (for example,
+     * picking one in the in-player lyrics search) and expects the current song
+     * to reflect that
+     * choice immediately, not whenever it next happens to be re-fetched.
+     * Still single-flight per songId, same as [ensureLyricsFetched], so a
+     * rapid double-tap on the setting can't start two overlapping fetches.
+     */
+    suspend fun refetchLyrics(
+        mediaMetadata: com.devxrohan.smusic.models.MediaMetadata,
+        provider: com.devxrohan.smusic.constants.PreferredLyricsProvider? = null,
+    ) {
+        ensureLyricsCacheVersion()
+        lyricsFetchInFlight.remove(mediaMetadata.id)
+        val deferred = lyricsFetchInFlight.getOrPut(mediaMetadata.id) {
+            scope.async {
+                val lyrics = runCatching { lyricsHelper.getLyrics(mediaMetadata, provider) }.getOrNull()
+                    ?.takeUnless { it.isBlank() }
+                    ?: com.devxrohan.smusic.db.entities.LyricsEntity.LYRICS_NOT_FOUND
+                runCatching {
+                    database.query {
+                        upsert(LyricsEntity(id = mediaMetadata.id, lyrics = lyrics))
+                    }
+                }
+                Unit
+            }
+        }
+        try {
+            deferred.await()
+        } finally {
+            lyricsFetchInFlight.remove(mediaMetadata.id, deferred)
+        }
+    }
 
     @Inject
     lateinit var mediaLibrarySessionCallback: MediaLibrarySessionCallback
@@ -312,6 +409,14 @@ class MusicService :
     val djTempoSpeed = MutableStateFlow(1.0f)
     val djPitch = MutableStateFlow(1.0f)
     val djTurntableLinked = MutableStateFlow(false)
+    val eightDEnabled = MutableStateFlow(false)
+    val eightDLevel = MutableStateFlow(8)
+    val spatialSoundEnabled = MutableStateFlow(false)
+    val djBassCutHz = MutableStateFlow(0f)
+    val djWowDepth = MutableStateFlow(0f)
+    val djVinylNoiseLevel = MutableStateFlow(0f)
+    val djPumpDepth = MutableStateFlow(0f)
+    val djBassShelfGain = MutableStateFlow(0f)
     val audioFxAndDjEnabled = MutableStateFlow(false)
     val bypassAllAudioEffects = MutableStateFlow(false)
     val audioBoostEnabled = MutableStateFlow(false)
@@ -473,7 +578,7 @@ class MusicService :
             updateNotification()
         }
 
-        // Discord Rich Presence (ported from SMusic utils/DiscordRPC.kt + MusicService wiring).
+        // Discord Rich Presence (utils/DiscordRPC.kt + MusicService wiring).
         // One authoritative client per service instance: connects when a token is stored and the
         // toggle is on, fully disconnects (closeRPC) when logged out or disabled so no stale
         // Gateway session lingers. Guest/no-token users are completely unaffected — this never
@@ -536,22 +641,11 @@ class MusicService :
         // Queue/Lyrics tab choice — so prefetching only happened to run when that tab happened to already be
         // selected, not in response to a song actually starting. In practice that meant lyrics were usually first
         // requested only when the user opened the lyrics screen and sat there waiting. Fetching unconditionally
-        // here means they're normally already in the database (see the `database.lyrics(id).first() == null`
-        // check below, which skips the fetch once they're saved) by the time the screen opens.
+        // here means they're normally already in the database by the time the screen opens.
         currentMediaMetadata
             .distinctUntilChangedBy { it?.id }
             .collectLatest(scope) { mediaMetadata ->
-                if (mediaMetadata != null && database.lyrics(mediaMetadata.id).first() == null) {
-                    val lyrics = lyricsHelper.getLyrics(mediaMetadata)
-                    database.query {
-                        upsert(
-                            LyricsEntity(
-                                id = mediaMetadata.id,
-                                lyrics = lyrics,
-                            ),
-                        )
-                    }
-                }
+                if (mediaMetadata != null) ensureLyricsFetched(mediaMetadata)
             }
 
         dataStore.data
@@ -622,22 +716,16 @@ class MusicService :
         }
         }
 
-        // Guardar cola periódicamente para prevenir pérdida por crash o force kill
-
+        // Guardar cola periódicamente para prevenir pérdida por crash o force kill.
+        // One timer, not two: this used to be a pair of always-running loops
+        // (every 30s unconditionally, plus another every 10s while playing)
+        // that overlapped and double-saved during playback — twice the
+        // wakeups and disk writes for the same result. A single loop that
+        // just waits longer when nothing's playing does the same job.
         scope.launch {
             while (isActive) {
-                delay(30.seconds)
+                delay(if (player.isPlaying) 10.seconds else 30.seconds)
                 if (dataStore.get(PersistentQueueKey, true)) {
-                    saveQueueToDisk()
-                }
-            }
-        }
-
-        // Guardar cola más frecuentemente cuando está reproduciendo
-        scope.launch {
-            while (isActive) {
-                delay(10.seconds)
-                if (dataStore.get(PersistentQueueKey, true) && player.isPlaying) {
                     saveQueueToDisk()
                 }
             }
@@ -1240,8 +1328,36 @@ class MusicService :
                 djTempoSpeed.value = (p[DjTempoSpeedKey] ?: 1f).coerceIn(.5f, 2f)
                 djPitch.value = (p[DjPitchKey] ?: 1f).coerceIn(.5f, 2f)
                 djTurntableLinked.value = p[DjTurntableLinkedKey] ?: false
+                eightDEnabled.value = p[EightDEnabledKey] ?: false
+                eightDLevel.value = (p[EightDLevelKey] ?: 8).coerceIn(1, 16)
+                spatialSoundEnabled.value = p[SpatialSoundEnabledKey] ?: false
+                djBassCutHz.value = p[DjBassCutHzKey] ?: 0f
+                djWowDepth.value = p[DjWowDepthKey] ?: 0f
+                djVinylNoiseLevel.value = p[DjVinylNoiseLevelKey] ?: 0f
+                djPumpDepth.value = p[DjPumpDepthKey] ?: 0f
+                djBassShelfGain.value = p[DjBassShelfGainKey] ?: 0f
                 syncDjProcessor()
                 applyAudioFxEnableState()
+                // BUG FIX: the lines above restore djTempoSpeed/djPitch into the UI's
+                // StateFlow and resync every djAudioProcessor DSP param (echo, filter,
+                // saturation, etc.), but they never push the restored speed/pitch to
+                // the actual ExoPlayer. So after a cold start (app killed overnight,
+                // reopened next day) a persisted preset like "Slowed + Reverb" would
+                // silently keep playing at normal 1.0x speed while the heavy echo /
+                // resonant filter / saturation DSP tuned for 0.85x got reapplied in
+                // full on top of it — that speed/DSP mismatch is what sounds like
+                // crackling/distorted ("fatna") audio, and is exactly why toggling FX
+                // off -> on and reselecting the preset fixed it (that path calls
+                // setDjTempoAndPitch(), which *does* update player.playbackParameters).
+                // Re-applying it here on load closes that gap.
+                if (::player.isInitialized && audioFxAndDjEnabled.value && !bypassAllAudioEffects.value) {
+                    runCatching {
+                        player.playbackParameters = androidx.media3.common.PlaybackParameters(
+                            djTempoSpeed.value,
+                            djPitch.value
+                        )
+                    }
+                }
             }
         }
     }
@@ -1261,6 +1377,14 @@ class MusicService :
         djAudioProcessor.bypass = bypassAllAudioEffects.value
         spatialAudioProcessor.bypass = bypassAllAudioEffects.value
         eightDAudioProcessor.bypass = bypassAllAudioEffects.value
+        eightDAudioProcessor.level = eightDLevel.value
+        eightDAudioProcessor.enabled = audioFxAndDjEnabled.value && !bypassAllAudioEffects.value && eightDEnabled.value
+        spatialAudioProcessor.enabled = audioFxAndDjEnabled.value && !bypassAllAudioEffects.value && spatialSoundEnabled.value
+        djAudioProcessor.bassCutHz = djBassCutHz.value
+        djAudioProcessor.wowDepth = djWowDepth.value
+        djAudioProcessor.vinylNoiseLevel = djVinylNoiseLevel.value
+        djAudioProcessor.pumpDepth = djPumpDepth.value
+        djAudioProcessor.bassShelfGain = djBassShelfGain.value
     }
 
     private fun applyAudioFxEnableState() {
@@ -1343,26 +1467,138 @@ class MusicService :
         persistFx { this[DjTempoSpeedKey]=sp; this[DjPitchKey]=pi }
     }
     fun setDjTurntableLinked(v: Boolean) { djTurntableLinked.value=v; if(v) setDjTempoAndPitch(djTempoSpeed.value,djTempoSpeed.value); persistFx { this[DjTurntableLinkedKey]=v } }
-    fun setAudioFxAndDjEnabled(v: Boolean) { audioFxAndDjEnabled.value=v; djAudioProcessor.enabled=v && !bypassAllAudioEffects.value; if(!v) resetAudioFx(); persistFx { this[AudioFxAndDjEnabledKey]=v } }
+    fun setEightDEnabled(v: Boolean) {
+        eightDEnabled.value = v
+        eightDAudioProcessor.enabled = v && audioFxAndDjEnabled.value && !bypassAllAudioEffects.value
+        persistFx { this[EightDEnabledKey] = v }
+    }
+    fun setEightDLevel(v: Int) {
+        val x = v.coerceIn(1, 16)
+        eightDLevel.value = x
+        eightDAudioProcessor.level = x
+        persistFx { this[EightDLevelKey] = x }
+    }
+    fun setSpatialSoundEnabled(v: Boolean) {
+        spatialSoundEnabled.value = v
+        spatialAudioProcessor.enabled = v && audioFxAndDjEnabled.value && !bypassAllAudioEffects.value
+        persistFx { this[SpatialSoundEnabledKey] = v }
+    }
+    fun setDjBassCutHz(v: Float) {
+        djBassCutHz.value = v
+        djAudioProcessor.bassCutHz = v
+        persistFx { this[DjBassCutHzKey] = v }
+    }
+    fun setDjWowDepth(v: Float) {
+        djWowDepth.value = v
+        djAudioProcessor.wowDepth = v
+        persistFx { this[DjWowDepthKey] = v }
+    }
+    fun setDjVinylNoiseLevel(v: Float) {
+        djVinylNoiseLevel.value = v
+        djAudioProcessor.vinylNoiseLevel = v
+        persistFx { this[DjVinylNoiseLevelKey] = v }
+    }
+    fun setDjPumpDepth(v: Float) {
+        djPumpDepth.value = v
+        djAudioProcessor.pumpDepth = v
+        persistFx { this[DjPumpDepthKey] = v }
+    }
+    fun setDjBassShelfGain(v: Float) {
+        djBassShelfGain.value = v
+        djAudioProcessor.bassShelfGain = v
+        persistFx { this[DjBassShelfGainKey] = v }
+    }
+    fun setAudioFxAndDjEnabled(v: Boolean) {
+        audioFxAndDjEnabled.value=v
+        djAudioProcessor.enabled=v && !bypassAllAudioEffects.value
+        eightDAudioProcessor.enabled = v && !bypassAllAudioEffects.value && eightDEnabled.value
+        spatialAudioProcessor.enabled = v && !bypassAllAudioEffects.value && spatialSoundEnabled.value
+        if(!v) resetAudioFx()
+        persistFx { this[AudioFxAndDjEnabledKey]=v }
+    }
     fun setBypassAllAudioEffects(v: Boolean) { bypassAllAudioEffects.value=v; applyAudioFxEnableState(); persistFx { this[BypassAllAudioEffectsKey]=v } }
     fun resetDjFx() {
         setEchoEnabled(false); setEchoDelayMs(280); setEchoFeedback(.40f); setEchoWetMix(0f); setEchoPingPong(false)
         setDjFilterSweep(0f); setDjFlangerEnabled(false); setDjFlangerRate(.5f); setDjFlangerDepth(0f); setDjSaturation(0f)
-        setDjTurntableLinked(false); setDjTempoAndPitch(1f,1f); djAudioProcessor.resetFx()
+        setDjTurntableLinked(false); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setEightDLevel(8); setSpatialSoundEnabled(false)
+        setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f)
+        djAudioProcessor.resetFx()
+        // BUG FIX (state only, does not touch any DSP/sound parameter): DjAudioProcessor
+        // .resetFx() also forces its internal `enabled` flag to false. That is NOT the
+        // same thing as the master "Audio FX" switch (audioFxAndDjEnabled) shown in the
+        // UI -- the switch stayed ON, but the real DSP engine underneath got silently
+        // disabled. Nothing in applyDjPreset() below ever set `enabled` back to true
+        // for any other preset, so after tapping Flat/Reset once, every preset picked
+        // afterwards was silently a no-op (clean, unprocessed audio, not an actual
+        // effect). Re-syncing it here to the master switch fixes that without changing
+        // what any preset actually sounds like.
+        djAudioProcessor.enabled = audioFxAndDjEnabled.value && !bypassAllAudioEffects.value
+        setAudioStudioBass(0)
     }
     fun applyDjPreset(preset: DjPreset) {
         if (bypassAllAudioEffects.value) return
+        // Same reasoning as resetDjFx() above -- state sync only.
+        djAudioProcessor.enabled = audioFxAndDjEnabled.value && !bypassAllAudioEffects.value
+        // BUG FIX: "Audio Studio" (Settings) has its own, completely independent
+        // native Android BassBoost effect (setAudioStudioBass), with no connection to
+        // DJ Presets at all. If that was ever turned up -- even once, even for
+        // testing -- it keeps silently boosting bass on EVERY song forever after,
+        // stacked on top of whatever DJ preset is picked, including presets like
+        // Slowed + Reverb, Lo-Fi Radio or Cosmic Echo that never touch bass
+        // themselves. Because it's a native effect applied on the audio session (like
+        // the old LoudnessEnhancer usage), it also sits outside this app's own DSP
+        // chain, so the peak limiter inside DjAudioProcessor has no visibility into it
+        // either -- this is almost certainly why presets with no boost of their own
+        // were still crackling on bass. Every DJ preset now explicitly clears it, so
+        // the two systems can't silently stack.
+        setAudioStudioBass(0)
         when (preset) {
             DjPreset.DEFAULT -> resetDjFx()
-            DjPreset.CLUB_BOOTH -> { setEchoEnabled(true); setEchoDelayMs(180); setEchoFeedback(.30f); setEchoWetMix(.35f); setEchoPingPong(true); setDjFilterSweep(-.15f); setDjSaturation(.20f); setAudioBoostPercent(130); setAudioBoostEnabled(true); setDjTempoAndPitch(1f,1f) }
-            DjPreset.SLOWED_REVERB -> { setEchoEnabled(true); setEchoDelayMs(380); setEchoFeedback(.55f); setEchoWetMix(.50f); setEchoPingPong(true); setDjFilterSweep(-.25f); setDjSaturation(.15f); setDjTurntableLinked(true); setDjTempoAndPitch(.85f,.85f) }
-            DjPreset.NIGHTCORE -> { setEchoEnabled(false); setDjFilterSweep(.20f); setDjSaturation(.10f); setDjTurntableLinked(true); setDjTempoAndPitch(1.25f,1.25f) }
-            DjPreset.BASS_BOMB -> { setEchoEnabled(false); setDjFilterSweep(-.35f); setDjSaturation(.40f); setAudioBoostPercent(160); setAudioBoostEnabled(true); setDjTempoAndPitch(1f,1f) }
-            DjPreset.LOFI_VINYL -> { setEchoEnabled(true); setEchoDelayMs(120); setEchoFeedback(.25f); setEchoWetMix(.30f); setEchoPingPong(false); setDjFilterSweep(-.50f); setDjSaturation(.35f); setDjFlangerEnabled(true); setDjFlangerRate(.2f); setDjFlangerDepth(.25f); setDjTempoAndPitch(.95f,.95f) }
-            DjPreset.SPACE_ECHO -> { setEchoEnabled(true); setEchoDelayMs(450); setEchoFeedback(.65f); setEchoWetMix(.60f); setEchoPingPong(true); setDjFilterSweep(0f); setDjFlangerEnabled(true); setDjFlangerRate(.4f); setDjFlangerDepth(.35f); setDjSaturation(.10f); setDjTempoAndPitch(1f,1f) }
+            // Bass is now boosted in-chain (bassShelfGain, protected by the limiter)
+            // instead of via the system LoudnessEnhancer, which runs after our
+            // limiter and was the real source of the crackling. A gentle sidechain
+            // "pump" is the defining characteristic of a real club PA sound (per
+            // published club/EDM mixing references) and was completely missing before.
+            // Bass shelf cut way down (.65 -> .20): +0.65 was adding roughly +4dB of
+            // pure extra bass gain on top of whatever the track already had -- no
+            // limiter can absorb that cleanly without sounding squashed. .20 is a
+            // genuinely modest, speaker-safe lift (roughly +1.5dB), which is what a
+            // tasteful "club" bass lift should actually be.
+            DjPreset.CLUB_BOOTH -> { setEchoEnabled(true); setEchoDelayMs(180); setEchoFeedback(.24f); setEchoWetMix(.28f); setEchoPingPong(true); setDjFilterSweep(-.15f); setDjSaturation(.08f); setAudioBoostPercent(100); setAudioBoostEnabled(false); setDjBassShelfGain(.12f); setDjPumpDepth(.12f); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f) }
+            // Wet mix brought down from .50 to .32: even with the corrected dry/wet
+            // crossfade (dry = 1 - wet), a 50/50 split is still an equal-volume second
+            // copy of the vocal, which for short/repeated lines reads as "doubling"
+            // rather than reverb. .32 wet / .68 dry keeps the echo clearly audible and
+            // spacious without it competing with the lead vocal at near-equal level.
+            DjPreset.SLOWED_REVERB -> { setEchoEnabled(true); setEchoDelayMs(380); setEchoFeedback(.42f); setEchoWetMix(.25f); setEchoPingPong(true); setDjFilterSweep(-.25f); setDjSaturation(.06f); setDjTurntableLinked(true); setDjTempoAndPitch(.85f,.85f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
+            DjPreset.NIGHTCORE -> { setEchoEnabled(false); setDjFilterSweep(.20f); setDjSaturation(.04f); setDjTurntableLinked(true); setDjTempoAndPitch(1.25f,1.25f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
+            // Bass boost/saturation/filter trimmed a bit (160%->145%, .40->.30, -.35->-.28):
+            // the new peak limiter + sub-bass rumble guard in DjAudioProcessor handle
+            // transient crackle now, but the *amount* of emphasis stacked here was
+            // still tonally too much for a phone speaker ("bohot zyada bass").
+            // Same fix as Club Booth: moved off the unprotected system LoudnessEnhancer
+            // and onto the in-chain bass shelf, which the limiter actually sees. This
+            // is also why Bass Bomb specifically had by far the worst crackling before
+            // (it had the highest LoudnessEnhancer percentage of any preset).
+            // Same fix, bigger cut (1.05 -> .35): this preset is meant to be the
+            // heaviest bass of the set, but +1.05 (~+6dB raw) was simply too much
+            // gain for any phone speaker or limiter to absorb cleanly. .35 (~+2.5dB)
+            // still reads as clearly the "bassiest" preset while staying clean.
+            DjPreset.BASS_BOMB -> { setEchoEnabled(false); setDjFilterSweep(-.20f); setDjSaturation(.08f); setAudioBoostPercent(100); setAudioBoostEnabled(false); setDjBassShelfGain(.18f); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f) }
+            // Real lo-fi/cassette/telephone character (per published lo-fi DSP chains):
+            // narrow the band from BOTH ends -- cut highs (filterSweep) *and* cut
+            // sub-bass (bassCutHz, new) -- add a slow "wow" wobble instead of a
+            // flanger (a flanger is a jet/chorus effect, not what real tape wow sounds
+            // like), and a low-level vinyl noise/crackle layer. This is also what was
+            // missing the "lofi feel" before, and cutting the bass end here is what
+            // keeps Lo-Fi Radio's speaker from overloading.
+            DjPreset.LOFI_VINYL -> { setEchoEnabled(true); setEchoDelayMs(120); setEchoFeedback(.22f); setEchoWetMix(.26f); setEchoPingPong(false); setDjFilterSweep(-.55f); setDjSaturation(.08f); setDjFlangerEnabled(false); setDjTempoAndPitch(.95f,.95f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(125f); setDjWowDepth(.045f); setDjVinylNoiseLevel(.035f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
+            DjPreset.SPACE_ECHO -> { setEchoEnabled(true); setEchoDelayMs(450); setEchoFeedback(.65f); setEchoWetMix(.60f); setEchoPingPong(true); setDjFilterSweep(0f); setDjFlangerEnabled(true); setDjFlangerRate(.4f); setDjFlangerDepth(.35f); setDjSaturation(.10f); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
+            DjPreset.EIGHT_D -> { setEchoEnabled(false); setDjFilterSweep(0f); setDjFlangerEnabled(false); setDjSaturation(0f); setDjTurntableLinked(false); setDjTempoAndPitch(1f,1f); setEightDLevel(8); setEightDEnabled(true); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
+            DjPreset.SPATIAL_SOUND -> { setEchoEnabled(false); setDjFilterSweep(0f); setDjFlangerEnabled(false); setDjSaturation(0f); setDjTurntableLinked(false); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setSpatialSoundEnabled(true); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
         }
     }
-    fun resetAudioFx() { setAudioBoostPercent(100); setAudioBoostEnabled(false); resetEqualizer(); resetDjFx(); djAudioProcessor.enabled=false }
+    fun resetAudioFx() { setAudioBoostPercent(100); setAudioBoostEnabled(false); resetEqualizer(); resetDjFx(); djAudioProcessor.enabled=false; eightDAudioProcessor.enabled=false; spatialAudioProcessor.enabled=false }
 
     fun ensureAudioStudioEffects() = setupAudioStudioEffects()
 
@@ -2187,6 +2423,25 @@ class MusicService :
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         visualizerManager.isPlaying = isPlaying
         if (isPlaying && ::player.isInitialized) visualizerManager.start(player.audioSessionId)
+
+        // BUG FIX: applies to every DJ/Audio-FX preset, not just one. If the service
+        // stays alive in the background for a long time (app just closed, not actually
+        // killed — very common on Android) the djAudioProcessor/eightDAudioProcessor
+        // instances never get recreated, so the enable-transition reset added to
+        // DjAudioProcessor/EightDAudioProcessor (which only fires on an OFF -> ON
+        // flip) never runs either. Whatever echo/filter/8D state was sitting in their
+        // buffers before the long idle gap is still there when playback resumes,
+        // which is what was heard as crackling/distorted audio regardless of which
+        // preset was active, and why toggling the master switch off/on (which DOES
+        // force that transition) always fixed it. Instead of relying on that one
+        // transition, we now also do a defensive buffer clear every time playback
+        // actually (re)starts. This is inaudible — playback was silent/paused right
+        // before this fires — and keeps every preset safe across any gap, long or
+        // short, app-killed or not.
+        if (isPlaying && ::player.isInitialized && audioFxAndDjEnabled.value && !bypassAllAudioEffects.value) {
+            djAudioProcessor.resetState()
+            eightDAudioProcessor.resetState()
+        }
     }
 
     override fun onPlaybackStatsReady(

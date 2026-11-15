@@ -72,7 +72,6 @@ import coil.compose.AsyncImage
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.models.MediaMetadata
 import com.devxrohan.smusic.lyrics.LyricsEntry
-import com.devxrohan.smusic.lyrics.LyricsUtils.parseLyrics
 import com.devxrohan.smusic.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -176,18 +175,18 @@ fun GalaxyPlayer(
         }
     }
 
+    // Same robust parser as every other lyrics screen (handles LRC, enhanced
+    // word-level LRC, TTML/XML, WebVTT/SubRip and structured timed JSON) so
+    // raw markup/timestamps never leak into this theme's lyrics tab either.
     val lines = remember(lyrics) {
         when {
             lyrics.isNullOrBlank() || lyrics == LYRICS_NOT_FOUND -> emptyList()
-            lyrics.startsWith("[") -> parseLyrics(lyrics)
-            else -> lyrics.lines()
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .mapIndexed { index, line -> LyricsEntry(index * 2500L, line) }
+            else -> com.devxrohan.smusic.lyrics.SMusicLyricsUtils.parseAnyLyrics(lyrics)
         }
     }
     val activeLineIndex = remember(lines, position) {
-        lines.indexOfLast { it.time <= position }.coerceAtLeast(0)
+        if (lines.isEmpty()) 0
+        else com.devxrohan.smusic.lyrics.SMusicLyricsUtils.findCurrentLineIndex(lines, position).coerceAtLeast(0)
     }
     val listState = rememberLazyListState()
 

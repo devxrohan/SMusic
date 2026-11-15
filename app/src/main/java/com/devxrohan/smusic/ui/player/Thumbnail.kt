@@ -57,6 +57,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,6 +93,14 @@ fun Thumbnail(
     artworkScale: Float = 0.85f,
     useCustomCornerRadius: Boolean = false,
     textColor: Color? = null,
+    // How much space is reserved around the artwork square before it's sized.
+    // Default matches the original hardcoded value so every existing caller
+    // (the normal swipeable player) keeps its current size unchanged; only a
+    // caller that explicitly passes a smaller value gets a bigger square.
+    artworkPadding: Dp = PlayerHorizontalPadding,
+    // Optional fixed square size for layouts (such as Classic) that must not
+    // change artwork dimensions when the available vertical space differs.
+    artworkSize: Dp? = null,
 ) {
 
 
@@ -178,10 +187,33 @@ fun Thumbnail(
     LaunchedEffect(itemScrollOffset) {
         if (!thumbnailLazyGridState.isScrollInProgress || !swipeThumbnail || itemScrollOffset != 0 || currentMediaIndex < 0) return@LaunchedEffect
 
-        if (currentItem > currentMediaIndex && canSkipNext) {
+        val swipedForward = currentItem > currentMediaIndex
+        val swipedBackward = currentItem < currentMediaIndex
+        val indexBeforeSeek = playerConnection.player.currentMediaItemIndex
+
+        if (swipedForward && canSkipNext) {
             playerConnection.player.seekToNext()
-        } else if (currentItem < currentMediaIndex && canSkipPrevious) {
+        } else if (swipedBackward && canSkipPrevious) {
             playerConnection.player.seekToPreviousMediaItem()
+        } else if (swipedForward || swipedBackward) {
+            // The carousel moved but there was nothing to skip to right then
+            // (most commonly: the current song was still loading, so
+            // canSkipNext/canSkipPrevious hadn't caught up yet). Snap it back
+            // immediately instead of leaving it showing a song that isn't
+            // the one actually playing.
+            thumbnailLazyGridState.animateScrollToItem(currentMediaIndex)
+            return@LaunchedEffect
+        } else {
+            return@LaunchedEffect
+        }
+
+        // The seek call above can still be a no-op (e.g. the player was mid-
+        // transition and ignored it). Verify it actually moved the player;
+        // if it didn't, the carousel must not be left out of sync with what's
+        // really playing.
+        delay(400)
+        if (playerConnection.player.currentMediaItemIndex == indexBeforeSeek) {
+            thumbnailLazyGridState.animateScrollToItem(currentMediaIndex)
         }
     }
 
@@ -241,7 +273,7 @@ fun Thumbnail(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 32.dp, end = 32.dp, top = 4.dp, bottom = 32.dp)
+                            .padding(start = 32.dp, end = 32.dp, top = 4.dp, bottom = if (artworkSize != null) 10.dp else 32.dp)
                     ) {
                         Text(
                             text = stringResource(R.string.playing_from),
@@ -270,8 +302,14 @@ fun Thumbnail(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.fillMaxWidth().weight(1f)
                 ) {
-                    val horizontalLazyGridItemWidth = maxWidth * horizontalLazyGridItemWidthFactor
-                    val containerMaxWidth = maxWidth
+                    // Classic Player uses the full available content width so its artwork
+                    // aligns with the title/artist column below. The normal swipeable player
+                    // keeps the side peek carousel behaviour unchanged.
+                    val horizontalLazyGridItemWidth = if (artworkSize != null) {
+                        maxWidth
+                    } else {
+                        maxWidth * horizontalLazyGridItemWidthFactor
+                    }
 
                     LazyHorizontalGrid(
                         state = thumbnailLazyGridState,
@@ -309,12 +347,38 @@ fun Thumbnail(
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(containerMaxWidth - (PlayerHorizontalPadding * 2))
-                                        .aspectRatio(1f),
-                                    contentAlignment = Alignment.Center
-                                ) {
+                                // The artwork must stay perfectly square. Letting Compose's own
+                                // aspectRatio modifier compute that size — instead of manually
+                                // computing a Dp value — is what actually fixes this correctly:
+                                // it automatically picks the largest square that fits inside
+                                // whichever of this grid cell's own width/height is smaller, using
+                                // this cell's real bounds rather than a value calculated from the
+                                // wrong reference (an earlier version compared against the full
+                                // screen width here instead of this cell's own width, which made
+                                // the artwork noticeably smaller than it should be on cells that
+                                // are narrower than the full screen, i.e. basically always, since
+                                // this carousel deliberately shows a sliver of the next item at
+                                // each edge). This also keeps the earlier overlap fix (the square
+                                // never exceeds the space actually available for it, so it can't
+                                // spill over the title/artist row below it on short screens).
+                                BoxWithConstraints(contentAlignment = Alignment.Center) {
+                                    // A fixed dp size alone can exceed the artwork cell on short
+                                    // phones or landscape layouts. Cap it to the real cell bounds
+                                    // so the square stays consistent where possible, but never
+                                    // collides with the header, metadata, or controls.
+                                    val safeArtworkSize = artworkSize?.coerceAtMost(
+                                        minOf(maxWidth, maxHeight).coerceAtLeast(1.dp)
+                                    )
+                                    Box(
+                                        modifier = if (safeArtworkSize != null) {
+                                            Modifier.size(safeArtworkSize)
+                                        } else {
+                                            Modifier
+                                                .padding(artworkPadding)
+                                                .aspectRatio(1f)
+                                        },
+                                        contentAlignment = Alignment.Center
+                                    ) {
 
                                     // 🎵 Circular Album Art
                                     AsyncImage(
@@ -329,6 +393,7 @@ fun Thumbnail(
                                             .fillMaxSize(artworkScale)
                                             .clip(effectiveShape)
                                     )
+                                    }
                                 }
                             }
                         }

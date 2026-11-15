@@ -42,7 +42,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.devxrohan.smusic.ui.component.AudioPipelineDialog
 import com.devxrohan.smusic.ui.component.AudioQualityTag
@@ -51,7 +50,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -68,7 +66,6 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import coil.size.Size
 import androidx.core.graphics.drawable.toBitmap
-import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.PlayerBackgroundStyle
@@ -100,8 +97,6 @@ import com.devxrohan.smusic.ui.menu.LyricsMenu
 import com.devxrohan.smusic.ui.theme.PlayerColorExtractor
 import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
-import com.devxrohan.smusic.di.LyricsHelperEntryPoint
-import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -120,10 +115,7 @@ fun SMusicLyricsScreen(
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val player = playerConnection.player
-    val context = LocalContext.current
     val menuState = LocalMenuState.current
-    val database = LocalDatabase.current
-    val coroutineScope = rememberCoroutineScope()
 
     val playbackState by playerConnection.playbackState.collectAsState()
     val isPlaying by playerConnection.isPlaying.collectAsState()
@@ -156,29 +148,16 @@ fun SMusicLyricsScreen(
         label = "rotation"
     )
 
-    // Auto-fetch lyrics when no lyrics found (same logic as refetch)
+    // This used to fetch lyrics itself here through its own Hilt entry point,
+    // racing MusicService's own fetch-on-song-start for the same song — two
+    // independent provider lookups can legitimately disagree, which is what
+    // let this screen show (and save to the database) different lyrics than
+    // the Classic strip or Spotify lyrics screen for the exact same song.
+    // ensureLyricsFetched is a no-op if a fetch already ran or is in flight,
+    // so every screen is now guaranteed to agree on one shared result.
     LaunchedEffect(mediaMetadata.id, currentLyrics) {
         if (currentLyrics == null) {
-            coroutineScope.launch(Dispatchers.IO) {
-                try {
-                    // Get LyricsHelper from Hilt
-                    val entryPoint = EntryPointAccessors.fromApplication(
-                        context.applicationContext,
-                        LyricsHelperEntryPoint::class.java
-                    )
-                    val lyricsHelper = entryPoint.lyricsHelper()
-                    
-                    // Fetch lyrics automatically
-                    val lyrics = lyricsHelper.getLyrics(mediaMetadata)
-                    
-                    // Save to database
-                    database.query {
-                        upsert(LyricsEntity(mediaMetadata.id, lyrics))
-                    }
-                } catch (e: Exception) {
-                    // Handle error silently - user can manually refetch if needed
-                }
-            }
+            runCatching { playerConnection.service.ensureLyricsFetched(mediaMetadata) }
         }
     }
 
@@ -188,6 +167,7 @@ fun SMusicLyricsScreen(
         mutableLongStateOf(if (metaDur > 0) metaDur else C.TIME_UNSET)
     }
     var sliderPosition by remember { mutableStateOf<Long?>(null) }
+    var selectedLyricsText by remember(mediaMetadata.id) { mutableStateOf("") }
 
     LaunchedEffect(mediaMetadata.id) {
         sliderPosition = null
@@ -340,6 +320,7 @@ fun SMusicLyricsScreen(
                                             navController = navController,
                                             lyricsProvider = { currentLyrics },
                                             mediaMetadataProvider = { mediaMetadata },
+                                            selectedLyricsText = selectedLyricsText,
                                             onDismiss = menuState::dismiss
                                         )
                                     }
@@ -383,6 +364,7 @@ fun SMusicLyricsScreen(
                                         sliderPositionProvider = { sliderPosition },
                                         forceShowContent = true,
                                         modifier = modifier,
+                                        onSelectionChanged = { selectedLyricsText = it },
                                     )
                                 }
                             }
@@ -656,6 +638,7 @@ fun SMusicLyricsScreen(
                                             navController = navController,
                                             lyricsProvider = { currentLyrics },
                                             mediaMetadataProvider = { mediaMetadata },
+                                            selectedLyricsText = selectedLyricsText,
                                             onDismiss = menuState::dismiss
                                         )
                                     }
@@ -680,13 +663,15 @@ fun SMusicLyricsScreen(
                     ) {
                         if (useLyricsV2) {
                             LyricsV2(
-                                sliderPositionProvider = { sliderPosition }
+                                sliderPositionProvider = { sliderPosition },
+                                onSelectionChanged = { selectedLyricsText = it },
                             )
                         } else {
                             Lyrics(
                                 sliderPositionProvider = { sliderPosition },
                                 forceShowContent = true,
                                 modifier = modifier,
+                                onSelectionChanged = { selectedLyricsText = it },
                             )
                         }
                     }

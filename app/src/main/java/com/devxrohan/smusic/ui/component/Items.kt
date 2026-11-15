@@ -344,16 +344,6 @@ fun SongListItem(
                         .padding(end = 2.dp),
             )
         }
-        if (showInLibraryIcon && song.song.inLibrary != null) {
-            Icon(
-                painter = painterResource(R.drawable.library_add_check),
-                contentDescription = null,
-                modifier =
-                    Modifier
-                        .size(18.dp)
-                        .padding(end = 2.dp),
-            )
-        }
         if (showDownloadIcon) {
             val download by LocalDownloadUtil.current.getDownload(song.id)
                 .collectAsState(initial = null)
@@ -485,15 +475,6 @@ fun SongGridItem(
                 painter = painterResource(R.drawable.favorite),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier
-                    .size(18.dp)
-                    .padding(end = 2.dp)
-            )
-        }
-        if (showInLibraryIcon && song.song.inLibrary != null) {
-            Icon(
-                painter = painterResource(R.drawable.library_add_check),
-                contentDescription = null,
                 modifier = Modifier
                     .size(18.dp)
                     .padding(end = 2.dp)
@@ -1835,16 +1816,6 @@ fun YouTubeListItem(
                         .padding(end = 2.dp),
             )
         }
-        if (item is SongItem && song?.song?.inLibrary != null) {
-            Icon(
-                painter = painterResource(R.drawable.library_add_check),
-                contentDescription = null,
-                modifier =
-                    Modifier
-                        .size(18.dp)
-                        .padding(end = 2.dp),
-            )
-        }
         if (item is SongItem) {
             val downloads by LocalDownloadUtil.current.downloads.collectAsState()
             when (downloads[item.id]?.state) {
@@ -1980,6 +1951,7 @@ fun YouTubeGridItem(
     item: YTItem,
     modifier: Modifier = Modifier,
     coroutineScope: CoroutineScope? = null,
+    showInLibraryBadge: Boolean = true,
     badges: @Composable RowScope.() -> Unit = {
         val database = LocalDatabase.current
         val song by database.song(item.id).collectAsState(initial = null)
@@ -1994,16 +1966,6 @@ fun YouTubeGridItem(
                 painter = painterResource(R.drawable.favorite),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.error,
-                modifier =
-                    Modifier
-                        .size(18.dp)
-                        .padding(end = 2.dp),
-            )
-        }
-        if (item is SongItem && song?.song?.inLibrary != null) {
-            Icon(
-                painter = painterResource(R.drawable.library_add_check),
-                contentDescription = null,
                 modifier =
                     Modifier
                         .size(18.dp)

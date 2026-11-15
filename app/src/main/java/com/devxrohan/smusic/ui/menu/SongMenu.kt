@@ -480,34 +480,7 @@ fun SongMenu(
                 }
             )
         }
-        if (showLibraryAction) {
-            item {
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            text = stringResource(
-                                if (song.song.inLibrary == null) R.string.add_to_library
-                                else R.string.remove_from_library
-                            )
-                        )
-                    },
-                    leadingContent = {
-                        Icon(
-                            painter = painterResource(
-                                if (song.song.inLibrary == null) R.drawable.library_add
-                                else R.drawable.library_add_check
-                            ),
-                            contentDescription = null,
-                        )
-                    },
-                    modifier = Modifier.clickable {
-                        database.query {
-                            update(song.song.toggleLibrary())
-                        }
-                    }
-                )
-            }
-        }
+
         if (event != null) {
             item {
                 ListItem(

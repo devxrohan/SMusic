@@ -63,14 +63,6 @@ fun SelectionSongMenu(
     val coroutineScope = rememberCoroutineScope()
     val playerConnection = LocalPlayerConnection.current ?: return
 
-    val allInLibrary by remember {
-        mutableStateOf(
-            songSelection.all {
-                it.song.inLibrary != null
-            },
-        )
-    }
-
     val allLiked by remember(songSelection) {
         mutableStateOf(
             songSelection.isNotEmpty() && songSelection.all {
@@ -220,31 +212,6 @@ fun SelectionSongMenu(
             title = R.string.add_to_playlist,
         ) {
             showChoosePlaylistDialog = true
-        }
-
-        if (allInLibrary) {
-            GridMenuItem(
-                icon = R.drawable.library_add_check,
-                title = R.string.remove_from_library,
-            ) {
-                database.query {
-                    songSelection.forEach { song ->
-                        inLibrary(song.id, null)
-                    }
-                }
-            }
-        } else {
-            GridMenuItem(
-                icon = R.drawable.library_add,
-                title = R.string.add_to_library,
-            ) {
-                database.transaction {
-                    songSelection.forEach { song ->
-                        insert(song.toMediaMetadata())
-                        inLibrary(song.id, LocalDateTime.now())
-                    }
-                }
-            }
         }
 
         DownloadGridMenu(

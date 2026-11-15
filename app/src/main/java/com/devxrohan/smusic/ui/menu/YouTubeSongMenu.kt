@@ -85,6 +85,7 @@ fun YouTubeSongMenu(
     navController: NavController,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit = {},
+    showLibraryAction: Boolean = true,
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
@@ -368,26 +369,7 @@ fun YouTubeSongMenu(
                 onDismiss()
             }
         }
-        if (librarySong?.song?.inLibrary != null) {
-            GridMenuItem(
-                icon = R.drawable.library_add_check,
-                title = R.string.remove_from_library,
-            ) {
-                database.query {
-                    inLibrary(song.id, null)
-                }
-            }
-        } else {
-            GridMenuItem(
-                icon = R.drawable.library_add,
-                title = R.string.add_to_library,
-            ) {
-                database.transaction {
-                    insert(song.toMediaMetadata())
-                    inLibrary(song.id, LocalDateTime.now())
-                }
-            }
-        }
+
         GridMenuItem(
             icon = R.drawable.share,
             title = R.string.share,

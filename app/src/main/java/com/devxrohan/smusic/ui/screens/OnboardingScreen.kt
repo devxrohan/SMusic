@@ -162,21 +162,44 @@ fun OnboardingScreen(
     )
     val pagerScope = rememberCoroutineScope()
     val step = pagerState.currentPage
+    var isPageTransitioning by remember(pagerState) { mutableStateOf(false) }
+
     fun updateStep(value: Int) {
-        pagerScope.launch { pagerState.animateScrollToPage(value.coerceIn(0, 3)) }
+        val target = value.coerceIn(0, 3)
+        // Ignore rapid repeat taps while a page transition is running. This avoids
+        // stacking multiple animateScrollToPage jobs on slower devices.
+        if (isPageTransitioning || pagerState.isScrollInProgress || target == pagerState.settledPage) return
+        pagerScope.launch {
+            isPageTransitioning = true
+            try {
+                pagerState.animateScrollToPage(target)
+            } finally {
+                isPageTransitioning = false
+            }
+        }
     }
-    // Keep the caller's external step (used to persist/restore progress) in
-    // sync as the pager settles on a page, however it got there (tap, swipe,
-    // or updateStep above).
+
+    // Persist only the settled page. currentPage can change halfway through an
+    // animation; feeding that intermediate value back to MainActivity used to
+    // start a second pager synchronization while the first animation was active.
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }.collect { onStepChange(it) }
+        snapshotFlow { pagerState.settledPage }.collect { onStepChange(it) }
     }
-    // If the caller changes currentStep from the outside (e.g. restoring a
-    // saved step), follow it without fighting the user's own in-progress swipe.
+    // currentStep (set by the Next/Back buttons via updateStep, and restored
+    // from saved progress on first composition) is the only thing that moves
+    // the pager now — see userScrollEnabled = false below. With no free-swipe
+    // gesture left to contend with, this single sync is enough on its own:
+    // there is nothing else that can change pagerState.currentPage for it to
+    // race against.
     LaunchedEffect(currentStep) {
         val target = currentStep.coerceIn(0, 3)
-        if (pagerState.currentPage != target && !pagerState.isScrollInProgress) {
-            pagerState.scrollToPage(target)
+        if (pagerState.settledPage != target) {
+            isPageTransitioning = true
+            try {
+                pagerState.animateScrollToPage(target)
+            } finally {
+                isPageTransitioning = false
+            }
         }
     }
     var darkMode by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
@@ -231,14 +254,24 @@ fun OnboardingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 repeat(4) { index ->
                     val dotColor by androidx.compose.animation.animateColorAsState(
                         targetValue = if (index <= step) colors.primary else colors.surfaceVariant,
                         animationSpec = tween(250),
                         label = "onboardingDot",
                     )
-                    Box(Modifier.weight(1f).padding(horizontal = 3.dp).height(4.dp).clip(CircleShape).background(dotColor))
+                    // The current step's dot also grows wider, not just a different
+                    // color and width both animate to make the current step clear.
+                    val dotWeight by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = if (index == step) 2.4f else 1f,
+                        animationSpec = androidx.compose.animation.core.spring(
+                            dampingRatio = 0.7f,
+                            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                        ),
+                        label = "onboardingDotWidth",
+                    )
+                    Box(Modifier.weight(dotWeight).height(4.dp).clip(CircleShape).background(dotColor))
                 }
             }
             HorizontalPager(
@@ -250,6 +283,9 @@ fun OnboardingScreen(
                 // mid-swipe instead of reading as two separate screens sliding
                 // past each other.
                 pageSpacing = 20.dp,
+                // The Next/Back buttons are the only way to move between steps.
+                // Keeping pager swipes disabled avoids competing gesture handlers.
+                userScrollEnabled = false,
             ) { page ->
                     Column(
                         Modifier
@@ -274,12 +310,40 @@ fun OnboardingScreen(
                     ) {
                 when (page) {
                     0 -> {
-                        androidx.compose.foundation.Image(
-                            painter = painterResource(id = R.drawable.smusic_logo),
-                            contentDescription = stringResource(R.string.ui_smusic_app_logo),
-                            modifier = Modifier.size(132.dp),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                        val glowTransition = rememberInfiniteTransition(label = "onboardingWelcomeGlow")
+                        val glowRotation by glowTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 360f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(durationMillis = 20000, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart,
+                            ),
+                            label = "onboardingWelcomeGlowRotation",
                         )
+                        val glowBrush = remember(colors.primary) {
+                            Brush.sweepGradient(
+                                colors = listOf(
+                                    colors.primary.copy(alpha = 0.35f),
+                                    colors.primary.copy(alpha = 0.05f),
+                                    colors.primary.copy(alpha = 0.35f),
+                                ),
+                            )
+                        }
+                        Box(Modifier.size(156.dp), contentAlignment = Alignment.Center) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { rotationZ = glowRotation }
+                                    .clip(CircleShape)
+                                    .background(glowBrush),
+                            )
+                            androidx.compose.foundation.Image(
+                                painter = painterResource(id = R.drawable.smusic_logo),
+                                contentDescription = stringResource(R.string.ui_smusic_app_logo),
+                                modifier = Modifier.size(132.dp),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                            )
+                        }
                         Spacer(Modifier.height(28.dp))
                         Text(stringResource(R.string.onboarding_welcome_title), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = colors.onBackground, textAlign = TextAlign.Center)
                         Spacer(Modifier.height(10.dp))
@@ -387,11 +451,17 @@ fun OnboardingScreen(
                     }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (step > 0 && step < 3) TextButton(onClick = { updateStep(step - 1) }, modifier = Modifier.heightIn(min = 54.dp)) { Text(stringResource(R.string.back)) }
+                    AnimatedVisibility(
+                        visible = step in 1..2,
+                        enter = androidx.compose.animation.expandHorizontally(expandFrom = Alignment.Start) + fadeIn(),
+                        exit = androidx.compose.animation.shrinkHorizontally(shrinkTowards = Alignment.Start) + fadeOut(),
+                    ) {
+                        TextButton(enabled = !isPageTransitioning, onClick = { updateStep(step - 1) }, modifier = Modifier.heightIn(min = 54.dp)) { Text(stringResource(R.string.back)) }
+                    }
                     // heightIn(min=...) instead of a fixed height: on a narrow phone, or with
                     // the device font/display size turned up, "Continue without an account"
                     // can need two lines — a fixed height would clip it, this just grows.
-                    Surface(Modifier.weight(1f).heightIn(min = 56.dp).clip(RoundedCornerShape(18.dp)).clickable {
+                    Surface(Modifier.weight(1f).heightIn(min = 56.dp).clip(RoundedCornerShape(18.dp)).clickable(enabled = !isPageTransitioning) {
                         if (step < 3) updateStep(step + 1) else showGuestProfileSetup = true
                     }, color = colors.primary, shape = RoundedCornerShape(18.dp)) {
                         Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {

@@ -27,6 +27,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,12 +51,12 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.devxrohan.smusic.constants.NavigationBarAnimationSpec
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlin.math.pow
 
 /**
  * Bottom Sheet
- * Modified from [ViMusic](https://github.com/vfsfitvnm/ViMusic)
  */
 @Composable
 fun BottomSheet(
@@ -122,7 +123,7 @@ fun BottomSheet(
                 )
             }
     ) {
-        if (!state.isCollapsed && !state.isDismissed) {
+        if (state.isExpandedOrExpanding) {
             BackHandler(onBack = state::collapseSoft)
         }
 
@@ -158,7 +159,11 @@ fun BottomSheet(
                             IntOffset(0, shift - moved)
                         }
                         .fillMaxWidth()
-                        .height(com.devxrohan.smusic.constants.MiniPlayerHeight)
+                        // Never let the collapsed tap target extend above the visible peek strip.
+                        // QueuePeekHeight is 64dp while MiniPlayerHeight is 80dp; using 80dp here
+                        // created an invisible 16dp hit area on gesture-navigation devices, so a
+                        // tap near the Classic seekbar/lyrics gap could expand the queue by mistake.
+                        .height(com.devxrohan.smusic.constants.MiniPlayerHeight.coerceAtMost(state.collapsedBound))
                         .pointerInput(state) {
                             detectTapGestures(onTap = { state.expandSoft() })
                         },
@@ -176,6 +181,7 @@ class BottomSheetState(
     private val animatable: Animatable<Dp, AnimationVector1D>,
     private val onAnchorChanged: (Int) -> Unit,
     val collapsedBound: Dp,
+    initialAnchor: Int = dismissedAnchor,
 ) : DraggableState by draggableState {
     val dismissedBound: Dp
         get() = animatable.lowerBound!!
@@ -184,6 +190,16 @@ class BottomSheetState(
         get() = animatable.upperBound!!
 
     val value by animatable.asState()
+
+    // The anchor most recently requested via expand/collapse/dismiss, updated
+    // synchronously the instant one of those is called — unlike isExpanded/
+    // isCollapsed/isDismissed below, which only flip once the animatable's
+    // value has actually settled there a little later.
+    var targetAnchor by mutableIntStateOf(initialAnchor)
+        private set
+
+    val isExpandedOrExpanding: Boolean
+        get() = targetAnchor == expandedAnchor
 
     val isDismissed by derivedStateOf {
         value == animatable.lowerBound!!
@@ -201,16 +217,21 @@ class BottomSheetState(
         1f - (animatable.upperBound!! - animatable.value) / (animatable.upperBound!! - collapsedBound)
     }
 
+    private fun updateAnchor(anchor: Int) {
+        targetAnchor = anchor
+        onAnchorChanged(anchor)
+    }
+
     fun collapse(animationSpec: AnimationSpec<Dp>) {
-        onAnchorChanged(collapsedAnchor)
-        coroutineScope.launch {
+        updateAnchor(collapsedAnchor)
+        coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
             animatable.animateTo(collapsedBound, animationSpec)
         }
     }
 
     fun expand(animationSpec: AnimationSpec<Dp>) {
-        onAnchorChanged(expandedAnchor)
-        coroutineScope.launch {
+        updateAnchor(expandedAnchor)
+        coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
             animatable.animateTo(animatable.upperBound!!, animationSpec)
         }
     }
@@ -232,14 +253,22 @@ class BottomSheetState(
     }
 
     fun dismiss() {
-        onAnchorChanged(dismissedAnchor)
-        coroutineScope.launch {
+        updateAnchor(dismissedAnchor)
+        coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
             animatable.animateTo(animatable.lowerBound!!)
         }
     }
 
     fun snapTo(value: Dp) {
-        coroutineScope.launch {
+        updateAnchor(
+            when (value) {
+                expandedBound -> expandedAnchor
+                collapsedBound -> collapsedAnchor
+                dismissedBound -> dismissedAnchor
+                else -> collapsedAnchor
+            },
+        )
+        coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
             animatable.snapTo(value)
         }
     }
@@ -348,30 +377,44 @@ fun rememberBottomSheetState(
     val animatable = remember {
         Animatable(0.dp, Dp.VectorConverter)
     }
+    // dismissedBound/expandedBound/collapsedBound can legitimately recompute
+    // more than once after first composition — e.g. while system-bar insets
+    // are still settling, which on some devices/OEM skins doesn't happen on
+    // the very first frame. previousAnchor only ever changes in response to
+    // an actual expand/collapse/dismiss call, so re-animating to it every
+    // time a bound merely recomputes had nothing to do with those bound
+    // changes — it just replayed the last jump-to-anchor animation on top of
+    // (and could cancel) an expandSoft() the user had just triggered, e.g. by
+    // tapping the queue icon, making the sheet appear to never open on
+    // devices where a bound happened to recompute right around then.
+    var hasPositioned by remember { mutableStateOf(false) }
 
     return remember(dismissedBound, expandedBound, collapsedBound, coroutineScope) {
-        val initialValue = when (previousAnchor) {
-            expandedAnchor -> expandedBound
-            collapsedAnchor -> collapsedBound
-            dismissedAnchor -> dismissedBound
-            else -> error("Unknown BottomSheet anchor")
-        }
-
         animatable.updateBounds(dismissedBound.coerceAtMost(expandedBound), expandedBound)
-        coroutineScope.launch {
-            animatable.animateTo(initialValue, NavigationBarAnimationSpec)
+        if (!hasPositioned) {
+            hasPositioned = true
+            val initialValue = when (previousAnchor) {
+                expandedAnchor -> expandedBound
+                collapsedAnchor -> collapsedBound
+                dismissedAnchor -> dismissedBound
+                else -> error("Unknown BottomSheet anchor")
+            }
+            coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                animatable.animateTo(initialValue, NavigationBarAnimationSpec)
+            }
         }
 
         BottomSheetState(
             draggableState = DraggableState { delta ->
-                coroutineScope.launch {
+                coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
                     animatable.snapTo(animatable.value - with(density) { delta.toDp() })
                 }
             },
             onAnchorChanged = { previousAnchor = it },
             coroutineScope = coroutineScope,
             animatable = animatable,
-            collapsedBound = collapsedBound
+            collapsedBound = collapsedBound,
+            initialAnchor = previousAnchor,
         )
     }
 }

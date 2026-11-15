@@ -963,7 +963,7 @@
     <string name="pulse_how_learns_body">Pulse learns on this device from what you actually do: songs you finish or replay, ones you skip, what you like, and what you play together. Nothing leaves your phone. As it learns, Keep Listening, Similar To and a few extra shelves become more personal.</string>
     <string name="home_header_style">Home Header Style</string>
     <string name="home_header_style_smusic">Morning Aura</string>
-    <string name="home_header_style_featured">Apple Listen</string>
+    <string name="home_header_style_apple_listen">Apple Listen</string>
     <string name="home_header_style_none">None — Quick Picks Only</string>
 
     <!-- Voice assistant -->
@@ -1194,6 +1194,9 @@
     <string name="ui_use_your_library_likes_and_playlists">Use your library, likes and playlists</string>
     <string name="ui_add_youtube_account">Add YouTube account</string>
     <string name="ui_you_can_change_permissions_any_time">You can change permissions any time in Android Settings.</string>
+    <string name="onboarding_keep_playing_in_background_title">Keep playing in background</string>
+    <string name="onboarding_keep_playing_in_background_desc">Stops your phone\'s battery saver from pausing songs when the screen is off</string>
+    <string name="onboarding_also_allow_oem_autostart">Also allow in %1$s for uninterrupted playback</string>
     <string name="ui_your_music_your_mood_lets_make">Your music, your mood. Let\'s make your listening experience yours.</string>
     <string name="ui_smusic_app_logo">SMusic app logo</string>
     <string name="ui_your_recent_listening_is_moving_away">Your recent listening is moving away from your usual long-term pattern. Pulse is giving recent taste extra weight.</string>
@@ -1477,4 +1480,7 @@
     <string name="restore_auto_not_found">No automatic backup found. Choose a backup file instead.</string>
     <string name="restore_allow_storage">Allow file access to find backups in Documents/SMusic, then try again.</string>
     <string name="ui_lrc_red">lrc.red</string>
+    <string name="current_lyrics_source">Current source</string>
+    <string name="choose_lyrics_source">Choose lyrics source</string>
+    <string name="lyrics_source_unknown">Lyrics source information unavailable</string>
 </resources>

@@ -57,11 +57,15 @@ val ContentCountryKey = stringPreferencesKey("contentCountry")
 val EnableKugouKey = booleanPreferencesKey("enableKugou")
 val EnableLrcLibKey = booleanPreferencesKey("enableLrclib")
 val EnableLrcRedKey = booleanPreferencesKey("enableLrcRed")
+val EnableBiniLyricsKey = booleanPreferencesKey("enableBiniLyrics")
+val EnableGeniusLyricsKey = booleanPreferencesKey("enableGeniusLyrics")
+val EnableMusixmatchLyricsKey = booleanPreferencesKey("enableMusixmatchLyrics")
 val EnableSimpMusicLyricsKey = booleanPreferencesKey("enableSimpMusic")
 val EnableUnisonLyricsKey = booleanPreferencesKey("enableUnison")
 val EnableYouLyLyricsKey = booleanPreferencesKey("enableYouLy")
 val EnableMegalobizLyricsKey = booleanPreferencesKey("enableMegalobiz")
 val EnablePaxsenixLyricsKey = booleanPreferencesKey("enablePaxsenix")
+val PaxsenixLyricsApiKey = stringPreferencesKey("paxsenixLyricsApiKey")
 val EnablePortatoLyricsKey = booleanPreferencesKey("enablePortato")
 val EnableBetterLyricsKey = booleanPreferencesKey("enableBetterLyrics")
 val EnableYouTubeSubtitleLyricsKey = booleanPreferencesKey("enableYouTubeSubtitles")
@@ -71,6 +75,8 @@ val HideExplicitKey = booleanPreferencesKey("hideExplicit")
 val LastNewReleaseCheckKey = longPreferencesKey("last_new_release_check")
 val SkippedUpdateVersionCodeKey = intPreferencesKey("skipped_update_version_code")
 val EnableUpdateNotificationKey = booleanPreferencesKey("enable_update_notification")
+/** Opt-in channel for GitHub pre-releases. Disabled by default to keep stable-only updates. */
+val BetaUpdatesKey = booleanPreferencesKey("beta_updates_enabled")
 val LastNotifiedVersionKey = stringPreferencesKey("last_notified_version")
 val LastUpdateCheckKey = longPreferencesKey("last_update_check")
 /** "Later" on the update popup: the popup stays hidden until this epoch-millis time has passed. */
@@ -95,11 +101,21 @@ val UseRotatingProxyKey = booleanPreferencesKey("useRotatingProxy")
 val LowDataModeKey = booleanPreferencesKey("lowDataMode")
 val DisableAnimationsKey = booleanPreferencesKey("disableAnimations")
 val OnboardingCompletedKey = booleanPreferencesKey("onboardingCompleted")
+/** Records that the one-time install/onboarding migration has been evaluated. */
+val OnboardingDetectionInitializedKey = booleanPreferencesKey("onboarding_detection_initialized")
 val ProxyUrlKey = stringPreferencesKey("proxyUrl")
 val ProxyTypeKey = stringPreferencesKey("proxyType")
 val YtmSyncKey = booleanPreferencesKey("ytmSync")
 
 val AudioQualityKey = stringPreferencesKey("audioQuality")
+// Independent quality preference for offline downloads; does not alter streaming quality.
+val DownloadQualityKey = stringPreferencesKey("downloadQuality")
+
+enum class DownloadQuality {
+    LOW,
+    MEDIUM,
+    HIGH,
+}
 
 enum class AudioQuality {
     AUTO,
@@ -164,7 +180,7 @@ val HomeHeaderStyleKey = stringPreferencesKey("homeHeaderStyle")
 val QuickPicksCardWidthKey = floatPreferencesKey("quickPicksCardWidth")
 val QuickPicksCardHeightKey = floatPreferencesKey("quickPicksCardHeight")
 
-enum class HomeHeaderStyle { SMUSIC, FEATURED, NONE }
+enum class HomeHeaderStyle { SMUSIC, APPLE_LISTEN, NONE }
 
 enum class NavBarStyle {
     FLOATING,
@@ -178,6 +194,7 @@ val PlaylistViewTypeKey = stringPreferencesKey("playlistViewType")
 val PlaylistEditLockKey = booleanPreferencesKey("playlistEditLock")
 val QuickPicksKey = stringPreferencesKey("discover")
 val PreferredLyricsProviderKey = stringPreferencesKey("lyricsProvider")
+val LyricsCacheEngineVersionKey = intPreferencesKey("lyricsCacheEngineVersion")
 val QueueEditLockKey = booleanPreferencesKey("queueEditLock")
 
 val LyricFontSizeKey = intPreferencesKey("lyricFontSize")
@@ -396,10 +413,13 @@ val LastBackupTimestampKey = longPreferencesKey("last_backup_timestamp")
 val AccountNameKey = stringPreferencesKey("accountName")
 val AccountEmailKey = stringPreferencesKey("accountEmail")
 val AccountChannelHandleKey = stringPreferencesKey("accountChannelHandle")
+// Device-local profile used while browsing in Guest mode.
+val GuestProfileNameKey = stringPreferencesKey("guest_profile_name")
+val GuestProfilePhotoPathKey = stringPreferencesKey("guest_profile_photo_path")
 val UseLoginForBrowse = booleanPreferencesKey("useLoginForBrowse")
 
 
-// --- Discord account / Rich Presence integration (ported from SMusic) ---
+// --- Discord account / Rich Presence integration ---
 // DiscordTokenKey stores the user's Discord account token, used only to open an authenticated
 // Gateway WebSocket connection for Rich Presence (there is no separate "login screen" OAuth flow
 // in the reference implementation beyond entering/validating this token).
@@ -410,7 +430,7 @@ val DiscordNameKey = stringPreferencesKey("discordName")
 val EnableDiscordRPCKey = booleanPreferencesKey("discordRPCEnable")
 val DiscordUseDetailsKey = booleanPreferencesKey("discordUseDetails")
 
-// --- AI integration (ported from SMusic) ---
+// --- AI integration ---
 // No AI provider API key is bundled — the person supplies their own (OpenRouter, Claude, or any
 // OpenAI-compatible endpoint), exactly as SMusic requires. Nothing fabricated here.
 val AiProviderKey = stringPreferencesKey("aiProvider")
@@ -597,3 +617,11 @@ val DjSaturationKey = floatPreferencesKey("dj_saturation")
 val DjTurntableLinkedKey = booleanPreferencesKey("dj_turntable_linked")
 val DjTempoSpeedKey = floatPreferencesKey("dj_tempo_speed")
 val DjPitchKey = floatPreferencesKey("dj_pitch")
+val EightDEnabledKey = booleanPreferencesKey("eight_d_enabled")
+val EightDLevelKey = intPreferencesKey("eight_d_level")
+val SpatialSoundEnabledKey = booleanPreferencesKey("spatial_sound_enabled")
+val DjBassCutHzKey = floatPreferencesKey("dj_bass_cut_hz")
+val DjWowDepthKey = floatPreferencesKey("dj_wow_depth")
+val DjVinylNoiseLevelKey = floatPreferencesKey("dj_vinyl_noise_level")
+val DjPumpDepthKey = floatPreferencesKey("dj_pump_depth")
+val DjBassShelfGainKey = floatPreferencesKey("dj_bass_shelf_gain")

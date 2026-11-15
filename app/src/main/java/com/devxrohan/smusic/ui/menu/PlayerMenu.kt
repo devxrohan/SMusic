@@ -55,6 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -97,6 +98,8 @@ import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.LocalDownloadUtil
 import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
+import com.devxrohan.smusic.constants.DownloadQuality
+import com.devxrohan.smusic.constants.DownloadQualityKey
 import com.devxrohan.smusic.constants.ListItemHeight
 import com.devxrohan.smusic.constants.ListThumbnailSize
 import com.devxrohan.smusic.constants.ThumbnailCornerRadius
@@ -108,6 +111,9 @@ import com.devxrohan.smusic.ui.component.ListDialog
 import com.devxrohan.smusic.ui.component.ListItem
 import com.devxrohan.smusic.utils.joinByBullet
 import com.devxrohan.smusic.utils.makeTimeString
+import com.devxrohan.smusic.utils.dataStore
+import com.devxrohan.smusic.utils.rememberEnumPreference
+import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -116,6 +122,45 @@ import kotlin.math.abs
 import kotlin.math.log2
 import kotlin.math.pow
 import kotlin.math.round
+
+@Composable
+fun DownloadQualityDialog(
+    selectedQuality: DownloadQuality,
+    onQualitySelected: (DownloadQuality) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.download) + " quality") },
+        text = {
+            Column {
+                listOf(
+                    DownloadQuality.LOW to "Low · saves the most space",
+                    DownloadQuality.MEDIUM to "Medium · balanced quality and size",
+                    DownloadQuality.HIGH to "High · best available audio",
+                ).forEach { (quality, label) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { onQualitySelected(quality) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = selectedQuality == quality,
+                            onClick = { onQualitySelected(quality) },
+                        )
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(R.string.download)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+        },
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
 @Composable
@@ -271,6 +316,35 @@ fun PlayerMenu(
     var previousVolume by remember { mutableFloatStateOf(playerVolume.value) }
     var showEqualizerSheet by rememberSaveable { mutableStateOf(false) }
     var showAudioStudioSheet by rememberSaveable { mutableStateOf(false) }
+    var showQualityDialog by rememberSaveable { mutableStateOf(false) }
+    var downloadQuality by rememberEnumPreference(DownloadQualityKey, DownloadQuality.HIGH)
+
+    if (showQualityDialog) {
+        DownloadQualityDialog(
+            selectedQuality = downloadQuality,
+            onQualitySelected = { downloadQuality = it },
+            onDismiss = { showQualityDialog = false },
+            onConfirm = {
+                showQualityDialog = false
+                coroutineScope.launch {
+                    context.dataStore.edit { it[DownloadQualityKey] = downloadQuality.name }
+                    database.transaction { insert(mediaMetadata) }
+                    val request = DownloadRequest
+                        .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
+                        .setCustomCacheKey(mediaMetadata.id)
+                        .setData(mediaMetadata.title.toByteArray())
+                        .build()
+                    DownloadService.sendAddDownload(
+                        context,
+                        ExoDownloadService::class.java,
+                        request,
+                        false,
+                    )
+                    onDismiss()
+                }
+            },
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
@@ -400,24 +474,10 @@ fun PlayerMenu(
                                         mediaMetadata.id,
                                         false,
                                     )
+                                    onDismiss()
                                 } else {
-                                    database.transaction {
-                                        insert(mediaMetadata)
-                                    }
-                                    val downloadRequest =
-                                        DownloadRequest
-                                            .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
-                                            .setCustomCacheKey(mediaMetadata.id)
-                                            .setData(mediaMetadata.title.toByteArray())
-                                            .build()
-                                    DownloadService.sendAddDownload(
-                                        context,
-                                        ExoDownloadService::class.java,
-                                        downloadRequest,
-                                        false,
-                                    )
+                                    showQualityDialog = true
                                 }
-                                onDismiss()
                             }
                         }
                     }

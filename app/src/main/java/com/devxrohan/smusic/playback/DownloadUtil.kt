@@ -14,7 +14,8 @@ import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import com.devxrohan.smusic.innertube.YouTube
 import com.devxrohan.smusic.constants.AudioQuality
-import com.devxrohan.smusic.constants.AudioQualityKey
+import com.devxrohan.smusic.constants.DownloadQuality
+import com.devxrohan.smusic.constants.DownloadQualityKey
 import com.devxrohan.smusic.db.MusicDatabase
 import com.devxrohan.smusic.db.entities.FormatEntity
 import com.devxrohan.smusic.di.DownloadCache
@@ -48,7 +49,7 @@ constructor(
     private val pulseEngine: PulseEngine,
 ) {
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
-    private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
+    private val downloadQuality by enumPreference(context, DownloadQualityKey, DownloadQuality.HIGH)
     private val songUrlCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 
     // Spaces out consecutive stream-resolutions during bulk playlist-downloads
@@ -101,7 +102,11 @@ constructor(
             val playbackData = runBlocking(Dispatchers.IO) {
                 YTPlayerUtils.playerResponseForPlayback(
                     mediaId,
-                    audioQuality = audioQuality,
+                    audioQuality = when (downloadQuality) {
+                        DownloadQuality.LOW -> AudioQuality.LOW
+                        DownloadQuality.MEDIUM -> AudioQuality.HIGH
+                        DownloadQuality.HIGH -> AudioQuality.MAX
+                    },
                     connectivityManager = connectivityManager,
                 )
             }.getOrThrow()

@@ -38,6 +38,27 @@
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!--
+        Without these, Android infers hardware requirements from the permissions
+        above and silently marks them "required": RECORD_AUDIO implies a
+        microphone is required, and every app is assumed to require a
+        touchscreen unless told otherwise. Either assumption alone is enough
+        for the system (and app stores) to refuse to install or launch the app
+        on a device that doesn't have that hardware — exactly the situation on
+        Android TV (no touchscreen, often no mic) and many aftermarket car
+        head units (often no mic). None of these features are actually needed
+        to use SMusic; voice features and touch input are simply unavailable
+        without them, so they're all marked optional.
+    -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.faketouch" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- Not a touch/D-pad app specifically — run it either way; this just stops
+         Android from assuming a touchscreen-only app isn't meant for TV. -->
+    <uses-feature android:name="android.hardware.type.television" android:required="false" />
+
     <queries>
         <!-- lets the app tell whether Google Play services (Firebase push) exist on the phone -->
         <package android:name="com.google.android.gms" />
@@ -97,6 +118,11 @@
                 <action android:name="android.intent.action.MUSIC_PLAYER" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Without this, Android TV's own launcher (the row-based "leanback"
+                     home screen) and most aftermarket car head-unit launchers won't
+                     list this activity at all, regardless of the uses-feature
+                     declarations above — they specifically look for this category. -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
                 <category android:name="android.intent.category.APP_MUSIC" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -378,6 +404,6 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
-    </application>
+</application>
 
 </manifest>

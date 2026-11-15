@@ -296,6 +296,17 @@ fun MiniPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(miniPlayerBackgroundColor)
+                    // The only way to open the full player used to be dragging
+                    // the mini player upward — there was no tap-to-open at all.
+                    // That's a real gap even on touchscreens (most players let
+                    // you simply tap the mini player), and on a D-pad/remote-only
+                    // screen (TV, many car head units) it made the full player
+                    // completely unreachable, since a drag gesture can't be
+                    // performed without a touchscreen. A click (which a D-pad
+                    // "select" press also triggers) opens it directly; it
+                    // coexists fine with the drag/swipe gestures below since
+                    // Compose's own tap and drag detectors already cooperate.
+                    .clickable { state.expandSoft() }
                     .bottomSheetDraggable(state)
                     .pointerInput(Unit) {
                         detectHorizontalDragGestures(

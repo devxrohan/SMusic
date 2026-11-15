@@ -318,8 +318,17 @@ fun LocalSongsScreen(
                         }
                     }
 
+                    // A fixed 2-column grid stretches each card to fill half of
+                    // whatever width the screen has — fine on a typical phone,
+                    // but on a wider phone, a tablet, a foldable unfolded, or a
+                    // TV/car display, two huge cards fill the whole row and look
+                    // oversized. Adaptive sizing keeps every card close to its
+                    // intended size and simply adds more columns on wider screens,
+                    // matching how every other library grid in the app already behaves.
                     tab == LocalTab.ALBUMS -> LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
+                        columns = GridCells.Adaptive(
+                            minSize = com.devxrohan.smusic.constants.GridThumbnailHeight + 24.dp,
+                        ),
                         contentPadding = PaddingValues(
                             start = 16.dp, end = 16.dp, top = 8.dp,
                             bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() + 24.dp

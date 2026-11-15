@@ -1,14 +1,18 @@
 package com.devxrohan.smusic.ui.component
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,24 +67,40 @@ fun SettingsPage(
             )
         },
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(top = innerPadding.calculateTopPadding())
-                .windowInsetsPadding(
-                    LocalPlayerAwareWindowInsets.current.only(
-                        WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
-                    )
-                ),
-            verticalArrangement = verticalArrangement,
-            horizontalAlignment = horizontalAlignment,
-        ) {
-            items()
-            Spacer(Modifier.height(16.dp))
+        // A settings row (a toggle, a short label and value) was designed to be
+        // read and tapped at phone width. Letting it stretch edge-to-edge on a
+        // tablet, a car head unit, or a TV just blows every row up to a huge,
+        // hard-to-scan size with a tiny icon lost on one side. Capping the
+        // content at a sensible reading width and centering it keeps every
+        // settings row (and its icon/toggle) a consistent, comfortable size on
+        // any screen; on a phone the cap is never reached, so nothing changes
+        // there at all.
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .widthIn(max = SettingsContentMaxWidth)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = innerPadding.calculateTopPadding())
+                    .windowInsetsPadding(
+                        LocalPlayerAwareWindowInsets.current.only(
+                            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+                        )
+                    ),
+                verticalArrangement = verticalArrangement,
+                horizontalAlignment = horizontalAlignment,
+            ) {
+                items()
+                Spacer(Modifier.height(16.dp))
+            }
         }
     }
 }
+
+/** Comfortable reading/tap width for a settings list; see the comment above its use. */
+val SettingsContentMaxWidth = 640.dp
 
 @ExperimentalMaterial3Api
 @Composable

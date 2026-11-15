@@ -23,7 +23,16 @@ import kotlin.math.sin
 class EightDAudioProcessor : BaseAudioProcessor() {
 
     @Volatile
-    var enabled: Boolean = false
+    private var _enabled: Boolean = false
+    var enabled: Boolean
+        get() = _enabled
+        set(value) {
+            if (value && !_enabled) {
+                // Clear stale ITD/diffuser buffers so re-enabling never bleeds in old audio.
+                resetState()
+            }
+            _enabled = value
+        }
 
     @Volatile
     var bypass: Boolean = false
@@ -261,10 +270,23 @@ class EightDAudioProcessor : BaseAudioProcessor() {
     }
 
     private fun readFractionalDelay(buffer: ShortArray, writeIdx: Int, delay: Float, bufSize: Int): Float {
+        // BUG FIX: `readPos` (writeIdx - delay) is very often negative here -- writeIdx
+        // cycles 0..bufSize-1 continuously while `delay` can be up to ~40 samples, so
+        // readPos goes negative every single time the write pointer is near the start
+        // of its cycle (which, with a 128-sample buffer, is many times per second).
+        // `Float.toInt()` truncates toward zero, not floor -- for a negative value like
+        // -30.7 that gives -30 (wrong) instead of -31 (correct), which then produces a
+        // fractional part of -0.7 instead of +0.3. Linear interpolation with a
+        // *negative* fraction extrapolates backward past s0 instead of blending
+        // between s0 and s1, which is an audible glitch -- repeating many times a
+        // second, this is exactly what was being heard as "halki chirping" on 8D Audio
+        // even with every other effect off. kotlin.math.floor() handles negative
+        // values correctly, which fixes it.
         val readPos = writeIdx - delay
-        val baseIdx = (readPos.toInt() % bufSize + bufSize) % bufSize
+        val readPosFloor = kotlin.math.floor(readPos).toInt()
+        val baseIdx = ((readPosFloor % bufSize) + bufSize) % bufSize
         val nextIdx = (baseIdx + 1) % bufSize
-        val frac = readPos - readPos.toInt()
+        val frac = readPos - readPosFloor
         val s0 = buffer[baseIdx].toFloat()
         val s1 = buffer[nextIdx].toFloat()
         return s0 + frac * (s1 - s0)

@@ -77,6 +77,7 @@ import com.devxrohan.smusic.R
 import com.devxrohan.smusic.playback.DjPreset
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import androidx.compose.ui.res.stringResource
 
@@ -108,6 +109,9 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
     val djTempoSpeed by service.djTempoSpeed.collectAsState()
     val djPitch by service.djPitch.collectAsState()
     val djTurntableLinked by service.djTurntableLinked.collectAsState()
+    val eightDEnabled by service.eightDEnabled.collectAsState()
+    val eightDLevel by service.eightDLevel.collectAsState()
+    val spatialSoundEnabled by service.spatialSoundEnabled.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Master, 1: Echo, 2: Mixer, 3: Turntable
 
@@ -120,7 +124,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color(0xFF111216),
+        containerColor = MaterialTheme.colorScheme.surface,
         shape = sheetShape,
         // Keep the sheet fully filled by its dark container. The thin translucent border was
         // rendering as a stray pale outline around/above the sheet on some Android themes.
@@ -131,7 +135,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                     .width(36.dp)
                     .height(4.dp)
                     .background(
-                        color = Color(0xFF383A42),
+                        color = MaterialTheme.colorScheme.outlineVariant,
                         shape = RoundedCornerShape(50)
                     )
             )
@@ -160,14 +164,14 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                         modifier = Modifier
                             .size(42.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF28131C))
-                            .border(BorderStroke(1.dp, Color(0xFFFF2A6D).copy(alpha = 0.3f)), RoundedCornerShape(12.dp)),
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)), RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_dj_console),
                             contentDescription = null,
-                            tint = Color(0xFFFF2A6D),
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -188,7 +192,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
                                 letterSpacing = 1.4.sp,
-                                color = Color(0xFF6E7280)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         )
                     }
@@ -198,8 +202,8 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .background(Color(0xFF28131C))
-                        .border(BorderStroke(1.dp, Color(0xFFFF2A6D).copy(alpha = 0.35f)), RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)), RoundedCornerShape(50))
                         .clickable {
                             service.resetAudioFx()
                         }
@@ -210,7 +214,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                         Icon(
                             painter = painterResource(R.drawable.refresh),
                             contentDescription = null,
-                            tint = Color(0xFFFF2A6D),
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(13.dp)
                         )
                         Spacer(modifier = Modifier.width(5.dp))
@@ -219,7 +223,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
-                                color = Color(0xFFFF2A6D)
+                                color = MaterialTheme.colorScheme.primary
                             )
                         )
                     }
@@ -232,15 +236,15 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                         .fillMaxWidth()
                         .padding(bottom = 16.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2230)),
-                    border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 painter = painterResource(R.drawable.auto_awesome),
                                 contentDescription = null,
-                                tint = Color(0xFF00E5FF),
+                                tint = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(Modifier.width(8.dp))
@@ -255,15 +259,15 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                         Text(
                             text = stringResource(R.string.ui_all_dj_effects_audio_filters_and),
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFA0A5B5)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(10.dp))
                         OutlinedButton(
                             onClick = { service.setBypassAllAudioEffects(false) },
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f))
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f))
                         ) {
-                            Text(stringResource(R.string.ui_disable_pure_audio_bypass), color = Color(0xFF00E5FF), style = MaterialTheme.typography.labelMedium)
+                            Text(stringResource(R.string.ui_disable_pure_audio_bypass), color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
@@ -273,8 +277,8 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                         .fillMaxWidth()
                         .padding(bottom = 16.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = if (audioFxAndDjEnabled) Color(0xFF28131C) else Color(0xFF1E1F24)),
-                    border = BorderStroke(1.dp, if (audioFxAndDjEnabled) Color(0xFFFF2A6D).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.08f))
+                    colors = CardDefaults.cardColors(containerColor = if (audioFxAndDjEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLow),
+                    border = BorderStroke(1.dp, if (audioFxAndDjEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.08f))
                 ) {
                     Row(
                         modifier = Modifier
@@ -293,7 +297,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                             Text(
                                 text = if (audioFxAndDjEnabled) "Active • Custom DSP processing enabled" else "Turned Off • All options reset to pure source playback",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (audioFxAndDjEnabled) Color(0xFFFF2A6D) else Color(0xFF888B96)
+                                color = if (audioFxAndDjEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Switch(
@@ -303,7 +307,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
-                                checkedTrackColor = Color(0xFFFF2A6D)
+                                checkedTrackColor = MaterialTheme.colorScheme.primary
                             )
                         )
                     }
@@ -343,7 +347,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                             dbValue = stats.bassDb,
                             energy = stats.bass,
                             isPeak = stats.isBassPeak,
-                            accentDefaultColor = Color(0xFFFF2A6D),
+                            accentDefaultColor = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.weight(1f)
                         )
 
@@ -354,7 +358,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                             dbValue = stats.midDb,
                             energy = stats.mid,
                             isPeak = false,
-                            accentDefaultColor = Color(0xFFFFFFFF),
+                            accentDefaultColor = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.weight(1f)
                         )
 
@@ -365,7 +369,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                             dbValue = stats.trebleDb,
                             energy = stats.treble,
                             isPeak = false,
-                            accentDefaultColor = Color(0xFF00E5FF),
+                            accentDefaultColor = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -416,11 +420,17 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                         flangerRate = djFlangerRate,
                         flangerDepth = djFlangerDepth,
                         saturation = djSaturation,
+                        eightDEnabled = eightDEnabled,
+                        eightDLevel = eightDLevel,
                         onFilterSweepChange = { service.setDjFilterSweep(it) },
                         onFlangerToggle = { service.setDjFlangerEnabled(it) },
                         onFlangerRateChange = { service.setDjFlangerRate(it) },
                         onFlangerDepthChange = { service.setDjFlangerDepth(it) },
-                        onSaturationChange = { service.setDjSaturation(it) }
+                        onSaturationChange = { service.setDjSaturation(it) },
+                        onEightDToggle = { service.setEightDEnabled(it) },
+                        onEightDLevelChange = { service.setEightDLevel(it) },
+                        spatialSoundEnabled = spatialSoundEnabled,
+                        onSpatialSoundToggle = { service.setSpatialSoundEnabled(it) }
                     )
                 }
 
@@ -483,18 +493,18 @@ private fun StudioTabs(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF17191F))
+            .background(MaterialTheme.colorScheme.surface)
             .padding(4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         tabs.forEachIndexed { index, tab ->
             val isSelected = selectedTab == index
             val bgColor by animateColorAsState(
-                targetValue = if (isSelected) Color(0xFF28131C) else Color.Transparent,
+                targetValue = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
                 label = "tabBg"
             )
             val textColor by animateColorAsState(
-                targetValue = if (isSelected) Color(0xFFFF2A6D) else Color(0xFF8B8F9D),
+                targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 label = "tabText"
             )
 
@@ -532,7 +542,7 @@ private fun StudioTabs(
                             modifier = Modifier
                                 .size(5.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF00E5FF))
+                                .background(MaterialTheme.colorScheme.secondary)
                         )
                     }
                 }
@@ -550,8 +560,8 @@ private fun DjPresetsRow(onSelectPreset: (DjPreset) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF17191E))
-            .border(BorderStroke(1.dp, Color(0xFF22252C)), RoundedCornerShape(22.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceContainer), RoundedCornerShape(22.dp))
             .padding(16.dp)
     ) {
         Row(
@@ -565,14 +575,14 @@ private fun DjPresetsRow(onSelectPreset: (DjPreset) -> Unit) {
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
                     letterSpacing = 1.2.sp,
-                    color = Color(0xFF8B8F9D)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
             Text(
                 text = stringResource(R.string.ui_1_tap_transform),
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontSize = 11.sp,
-                    color = Color(0xFFFF2A6D)
+                    color = MaterialTheme.colorScheme.primary
                 )
             )
         }
@@ -589,8 +599,8 @@ private fun DjPresetsRow(onSelectPreset: (DjPreset) -> Unit) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF21232B))
-                        .border(BorderStroke(1.dp, Color(0xFF2E323D)), RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(14.dp))
                         .clickable { onSelectPreset(preset) }
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
@@ -600,13 +610,13 @@ private fun DjPresetsRow(onSelectPreset: (DjPreset) -> Unit) {
                                 modifier = Modifier
                                     .size(26.dp)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF2B2E38)),
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     painter = painterResource(preset.iconRes),
                                     contentDescription = null,
-                                    tint = Color(0xFFFF2A6D),
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(15.dp)
                                 )
                             }
@@ -624,7 +634,7 @@ private fun DjPresetsRow(onSelectPreset: (DjPreset) -> Unit) {
                             text = preset.subtitle,
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontSize = 10.sp,
-                                color = Color(0xFF7A7E8D)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         )
                     }
@@ -654,8 +664,8 @@ private fun EchoDelaySection(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF17191E))
-            .border(BorderStroke(1.dp, if (enabled) Color(0xFFFF2A6D).copy(alpha = 0.4f) else Color(0xFF22252C)), RoundedCornerShape(22.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(BorderStroke(1.dp, if (enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceContainer), RoundedCornerShape(22.dp))
             .padding(18.dp)
     ) {
         // Echo Header with Master Toggle
@@ -676,7 +686,7 @@ private fun EchoDelaySection(
                     text = if (enabled) "Spatial repeating reflections active" else "Effect bypassed",
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 12.sp,
-                        color = if (enabled) Color(0xFFFF2A6D) else Color(0xFF6E7280)
+                        color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
             }
@@ -686,8 +696,8 @@ private fun EchoDelaySection(
                 onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFFFF2A6D),
-                    uncheckedTrackColor = Color(0xFF282A32)
+                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
             )
         }
@@ -703,7 +713,7 @@ private fun EchoDelaySection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1F222A))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -720,7 +730,7 @@ private fun EchoDelaySection(
                             text = stringResource(R.string.ui_alternates_echoes_left_right),
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontSize = 11.sp,
-                                color = Color(0xFF7A7E8D)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         )
                     }
@@ -730,8 +740,8 @@ private fun EchoDelaySection(
                         onCheckedChange = onPingPongChange,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF00E5FF),
-                            uncheckedTrackColor = Color(0xFF2E313C)
+                            checkedTrackColor = MaterialTheme.colorScheme.secondary,
+                            uncheckedTrackColor = MaterialTheme.colorScheme.outlineVariant
                         )
                     )
                 }
@@ -748,14 +758,14 @@ private fun EchoDelaySection(
                         text = stringResource(R.string.ui_delay_time),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFD0D3DC)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
                     Text(
                         text = "${delayMs}ms",
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFF2A6D)
+                            color = MaterialTheme.colorScheme.primary
                         )
                     )
                 }
@@ -764,9 +774,9 @@ private fun EchoDelaySection(
                     onValueChange = { onDelayMsChange(it.toInt()) },
                     valueRange = 40f..800f,
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFFFF2A6D),
-                        activeTrackColor = Color(0xFFFF2A6D),
-                        inactiveTrackColor = Color(0xFF282A32)
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     )
                 )
 
@@ -780,14 +790,14 @@ private fun EchoDelaySection(
                         text = stringResource(R.string.ui_feedback_repeats),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFD0D3DC)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
                     Text(
                         text = "${(feedback * 100).toInt()}%",
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00E5FF)
+                            color = MaterialTheme.colorScheme.secondary
                         )
                     )
                 }
@@ -796,9 +806,9 @@ private fun EchoDelaySection(
                     onValueChange = onFeedbackChange,
                     valueRange = 0.05f..0.80f,
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF00E5FF),
-                        activeTrackColor = Color(0xFF00E5FF),
-                        inactiveTrackColor = Color(0xFF282A32)
+                        thumbColor = MaterialTheme.colorScheme.secondary,
+                        activeTrackColor = MaterialTheme.colorScheme.secondary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     )
                 )
 
@@ -812,14 +822,14 @@ private fun EchoDelaySection(
                         text = stringResource(R.string.ui_wet_dry_mix),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFD0D3DC)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
                     Text(
                         text = "${(wetMix * 100).toInt()}%",
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFFB703)
+                            color = MaterialTheme.colorScheme.tertiary
                         )
                     )
                 }
@@ -828,9 +838,9 @@ private fun EchoDelaySection(
                     onValueChange = onWetMixChange,
                     valueRange = 0.10f..1.0f,
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFFFFB703),
-                        activeTrackColor = Color(0xFFFFB703),
-                        inactiveTrackColor = Color(0xFF282A32)
+                        thumbColor = MaterialTheme.colorScheme.tertiary,
+                        activeTrackColor = MaterialTheme.colorScheme.tertiary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     )
                 )
 
@@ -848,7 +858,7 @@ private fun EchoDelaySection(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF21232B))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLow)
                                 .clickable {
                                     onDelayMsChange(pair.first)
                                     onFeedbackChange(pair.second)
@@ -882,18 +892,24 @@ private fun DjMixerSection(
     flangerRate: Float,
     flangerDepth: Float,
     saturation: Float,
+    eightDEnabled: Boolean,
+    eightDLevel: Int,
     onFilterSweepChange: (Float) -> Unit,
     onFlangerToggle: (Boolean) -> Unit,
     onFlangerRateChange: (Float) -> Unit,
     onFlangerDepthChange: (Float) -> Unit,
-    onSaturationChange: (Float) -> Unit
+    onSaturationChange: (Float) -> Unit,
+    onEightDToggle: (Boolean) -> Unit,
+    onEightDLevelChange: (Int) -> Unit,
+    spatialSoundEnabled: Boolean,
+    onSpatialSoundToggle: (Boolean) -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF17191E))
-            .border(BorderStroke(1.dp, Color(0xFF22252C)), RoundedCornerShape(22.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceContainer), RoundedCornerShape(22.dp))
             .padding(18.dp)
     ) {
         // BIPOLAR DJ FILTER SWEEP
@@ -919,9 +935,9 @@ private fun DjMixerSection(
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 12.sp,
                         color = when {
-                            filterSweep < -0.05f -> Color(0xFF00E5FF)
-                            filterSweep > 0.05f -> Color(0xFFFF2A6D)
-                            else -> Color(0xFF6E7280)
+                            filterSweep < -0.05f -> MaterialTheme.colorScheme.secondary
+                            filterSweep > 0.05f -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
                 )
@@ -931,7 +947,7 @@ private fun DjMixerSection(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(Color(0xFF21242C))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
                     .clickable { onFilterSweepChange(0.0f) }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
@@ -939,7 +955,7 @@ private fun DjMixerSection(
                     text = stringResource(R.string.ui_snap_center),
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFD0D3DC)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
             }
@@ -952,9 +968,9 @@ private fun DjMixerSection(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = stringResource(R.string.ui_low_pass_muffle), fontSize = 10.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
-            Text(text = stringResource(R.string.ui_flat), fontSize = 10.sp, color = Color(0xFF8B8F9D), fontWeight = FontWeight.Bold)
-            Text(text = stringResource(R.string.ui_high_pass_cut), fontSize = 10.sp, color = Color(0xFFFF2A6D), fontWeight = FontWeight.Bold)
+            Text(text = stringResource(R.string.ui_low_pass_muffle), fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+            Text(text = stringResource(R.string.ui_flat), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+            Text(text = stringResource(R.string.ui_high_pass_cut), fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
         }
 
         Slider(
@@ -962,9 +978,9 @@ private fun DjMixerSection(
             onValueChange = onFilterSweepChange,
             valueRange = -1.0f..1.0f,
             colors = SliderDefaults.colors(
-                thumbColor = if (filterSweep < 0f) Color(0xFF00E5FF) else Color(0xFFFF2A6D),
-                activeTrackColor = Color(0xFFFF2A6D),
-                inactiveTrackColor = Color(0xFF00E5FF)
+                thumbColor = if (filterSweep < 0f) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.secondary
             )
         )
 
@@ -988,7 +1004,7 @@ private fun DjMixerSection(
                     text = if (flangerEnabled) "Dynamic jet-plane phase sweep" else "Disabled",
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 11.sp,
-                        color = if (flangerEnabled) Color(0xFF9D4EDD) else Color(0xFF6E7280)
+                        color = if (flangerEnabled) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
             }
@@ -998,8 +1014,8 @@ private fun DjMixerSection(
                 onCheckedChange = onFlangerToggle,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFF9D4EDD),
-                    uncheckedTrackColor = Color(0xFF282A32)
+                    checkedTrackColor = MaterialTheme.colorScheme.tertiary,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
             )
         }
@@ -1010,17 +1026,17 @@ private fun DjMixerSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "LFO Rate: ${String.format("%.1f", flangerRate)} Hz", fontSize = 11.sp, color = Color(0xFFD0D3DC))
-                    Text(text = stringResource(R.string.ui_depth, (flangerDepth * 100).toInt()), fontSize = 11.sp, color = Color(0xFF9D4EDD))
+                    Text(text = "LFO Rate: ${String.format("%.1f", flangerRate)} Hz", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(text = stringResource(R.string.ui_depth, (flangerDepth * 100).toInt()), fontSize = 11.sp, color = MaterialTheme.colorScheme.tertiary)
                 }
                 Slider(
                     value = flangerDepth,
                     onValueChange = onFlangerDepthChange,
                     valueRange = 0.1f..1.0f,
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF9D4EDD),
-                        activeTrackColor = Color(0xFF9D4EDD),
-                        inactiveTrackColor = Color(0xFF282A32)
+                        thumbColor = MaterialTheme.colorScheme.tertiary,
+                        activeTrackColor = MaterialTheme.colorScheme.tertiary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     )
                 )
             }
@@ -1046,7 +1062,7 @@ private fun DjMixerSection(
                     text = stringResource(R.string.ui_harmonic_punch_amp_soft_limiting_drive),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 11.sp,
-                        color = Color(0xFF6E7280)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
             }
@@ -1054,7 +1070,7 @@ private fun DjMixerSection(
                 text = "${(saturation * 100).toInt()}%",
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFFFB703)
+                    color = MaterialTheme.colorScheme.tertiary
                 )
             )
         }
@@ -1064,11 +1080,106 @@ private fun DjMixerSection(
             onValueChange = onSaturationChange,
             valueRange = 0.0f..1.0f,
             colors = SliderDefaults.colors(
-                thumbColor = Color(0xFFFFB703),
-                activeTrackColor = Color(0xFFFFB703),
-                inactiveTrackColor = Color(0xFF282A32)
+                thumbColor = MaterialTheme.colorScheme.tertiary,
+                activeTrackColor = MaterialTheme.colorScheme.tertiary,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
             )
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 8D ORBITAL SURROUND
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "8D Audio",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                )
+                Text(
+                    text = if (eightDEnabled) "360° orbit · level $eightDLevel / 16" else "Disabled",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 11.sp,
+                        color = if (eightDEnabled) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+            }
+
+            Switch(
+                checked = eightDEnabled,
+                onCheckedChange = onEightDToggle,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = MaterialTheme.colorScheme.secondary,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            )
+        }
+
+        AnimatedVisibility(visible = eightDEnabled) {
+            Column(modifier = Modifier.padding(top = 10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Orbit speed & depth", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(text = "Level $eightDLevel", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                }
+                Slider(
+                    value = eightDLevel.toFloat(),
+                    onValueChange = { onEightDLevelChange(it.roundToInt()) },
+                    valueRange = 1f..16f,
+                    steps = 14,
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.secondary,
+                        activeTrackColor = MaterialTheme.colorScheme.secondary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // SPATIAL SOUND (stereo widener + cross-feed)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Spatial Sound",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+                Text(
+                    text = if (spatialSoundEnabled) "Wider stereo image & cross-feed" else "Disabled",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 11.sp,
+                        color = if (spatialSoundEnabled) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+            }
+
+            Switch(
+                checked = spatialSoundEnabled,
+                onCheckedChange = onSpatialSoundToggle,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                    checkedTrackColor = MaterialTheme.colorScheme.secondary,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            )
+        }
     }
 }
 
@@ -1089,8 +1200,8 @@ private fun DjTurntableSection(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF17191E))
-            .border(BorderStroke(1.dp, Color(0xFF22252C)), RoundedCornerShape(22.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceContainer), RoundedCornerShape(22.dp))
             .padding(18.dp)
     ) {
         // Turntable Header
@@ -1111,7 +1222,7 @@ private fun DjTurntableSection(
                     text = if (linked) "Vinyl Mode: Pitch linked with Speed" else "Independent Pitch & Tempo",
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 12.sp,
-                        color = if (linked) Color(0xFFFF2A6D) else Color(0xFF6E7280)
+                        color = if (linked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
             }
@@ -1119,7 +1230,7 @@ private fun DjTurntableSection(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(Color(0xFF21242C))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
                     .clickable { onReset() }
                     .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
@@ -1127,7 +1238,7 @@ private fun DjTurntableSection(
                     text = stringResource(R.string.ui_1_0x_normal),
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFD0D3DC)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
             }
@@ -1140,7 +1251,7 @@ private fun DjTurntableSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF1F222A))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -1157,7 +1268,7 @@ private fun DjTurntableSection(
                     text = stringResource(R.string.ui_speeding_up_increases_pitch_nightcore_slowed),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 11.sp,
-                        color = Color(0xFF7A7E8D)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
             }
@@ -1167,8 +1278,8 @@ private fun DjTurntableSection(
                 onCheckedChange = onLinkedToggle,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFFFF2A6D),
-                    uncheckedTrackColor = Color(0xFF2E313C)
+                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.outlineVariant
                 )
             )
         }
@@ -1185,14 +1296,14 @@ private fun DjTurntableSection(
                 text = stringResource(R.string.ui_playback_speed_bpm),
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFD0D3DC)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
             Text(
                 text = "${String.format("%.2f", speed)}x",
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFFF2A6D)
+                    color = MaterialTheme.colorScheme.primary
                 )
             )
         }
@@ -1201,9 +1312,9 @@ private fun DjTurntableSection(
             onValueChange = onSpeedChange,
             valueRange = 0.50f..2.00f,
             colors = SliderDefaults.colors(
-                thumbColor = Color(0xFFFF2A6D),
-                activeTrackColor = Color(0xFFFF2A6D),
-                inactiveTrackColor = Color(0xFF282A32)
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
             )
         )
 
@@ -1219,14 +1330,14 @@ private fun DjTurntableSection(
                         text = stringResource(R.string.ui_pitch_shift_key),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFD0D3DC)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
                     Text(
                         text = "${String.format("%.2f", pitch)}x",
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00E5FF)
+                            color = MaterialTheme.colorScheme.secondary
                         )
                     )
                 }
@@ -1235,9 +1346,9 @@ private fun DjTurntableSection(
                     onValueChange = onPitchChange,
                     valueRange = 0.50f..2.00f,
                     colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF00E5FF),
-                        activeTrackColor = Color(0xFF00E5FF),
-                        inactiveTrackColor = Color(0xFF282A32)
+                        thumbColor = MaterialTheme.colorScheme.secondary,
+                        activeTrackColor = MaterialTheme.colorScheme.secondary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     )
                 )
             }
@@ -1260,11 +1371,11 @@ private fun DjTurntableSection(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (speed == spd) Color(0xFF28131C) else Color(0xFF21232B))
+                        .background(if (speed == spd) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLow)
                         .border(
                             BorderStroke(
                                 1.dp,
-                                if (speed == spd) Color(0xFFFF2A6D) else Color.Transparent
+                                if (speed == spd) MaterialTheme.colorScheme.primary else Color.Transparent
                             ),
                             RoundedCornerShape(10.dp)
                         )
@@ -1277,7 +1388,7 @@ private fun DjTurntableSection(
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
-                            color = if (speed == spd) Color(0xFFFF2A6D) else Color.White
+                            color = if (speed == spd) MaterialTheme.colorScheme.primary else Color.White
                         )
                     )
                 }
@@ -1299,14 +1410,14 @@ private fun AudioVisualizerDial(
     modifier: Modifier = Modifier
 ) {
     val targetDynamicColor = when {
-        isPeak || energy > 0.70f -> Color(0xFFFF1744)
+        isPeak || energy > 0.70f -> MaterialTheme.colorScheme.error
         energy > 0.35f -> {
             val t = ((energy - 0.35f) / 0.35f).coerceIn(0f, 1f)
-            lerp(Color(0xFF00E676), Color(0xFFFF1744), t)
+            lerp(MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.error, t)
         }
         energy > 0.05f -> {
             val t = ((energy - 0.05f) / 0.30f).coerceIn(0f, 1f)
-            lerp(Color.White, Color(0xFF00E676), t)
+            lerp(Color.White, MaterialTheme.colorScheme.tertiary, t)
         }
         else -> accentDefaultColor
     }
@@ -1327,29 +1438,33 @@ private fun AudioVisualizerDial(
         modifier = modifier
             .height(116.dp)
             .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF17191E))
+            .background(MaterialTheme.colorScheme.surface)
             .border(
                 BorderStroke(
                     1.dp,
-                    if (isPeak) animatedColor.copy(alpha = 0.5f) else Color(0xFF22252C)
+                    if (isPeak) animatedColor.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceContainer
                 ),
                 RoundedCornerShape(22.dp)
             ),
         contentAlignment = Alignment.Center
     ) {
+        // Canvas's draw lambda is not a @Composable scope, so MaterialTheme.colorScheme
+        // must be read here (in composable scope) first and captured into locals.
+        val dialInnerColor = MaterialTheme.colorScheme.surface
+        val dialTrackColor = MaterialTheme.colorScheme.surfaceContainer
         Canvas(modifier = Modifier.size(86.dp)) {
             val strokeWidth = 5.dp.toPx()
             val radius = (size.minDimension - strokeWidth) / 2
             val center = Offset(size.width / 2, size.height / 2)
 
             drawCircle(
-                color = Color(0xFF141519),
+                color = dialInnerColor,
                 radius = radius - strokeWidth / 2,
                 center = center
             )
 
             drawCircle(
-                color = Color(0xFF22252C),
+                color = dialTrackColor,
                 radius = radius,
                 center = center,
                 style = Stroke(width = strokeWidth)
@@ -1396,7 +1511,7 @@ private fun AudioVisualizerDial(
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 11.sp,
                     letterSpacing = 1.4.sp,
-                    color = Color(0xFF8B8F9D)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
             Spacer(modifier = Modifier.height(2.dp))
@@ -1413,7 +1528,7 @@ private fun AudioVisualizerDial(
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 10.sp,
-                    color = Color(0xFF5E6270)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
         }
@@ -1433,11 +1548,11 @@ private fun MasterBoostCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(Color(0xFF17191E))
+            .background(MaterialTheme.colorScheme.surface)
             .border(
                 BorderStroke(
                     1.dp,
-                    if (boostEnabled) Color(0xFFFF2A6D).copy(alpha = 0.40f) else Color(0xFF22252C)
+                    if (boostEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.40f) else MaterialTheme.colorScheme.surfaceContainer
                 ),
                 RoundedCornerShape(24.dp)
             )
@@ -1463,7 +1578,7 @@ private fun MasterBoostCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFFF2A6D))
+                            .background(MaterialTheme.colorScheme.primary)
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
@@ -1481,7 +1596,7 @@ private fun MasterBoostCard(
                     text = stringResource(R.string.ui_high_fidelity_hardware_digital_amplifier),
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 12.sp,
-                        color = Color(0xFF6E7280)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 )
             }
@@ -1491,7 +1606,7 @@ private fun MasterBoostCard(
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Black,
                     fontSize = 28.sp,
-                    color = if (boostEnabled) Color(0xFFFF2A6D) else Color.White
+                    color = if (boostEnabled) MaterialTheme.colorScheme.primary else Color.White
                 )
             )
         }
@@ -1516,12 +1631,12 @@ private fun MasterBoostCard(
                         .weight(1f)
                         .clip(RoundedCornerShape(12.dp))
                         .background(
-                            if (isSelected) Color(0xFF28131C) else Color(0xFF1E2027)
+                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLow
                         )
                         .border(
                             BorderStroke(
                                 1.dp,
-                                if (isSelected) Color(0xFFFF2A6D) else Color.Transparent
+                                if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
                             ),
                             RoundedCornerShape(12.dp)
                         )
@@ -1534,7 +1649,7 @@ private fun MasterBoostCard(
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            color = if (isSelected) Color(0xFFFF2A6D) else Color(0xFF8B8F9D)
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
                 }
@@ -1560,7 +1675,7 @@ private fun SegmentedBoostSlider(
             .height(14.dp)
             .onSizeChanged { componentWidth = it.width.toFloat().coerceAtLeast(1f) }
             .clip(RoundedCornerShape(50))
-            .background(Color(0xFF22242B))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     val frac = (offset.x / componentWidth).coerceIn(0f, 1f)
@@ -1576,6 +1691,10 @@ private fun SegmentedBoostSlider(
                 }
             }
     ) {
+        // Same reasoning as above: capture theme colors in composable scope before
+        // the Canvas draw lambda, which cannot call @Composable getters itself.
+        val trackFillColor = MaterialTheme.colorScheme.primary
+        val segmentLineColor = MaterialTheme.colorScheme.surface
         Canvas(modifier = Modifier.matchParentSize()) {
             val width = size.width
             val height = size.height
@@ -1583,13 +1702,7 @@ private fun SegmentedBoostSlider(
 
             if (activeWidth > 0) {
                 drawRoundRect(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color(0xFFFF2A6D),
-                            Color(0xFFFF3377)
-                        ),
-                        endX = activeWidth
-                    ),
+                    color = trackFillColor,
                     topLeft = Offset.Zero,
                     size = Size(activeWidth, height),
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(height / 2, height / 2)
@@ -1600,7 +1713,7 @@ private fun SegmentedBoostSlider(
             for (i in 1 until segments) {
                 val segX = width * (i.toFloat() / segments)
                 drawLine(
-                    color = Color(0xFF17191E),
+                    color = segmentLineColor,
                     start = Offset(segX, 0f),
                     end = Offset(segX, height),
                     strokeWidth = 2.dp.toPx()

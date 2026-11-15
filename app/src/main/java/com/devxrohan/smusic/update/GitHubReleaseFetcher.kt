@@ -2,6 +2,9 @@ package com.devxrohan.smusic.update
 
 import android.content.Context
 import android.net.Uri
+import com.devxrohan.smusic.constants.BetaUpdatesKey
+import com.devxrohan.smusic.utils.dataStore
+import com.devxrohan.smusic.utils.getSuspend
 import com.devxrohan.smusic.update.UpdateHttp.executeCancellable
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -93,6 +96,9 @@ class GitHubReleaseFetcher @Inject constructor(
     val repoUrl: String
         get() = if (repo.isNotBlank()) "https://github.com/$repo" else ""
 
+    suspend fun betaUpdatesEnabled(): Boolean =
+        context.dataStore.getSuspend(BetaUpdatesKey, false)
+
     private companion object {
         const val API_ACCEPT = "application/vnd.github+json"
         const val HTML_ACCEPT = "text/html,application/xhtml+xml"
@@ -162,6 +168,8 @@ class GitHubReleaseFetcher @Inject constructor(
                 name = titleRegex.find(entry)?.groupValues?.get(1)?.let(::xmlUnescape)?.trim()?.takeIf { it.isNotBlank() },
                 body = contentRegex.find(entry)?.groupValues?.get(1)?.let(::htmlToText),
                 published_at = updatedRegex.find(entry)?.groupValues?.get(1),
+                prerelease = Regex("""-(alpha|beta|rc|pre|preview)([.+-]|$)""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(decodeTag(rawTag)),
                 html_url = "https://github.com/$repo/releases/tag/$rawTag",
             )
         }.toList()
@@ -198,7 +206,7 @@ class GitHubReleaseFetcher @Inject constructor(
     /** Source 2: releases.atom. Tag + changelog, no rate limit; APK links come from expanded_assets. */
     private suspend fun latestFromAtom(): GitHubRelease? {
         val first = UpdateHttp.fetch("https://github.com/$repo/releases.atom", ATOM_ACCEPT) { xml, _ ->
-            parseAtom(xml).firstOrNull()
+            parseAtom(xml).firstOrNull { !it.prerelease }
         } ?: return null
         val rawTag = first.html_url?.substringAfter("/releases/tag/") ?: return first
         return first.copy(assets = assetsForTag(rawTag))
@@ -209,9 +217,13 @@ class GitHubReleaseFetcher @Inject constructor(
         val rawTag = UpdateHttp.fetch(latestReleasePage, HTML_ACCEPT) { _, finalUrl ->
             finalUrl.substringAfter("/releases/tag/", "").substringBefore('?').substringBefore('#').takeIf { it.isNotBlank() }
         } ?: return null
+        val tag = decodeTag(rawTag)
+        if (Regex("""-(alpha|beta|rc|pre|preview)([.+-]|$)""", RegexOption.IGNORE_CASE).containsMatchIn(tag)) {
+            return null
+        }
         return GitHubRelease(
-            tag_name = decodeTag(rawTag),
-            name = decodeTag(rawTag),
+            tag_name = tag,
+            name = tag,
             html_url = "https://github.com/$repo/releases/tag/$rawTag",
             assets = assetsForTag(rawTag),
         )
@@ -258,8 +270,67 @@ class GitHubReleaseFetcher @Inject constructor(
 
     private suspend fun releasesFromAtom(): List<GitHubRelease>? =
         UpdateHttp.fetch("https://github.com/$repo/releases.atom", ATOM_ACCEPT) { xml, _ ->
-            parseAtom(xml).takeIf { it.isNotEmpty() }
+            parseAtom(xml).filter { !it.prerelease }.takeIf { it.isNotEmpty() }
         }
+
+    /**
+     * Beta-aware update lookup. Uses the same GitHub API/Atom endpoints and
+     * transport/cache strategy as the stable checker, but includes pre-releases
+     * only when the user explicitly enables the beta channel.
+     */
+    suspend fun fetchLatestEligibleRelease(
+        currentVersion: String,
+        currentVersionCode: Int,
+        includePrerelease: Boolean,
+    ): GitHubRelease? = withContext(Dispatchers.IO) {
+        if (repo.isBlank() || !repo.contains('/')) return@withContext null
+
+        val apiReleases = UpdateHttp.fetch(
+            "https://api.github.com/repos/$repo/releases",
+            API_ACCEPT,
+        ) { body, _ ->
+            runCatching {
+                json.decodeFromString(ListSerializer(GitHubRelease.serializer()), body)
+                    .filter { !it.draft && (includePrerelease || !it.prerelease) }
+            }.getOrNull()
+        }
+
+        val atomReleases = UpdateHttp.fetch(
+            "https://github.com/$repo/releases.atom",
+            ATOM_ACCEPT,
+        ) { xml, _ ->
+            parseAtom(xml).filter { includePrerelease || !it.prerelease }
+        }.orEmpty()
+
+        val allReleases = (apiReleases.orEmpty() + atomReleases)
+            .distinctBy { it.tag_name }
+            .sortedWith { a, b ->
+                val codeOrder = (a.versionCode ?: 0).compareTo(b.versionCode ?: 0)
+                if (codeOrder != 0) codeOrder
+                else {
+                    val versionOrder = VersionCompare.compare(a.versionName, b.versionName)
+                    if (versionOrder != 0) versionOrder
+                    else (a.published_at.orEmpty()).compareTo(b.published_at.orEmpty())
+                }
+            }
+        if (allReleases.isEmpty()) return@withContext null
+
+        val candidates = allReleases.filter { release ->
+            val code = release.versionCode
+            code != null && code > currentVersionCode
+        }
+
+        // A successful release-list response with no eligible newer release means
+        // "up to date", not a network failure that should trigger the Worker fallback.
+        val selected = candidates.lastOrNull() ?: allReleases.last()
+        if (selected.assets.any { it.name.endsWith(".apk", ignoreCase = true) }) {
+            selected
+        } else {
+            val tag = selected.html_url?.substringAfter("/releases/tag/")
+                ?: selected.tag_name
+            selected.copy(assets = assetsForTag(tag))
+        }
+    }
 
     /** Never throws. Live data if any GitHub route works, otherwise the last good copy from disk. */
     suspend fun fetchReleases(): List<GitHubRelease> = withContext(Dispatchers.IO) {

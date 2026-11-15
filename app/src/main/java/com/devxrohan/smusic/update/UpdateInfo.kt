@@ -12,4 +12,6 @@ data class UpdateInfo(
     val mandatory: Boolean = false,
     /** GitHub release page used as the browser fallback when in-app download fails. */
     val releaseUrl: String = "",
+    /** True only for a GitHub/Worker preview release. */
+    val prerelease: Boolean = false,
 )

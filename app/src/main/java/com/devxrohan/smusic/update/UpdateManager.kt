@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.devxrohan.smusic.BuildConfig
+import com.devxrohan.smusic.constants.BetaUpdatesKey
 import com.devxrohan.smusic.constants.UpdateSnoozeUntilKey
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.getSuspend
@@ -141,6 +142,42 @@ class UpdateManager @Inject constructor(
     suspend fun later() {
         context.dataStore.edit { it[UpdateSnoozeUntilKey] = System.currentTimeMillis() + SNOOZE_MS }
         if (_state.value !is UpdateState.Downloading) _state.value = UpdateState.Idle
+    }
+
+
+    /**
+     * Apply the channel preference before starting a network check. The settings
+     * composable also persists this preference, but its write is asynchronous;
+     * writing it here prevents the checker from racing and reading the old value.
+     */
+    suspend fun onBetaUpdatesChanged(enabled: Boolean) {
+        context.dataStore.edit { it[BetaUpdatesKey] = enabled }
+
+        if (!enabled) {
+            val current = _state.value
+            val info = when (current) {
+                is UpdateState.Available -> current.info
+                is UpdateState.ReadyToInstall -> current.info
+                is UpdateState.Downloading -> current.info
+                is UpdateState.Failed -> current.info
+                UpdateState.Idle -> null
+            }
+            if (info?.prerelease == true) {
+                downloadJob?.cancel()
+                AppNotificationManager.clearPendingUpdate(context)
+                _state.value = UpdateState.Idle
+            }
+        } else {
+            // A previously discovered stable update may be sitting in Available /
+            // ReadyToInstall. Re-enter the normal foreground check so enabling
+            // beta immediately queries GitHub instead of requiring an app restart.
+            // Do not disturb an APK download already in progress.
+            if (_state.value !is UpdateState.Downloading) {
+                _state.value = UpdateState.Idle
+                lastSilentCheckAt = 0L
+                checkSilently(force = true)
+            }
+        }
     }
 
     /** Deletes every downloaded update APK. Returns freed bytes. */

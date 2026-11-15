@@ -33,6 +33,7 @@ import com.devxrohan.smusic.update.UpdateViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import com.devxrohan.smusic.constants.EnableUpdateNotificationKey
+import com.devxrohan.smusic.constants.BetaUpdatesKey
 import com.devxrohan.smusic.update.AppNotificationManager
 import com.devxrohan.smusic.utils.rememberPreference
 
@@ -137,6 +138,8 @@ fun CheckForUpdateScreen(
 
             Spacer(Modifier.height(18.dp))
             UpdateNotificationsToggle()
+            Spacer(Modifier.height(12.dp))
+            BetaUpdatesToggle(updateViewModel)
 
             if (releaseHistory.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
@@ -411,6 +414,44 @@ private fun UpdateNotificationsToggle() {
                 checked = enabled,
                 onCheckedChange = { on ->
                     scope.launch { AppNotificationManager.setUpdateNotificationsEnabled(context, on) }
+                },
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun BetaUpdatesToggle(updateViewModel: UpdateViewModel) {
+    var enabled by rememberPreference(BetaUpdatesKey, defaultValue = false)
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Beta Updates",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "Receive preview versions before their stable release. Only newer versions are offered.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    enabled = it
+                    updateViewModel.onBetaUpdatesChanged(it)
                 },
             )
         }

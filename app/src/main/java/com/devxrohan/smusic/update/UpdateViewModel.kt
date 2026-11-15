@@ -23,6 +23,10 @@ class UpdateViewModel @Inject constructor(
 
     fun clearDownloadedApks(): Long = updateManager.clearDownloadedApks()
 
+    fun onBetaUpdatesChanged(enabled: Boolean) {
+        viewModelScope.launch { updateManager.onBetaUpdatesChanged(enabled) }
+    }
+
     suspend fun checkNow(): UpdateCheckResult = updateManager.checkNow()
 
     suspend fun releaseHistory(): List<GitHubRelease> = updateManager.releaseHistory()

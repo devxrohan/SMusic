@@ -14,6 +14,7 @@ import androidx.datastore.preferences.core.edit
 import com.devxrohan.smusic.BuildConfig
 import com.devxrohan.smusic.MainActivity
 import com.devxrohan.smusic.R
+import com.devxrohan.smusic.constants.BetaUpdatesKey
 import com.devxrohan.smusic.constants.AnnouncementsCacheKey
 import com.devxrohan.smusic.constants.EnableUpdateNotificationKey
 import com.devxrohan.smusic.constants.LastNotifiedVersionKey
@@ -315,7 +316,12 @@ object AppNotificationManager {
         val raw = context.dataStore.data.map { it[PendingUpdateJsonKey] ?: "" }.first()
         if (raw.isBlank()) return null
         val info = runCatching { json.decodeFromString(UpdateInfo.serializer(), raw) }.getOrNull() ?: return null
-        return info.takeIf { VersionCompare.isNewer(it.versionName, BuildConfig.VERSION_NAME) }
+        val betaEnabled = context.dataStore.data.map { it[BetaUpdatesKey] ?: false }.first()
+        if (info.prerelease && !betaEnabled) {
+            clearPendingUpdate(context)
+            return null
+        }
+        return info.takeIf { info.versionCode > BuildConfig.VERSION_CODE }
     }
 
     suspend fun hasPendingUpdate(context: Context): Boolean = getPendingUpdate(context) != null

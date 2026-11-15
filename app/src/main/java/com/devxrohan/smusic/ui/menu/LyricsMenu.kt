@@ -18,7 +18,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.text.font.FontWeight
 import com.devxrohan.smusic.constants.AiProviderKey
 import com.devxrohan.smusic.constants.AiTranslationLanguages
-import com.devxrohan.smusic.constants.CustomPromptKey
 import com.devxrohan.smusic.constants.DeeplApiKey
 import com.devxrohan.smusic.constants.OpenRouterApiKey
 import com.devxrohan.smusic.constants.OpenRouterBaseUrlKey
@@ -78,6 +77,8 @@ import com.devxrohan.smusic.LocalDatabase
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.db.entities.LyricsEntity
 import com.devxrohan.smusic.models.MediaMetadata
+import com.devxrohan.smusic.lyrics.forLyricsSearch
+import com.devxrohan.smusic.lyrics.artistForLyricsSearch
 import com.devxrohan.smusic.ui.component.DefaultDialog
 import com.devxrohan.smusic.ui.component.GridMenu
 import com.devxrohan.smusic.ui.component.GridMenuItem
@@ -91,6 +92,7 @@ fun LyricsMenu(
     lyricsProvider: () -> LyricsEntity?,
     mediaMetadataProvider: () -> MediaMetadata,
     onDismiss: () -> Unit,
+    selectedLyricsText: String? = null,
     onLyricsUpdated: () -> Unit = {}, // NUEVO: Callback para notificar actualización
     navController: androidx.navigation.NavController? = null,
     viewModel: LyricsMenuViewModel = hiltViewModel(),
@@ -107,7 +109,6 @@ fun LyricsMenu(
     val deeplApiKey by rememberPreference(DeeplApiKey, "")
     val translateMode by rememberPreference(TranslateModeKey, "Literal")
     var selectedTargetLanguage by rememberPreference(TranslateLanguageKey, "auto")
-    var customPromptText by rememberPreference(CustomPromptKey, "")
     var replaceOriginalLyrics by rememberPreference(ReplaceOriginalLyricsWithTranslationKey, false)
     val hasApiKey = when (aiProvider) {
         "DeepL" -> deeplApiKey.isNotBlank()
@@ -122,6 +123,12 @@ fun LyricsMenu(
     var showEditDialog by rememberSaveable {
         mutableStateOf(false)
     }
+
+    // The lyrics-card share flow (text share + customizable image card) already
+    // exists as a standalone composable, it just wasn't reachable from this
+    // three-dot menu yet. Wiring it up here surfaces it on every lyrics screen
+    // that opens this same menu (Karaoke, Classic and the Spotify-style view).
+    var showShareDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showEditDialog) {
         TextFieldDialog(
@@ -161,7 +168,7 @@ fun LyricsMenu(
         rememberSaveable(showSearchDialog, stateSaver = TextFieldValue.Saver) {
             mutableStateOf(
                 TextFieldValue(
-                    text = mediaMetadataProvider().title,
+                    text = mediaMetadataProvider().title.forLyricsSearch(),
                 ),
             )
         }
@@ -169,7 +176,7 @@ fun LyricsMenu(
         rememberSaveable(showSearchDialog, stateSaver = TextFieldValue.Saver) {
             mutableStateOf(
                 TextFieldValue(
-                    text = mediaMetadataProvider().artists.joinToString { it.name },
+                    text = mediaMetadataProvider().artists.joinToString { it.name }.artistForLyricsSearch(),
                 ),
             )
         }
@@ -220,8 +227,8 @@ fun LyricsMenu(
                     onClick = {
                         viewModel.search(
                             searchMediaMetadata.id,
-                            titleField.text,
-                            artistField.text,
+                            titleField.text.forLyricsSearch(),
+                            artistField.text.artistForLyricsSearch(),
                             searchMediaMetadata.duration
                         )
                         showSearchResultDialog = true
@@ -267,6 +274,7 @@ fun LyricsMenu(
                             .fillMaxWidth()
                             .clickable {
                                 viewModel.cancelSearch()
+                                viewModel.rememberProviderName(searchMediaMetadata.id, result.providerName)
                                 database.query {
                                     upsert(
                                         LyricsEntity(
@@ -537,7 +545,6 @@ fun LyricsMenu(
                                 baseUrl = openRouterBaseUrl,
                                 model = openRouterModel,
                                 mode = translateMode,
-                                customPrompt = customPromptText.takeIf { it.isNotBlank() },
                                 provider = aiProvider,
                                 context = context,
                                 songId = mediaMetadataProvider().id,
@@ -641,26 +648,6 @@ fun LyricsMenu(
                 }
 
                 Spacer(Modifier.height(14.dp))
-
-                // Custom Prompt Input
-                Text(
-                    text = stringResource(R.string.custom_prompt),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-
-                OutlinedTextField(
-                    value = customPromptText,
-                    onValueChange = { customPromptText = it },
-                    label = { Text(stringResource(R.string.ui_custom_prompt_optional)) },
-                    placeholder = { Text(stringResource(R.string.ui_e_g_translate_into_poetic_hinglish), fontSize = 12.sp) },
-                    singleLine = false,
-                    maxLines = 3,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(Modifier.height(12.dp))
 
                 // Replace Original Lyrics Checkmark / Toggle
                 Surface(
@@ -832,6 +819,23 @@ fun LyricsMenu(
     }
 
 
+    if (showShareDialog && !selectedLyricsText.isNullOrBlank()) {
+        val metadata = mediaMetadataProvider()
+        com.devxrohan.smusic.ui.component.ShareLyricsDialog(
+            data = com.devxrohan.smusic.ui.component.ShareLyricsData(
+                text = selectedLyricsText.trim(),
+                // No per-line timing reaches this entry point (just the
+                // flattened text), so Video mode here falls back to an
+                // evenly-paced animation instead of a word-synced one.
+                entries = emptyList(),
+                songTitle = metadata.title,
+                artists = metadata.artists.joinToString { it.name },
+            ),
+            mediaMetadata = metadata,
+            onDismiss = { showShareDialog = false },
+        )
+    }
+
     GridMenu(
         contentPadding =
             PaddingValues(
@@ -841,6 +845,18 @@ fun LyricsMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
+        GridMenuItem(
+            icon = R.drawable.lyrics,
+            title = R.string.current_lyrics_source,
+            subtitle = viewModel.currentProviderName(mediaMetadataProvider().id) ?: "Unknown",
+        ) {
+            val provider = viewModel.currentProviderName(mediaMetadataProvider().id)
+            Toast.makeText(
+                context,
+                if (provider.isNullOrBlank()) context.getString(R.string.lyrics_source_unknown) else "Lyrics: $provider",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
         GridMenuItem(
             icon = R.drawable.edit,
             title = R.string.edit,
@@ -867,6 +883,20 @@ fun LyricsMenu(
             title = R.string.Translate,
         ) {
             showTranslateDialog = true
+        }
+        GridMenuItem(
+            icon = R.drawable.share,
+            title = R.string.share_lyrics,
+        ) {
+            if (selectedLyricsText.isNullOrBlank()) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Select lyrics by long-pressing a line.",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            } else {
+                showShareDialog = true
+            }
         }
     }
 }

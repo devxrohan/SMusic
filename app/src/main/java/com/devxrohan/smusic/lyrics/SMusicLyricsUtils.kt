@@ -29,6 +29,79 @@ object SMusicLyricsUtils {
     val LINE_REGEX = "((\\[\\d\\d:\\d\\d\\.\\d{2,3}\\] ?)+)(.+)".toRegex()
     val TIME_REGEX = "\\[(\\d\\d):(\\d\\d)\\.(\\d{2,3})\\]".toRegex()
 
+    // Word-level ("enhanced") LRC tags look like <00:12.340> right before each
+    // word, e.g. "[00:12.340]<00:12.340>Hello <00:12.600>world". If these are
+    // not parsed out, the raw "<00:12.340>" text leaks straight into the
+    // displayed lyric line instead of driving a per-word sync highlight.
+    private val WORD_TAG_REGEX = "<(\\d{1,3}):(\\d{2})(?:[.,](\\d{1,3}))?>".toRegex()
+    private val ENHANCED_LINE_REGEX = Regex("^\\[(\\d{1,3}):(\\d{2})[.:](\\d{2,3})](.*)$")
+    private val ENHANCED_WORD_REGEX = Regex("<(\\d{1,3}):(\\d{2})[.:](\\d{2,3})>([^<]*)")
+
+    private fun wordTagToMillis(match: MatchResult): Long {
+        val minutes = match.groupValues[1].toLongOrNull() ?: 0L
+        val seconds = match.groupValues[2].toLongOrNull() ?: 0L
+        val fraction = match.groupValues[3]
+        val millis = when (fraction.length) {
+            1 -> fraction.toLong() * 100
+            2 -> fraction.toLong() * 10
+            3 -> fraction.toLong()
+            else -> 0L
+        }
+        return minutes * 60_000L + seconds * 1_000L + millis
+    }
+
+    /** True when a (already line-timestamp-stripped) lyric line still carries inline word tags. */
+    fun hasInlineWordTags(text: String): Boolean = WORD_TAG_REGEX.containsMatchIn(text)
+
+    /**
+     * Splits an enhanced-LRC line's remainder (after the leading [mm:ss.xx] is
+     * removed) into plain display text plus, when available, per-word timing.
+     * Always returns clean text even if the tags are malformed, so raw
+     * timestamps never reach the UI.
+     */
+    fun stripInlineWordTags(text: String, lineStartMs: Long): Pair<String, List<WordTimestamp>> {
+        if (!hasInlineWordTags(text)) return text to emptyList()
+
+        val matches = WORD_TAG_REGEX.findAll(text).toList()
+        val builder = StringBuilder()
+        val words = mutableListOf<WordTimestamp>()
+        var cursor = 0
+        var pendingStart: Long? = null
+        var pendingWordStart = -1
+
+        for (match in matches) {
+            // Plain text between the previous tag and this one belongs to the
+            // word that started at pendingStart.
+            val segment = text.substring(cursor, match.range.first)
+            if (pendingStart != null && segment.isNotEmpty()) {
+                val trimmed = segment.trim()
+                if (trimmed.isNotEmpty()) {
+                    words += WordTimestamp(
+                        text = trimmed,
+                        startTime = pendingStart / 1000.0,
+                        endTime = wordTagToMillis(match) / 1000.0,
+                    )
+                }
+            }
+            builder.append(segment)
+            pendingStart = wordTagToMillis(match)
+            pendingWordStart = builder.length
+            cursor = match.range.last + 1
+        }
+        val tail = text.substring(cursor)
+        builder.append(tail)
+        if (pendingStart != null && tail.trim().isNotEmpty()) {
+            words += WordTimestamp(
+                text = tail.trim(),
+                startTime = pendingStart / 1000.0,
+                endTime = (pendingStart + tail.trim().length * 90L).coerceAtLeast(pendingStart + 1L) / 1000.0,
+            )
+        }
+
+        val cleanText = builder.toString().trim().replace(Regex("\\s+"), " ")
+        return cleanText to words
+    }
+
     private val KANA_ROMAJI_MAP: Map<String, String> = mapOf(
         // Digraphs (Yōon - combinations like kya, sho)
         "キャ" to "kya", "キュ" to "kyu", "キョ" to "kyo",
@@ -177,16 +250,53 @@ object SMusicLyricsUtils {
                             startTime = word.startTime * scale,
                             endTime = word.endTime * scale,
                             isBackground = word.isBackground,
+                            syllables = word.syllables.map { part ->
+                                SyllableTimestamp(
+                                    startTime = part.startTime,
+                                    endTime = part.endTime,
+                                    startChar = part.startChar,
+                                    endChar = part.endChar,
+                                )
+                            },
                         )
                     }.takeIf { it.isNotEmpty() }
 
+            val startMs = (line.startTime * scale * 1000.0).toLong()
+            val endMs = (line.endTime * scale * 1000.0).toLong()
             LyricsEntry(
-                time = (line.startTime * scale * 1000.0).toLong(),
+                time = startMs,
                 text = line.text,
                 words = words,
                 agent = line.agent,
+                sungUntilMs = endMs.takeIf { it > startMs },
             )
-        }.sorted()
+        }.sorted().withInstrumentalGapMarkers()
+    }
+
+    /**
+     * Insert explicit silent rows only when a provider tells us where the vocal
+     * actually ends. A large distance to the next line timestamp alone is not
+     * treated as silence, because line-synced providers do not tell us when the
+     * singer stopped.
+     */
+    private fun List<LyricsEntry>.withInstrumentalGapMarkers(): List<LyricsEntry> {
+        if (size < 2) return this
+        val result = ArrayList<LyricsEntry>(size + 4)
+        forEachIndexed { index, line ->
+            result += line
+            val next = getOrNull(index + 1) ?: return@forEachIndexed
+            val vocalEnd = line.sungUntilMs
+                ?: line.words?.lastOrNull()?.endTime?.let { (it * 1000.0).toLong() }
+                ?: return@forEachIndexed
+            if (vocalEnd > line.time && next.time - vocalEnd >= 4_000L) {
+                result += LyricsEntry(
+                    time = vocalEnd,
+                    text = "",
+                    sungUntilMs = vocalEnd,
+                )
+            }
+        }
+        return result.sorted()
     }
 
     /** Detects common structured timed lyric JSON responses (array or wrapped object). */
@@ -304,8 +414,117 @@ object SMusicLyricsUtils {
     fun isRecognizedTimedLyrics(lyrics: String): Boolean {
         val source = lyrics.trim().removePrefix("\uFEFF")
         return isTtml(source) || isStructuredTimedLyricsJson(source) ||
-            source.contains("-->") ||
-            source.lines().any { Regex("^\\s*\\[?\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3}\\]?\\s+.+$").matches(it) }
+            source.contains("-->") || (ENHANCED_LINE_REGEX.containsMatchIn(source) && ENHANCED_WORD_REGEX.containsMatchIn(source)) || source.lines().any { line ->
+                Regex("^\\s*(?:\\[\\d{1,3}:\\d{2}(?:[.,]\\d{1,3})?\\])+\\s*.+$").matches(line) ||
+                    Regex("^\\s*\\[?\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3}\\]?\\s+.+$").matches(line)
+            }
+    }
+
+    private fun parseEnhancedLrc(source: String): List<LyricsEntry> {
+        data class Row(val timeMs: Long, val matches: List<MatchResult>, val plain: String)
+
+        fun stamp(minutes: String, seconds: String, fraction: String): Long {
+            val fractionMs = if (fraction.length == 3) fraction.toLong() else fraction.toLong() * 10L
+            return minutes.toLong() * 60_000L + seconds.toLong() * 1_000L + fractionMs
+        }
+
+        val rows = source.lineSequence().mapNotNull { raw ->
+            val match = ENHANCED_LINE_REGEX.matchEntire(raw.trim()) ?: return@mapNotNull null
+            Row(
+                timeMs = stamp(match.groupValues[1], match.groupValues[2], match.groupValues[3]),
+                matches = ENHANCED_WORD_REGEX.findAll(match.groupValues[4]).toList(),
+                plain = match.groupValues[4].trim(),
+            )
+        }.sortedBy { it.timeMs }.toList()
+        if (rows.none { it.matches.isNotEmpty() }) return emptyList()
+
+        return rows.mapIndexedNotNull { index, row ->
+            if (row.matches.isEmpty()) {
+                val plain = decodeLyricEntities(row.plain)
+                return@mapIndexedNotNull if (plain.isBlank()) null else LyricsEntry(row.timeMs, plain)
+            }
+            val lineEnd = rows.getOrNull(index + 1)?.timeMs
+                ?: (stamp(row.matches.last().groupValues[1], row.matches.last().groupValues[2], row.matches.last().groupValues[3]) + 800L)
+            val runs = row.matches.mapIndexed { runIndex, match ->
+                val start = stamp(match.groupValues[1], match.groupValues[2], match.groupValues[3])
+                val end = row.matches.getOrNull(runIndex + 1)?.let {
+                    stamp(it.groupValues[1], it.groupValues[2], it.groupValues[3])
+                } ?: lineEnd
+                Triple(start, end, decodeLyricEntities(match.groupValues[4]))
+            }
+            val words = enhancedWordsFromRuns(runs)
+            if (words.isEmpty()) return@mapIndexedNotNull null
+            LyricsEntry(
+                time = minOf(row.timeMs, words.first().startTime.let { (it * 1000.0).toLong() }),
+                text = words.joinToString(" ") { it.text },
+                words = words,
+            )
+        }.sorted()
+    }
+
+    private fun enhancedWordsFromRuns(runs: List<Triple<Long, Long, String>>): List<WordTimestamp> {
+        val glue = runs.any { (_, _, raw) -> raw.any(Char::isWhitespace) }
+        val words = mutableListOf<WordTimestamp>()
+        val current = StringBuilder()
+        val syllables = mutableListOf<SyllableTimestamp>()
+        var start = 0L
+        var end = 0L
+
+        fun flush() {
+            if (current.isNotEmpty()) {
+                val value = current.toString()
+                val normalized = if (syllables.size < 2) emptyList() else syllables.mapIndexed { index, part ->
+                    part.copy(
+                        startChar = if (index == 0) 0 else part.startChar,
+                        endChar = syllables.getOrNull(index + 1)?.startChar ?: value.length,
+                    )
+                }
+                words += WordTimestamp(value, start / 1000.0, end / 1000.0, syllables = normalized)
+            }
+            current.setLength(0)
+            syllables.clear()
+        }
+
+        for ((runStart, runEnd, raw) in runs) {
+            val content = raw.trim()
+            if (content.isEmpty()) {
+                flush()
+                continue
+            }
+            val joins = glue && current.isNotEmpty() && !raw.first().isWhitespace() &&
+                !isUnspacedScript(current.last()) && !isUnspacedScript(content.first())
+            if (!joins) flush()
+            if (current.isEmpty()) {
+                start = runStart
+                end = runStart
+            }
+            val from = current.length
+            current.append(content)
+            val safeEnd = maxOf(runStart, runEnd)
+            syllables += SyllableTimestamp(runStart / 1000.0, safeEnd / 1000.0, from, current.length)
+            end = maxOf(end, safeEnd)
+            if (!glue || raw.last().isWhitespace()) flush()
+        }
+        flush()
+        return words
+    }
+
+    private fun isUnspacedScript(char: Char): Boolean =
+        char in '\u3400'..'\u9FFF' || char in '\u3040'..'\u30FF' ||
+            char in '\u3000'..'\u303F' || char in '\uFF00'..'\uFFEF' ||
+            char in '\u0E00'..'\u0E7F'
+
+    private fun decodeLyricEntities(text: String): String {
+        if ('&' !in text) return text
+        return text
+            .replace(Regex("&#x([0-9a-fA-F]+);")) { it.groupValues[1].toInt(16).toChar().toString() }
+            .replace(Regex("&#(\\d+);")) { it.groupValues[1].toInt().toChar().toString() }
+            .replace("&apos;", "'")
+            .replace("&quot;", "\"")
+            .replace("&nbsp;", " ")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
     }
 
     /** Auto-detect common lyric payloads without changing the existing karaoke renderer. */
@@ -313,10 +532,11 @@ object SMusicLyricsUtils {
         val source = lyrics.trim().removePrefix("\uFEFF")
         if (source.isEmpty()) return emptyList()
         if (isTtml(source)) {
-            parseTtml(source).takeIf { it.isNotEmpty() }?.let { return it }
+            parseTtml(source).takeIf { it.isNotEmpty() }?.let { return dedupeAdjacent(it) }
             return emptyList()
         }
-        if (isStructuredTimedLyricsJson(source)) parseStructuredTimedLyricsJson(source).takeIf { it.isNotEmpty() }?.let { return it }
+        if (isStructuredTimedLyricsJson(source)) parseStructuredTimedLyricsJson(source).takeIf { it.isNotEmpty() }?.let { return dedupeAdjacent(it) }
+        parseEnhancedLrc(source).takeIf { it.isNotEmpty() }?.let { return dedupeAdjacent(it) }
 
         // WebVTT and SubRip: cue timestamps may have multiple text lines.
         val cueRegex = Regex("(?m)^\\s*(?:(?:WEBVTT|NOTE)[^\\n]*\\n)?(?:\\d+\\s*\\n)?(\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3})\\s*-->\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3})[^\\n]*\\n((?:(?!\\s*\\n).*(?:\\n|$))*)")
@@ -326,28 +546,33 @@ object SMusicLyricsUtils {
                 .replace(Regex("<[^>]+>"), "").trim()
             if (text.isBlank()) null else LyricsEntry(start, text)
         }.toList()
-        if (cues.isNotEmpty()) return cues.sorted()
+        if (cues.isNotEmpty()) return dedupeAdjacent(cues.sorted())
 
         // Flexible LRC timestamps: [1:02.3], [01:02], [01:02.34], and multiple stamps per line.
+        // Lines may additionally carry word-level <mm:ss.xxx> tags (enhanced LRC); those must
+        // never leak into the displayed text, so they are stripped into word timings instead.
         val flexibleLrc = source.lines().flatMap { line ->
             val stamps = Regex("\\[(\\d{1,3}):(\\d{2})(?:[.,](\\d{1,3}))?\\]").findAll(line).toList()
             if (stamps.isEmpty()) emptyList() else {
-                val text = line.replace(Regex("\\[(\\d{1,3}):(\\d{2})(?:[.,](\\d{1,3}))?\\]"), "").trim()
-                if (text.isBlank() || text.startsWith("ar:", true) || text.startsWith("ti:", true) ||
-                    text.startsWith("al:", true) || text.startsWith("by:", true) || text.startsWith("offset:", true)) emptyList()
+                val rawText = line.replace(Regex("\\[(\\d{1,3}):(\\d{2})(?:[.,](\\d{1,3}))?\\]"), "").trim()
+                if (rawText.isBlank() || rawText.startsWith("ar:", true) || rawText.startsWith("ti:", true) ||
+                    rawText.startsWith("al:", true) || rawText.startsWith("by:", true) || rawText.startsWith("offset:", true)) emptyList()
                 else stamps.mapNotNull { stamp ->
                     val minutes = stamp.groupValues[1].toLongOrNull() ?: return@mapNotNull null
                     val seconds = stamp.groupValues[2].toLongOrNull() ?: return@mapNotNull null
                     val fraction = stamp.groupValues[3]
                     val millis = when (fraction.length) { 1 -> fraction.toLong() * 100; 2 -> fraction.toLong() * 10; 3 -> fraction.toLong(); else -> 0L }
-                    LyricsEntry(minutes * 60_000L + seconds * 1_000L + millis, text)
+                    val lineStart = minutes * 60_000L + seconds * 1_000L + millis
+                    val (cleanText, words) = stripInlineWordTags(rawText, lineStart)
+                    if (cleanText.isBlank()) null
+                    else LyricsEntry(lineStart, cleanText, words = words.takeIf { it.isNotEmpty() })
                 }
             }
         }
-        if (flexibleLrc.isNotEmpty()) return flexibleLrc.sorted()
+        if (flexibleLrc.isNotEmpty()) return dedupeAdjacent(flexibleLrc.sorted())
 
         val lrc = parseLyrics(source)
-        if (lrc.isNotEmpty()) return lrc
+        if (lrc.isNotEmpty()) return dedupeAdjacent(lrc)
 
         // Timestamp-per-line formats such as `00:12.340 text` or `00:00:12,340 text`.
         val timestamped = source.lines().mapNotNull { line ->
@@ -356,7 +581,7 @@ object SMusicLyricsUtils {
             val time = parseClockTimestamp(m.groupValues[1]) ?: return@mapNotNull null
             LyricsEntry(time, m.groupValues[2].trim())
         }
-        if (timestamped.isNotEmpty()) return timestamped.sorted()
+        if (timestamped.isNotEmpty()) return dedupeAdjacent(timestamped.sorted())
 
         // Preserve plain text as untimed entries; callers can retain their existing fallback timing.
         return source.lines().map { it.trim() }.filter { it.isNotEmpty() }
@@ -392,7 +617,7 @@ object SMusicLyricsUtils {
         }
         val matchResult = LINE_REGEX.matchEntire(line.trim()) ?: return null
         val times = matchResult.groupValues[1]
-        val text = matchResult.groupValues[3]
+        val rawText = matchResult.groupValues[3]
         val timeMatchResults = TIME_REGEX.findAll(times)
 
         return timeMatchResults
@@ -405,14 +630,35 @@ object SMusicLyricsUtils {
                     mil *= 10
                 }
                 val time = min * DateUtils.MINUTE_IN_MILLIS + sec * DateUtils.SECOND_IN_MILLIS + mil
-                LyricsEntry(time, text)
-            }.toList()
+                // Enhanced LRC puts word-level <mm:ss.xxx> tags right after the line
+                // timestamp; strip them here too so they never render as raw text.
+                val (cleanText, words) = stripInlineWordTags(rawText, time)
+                LyricsEntry(time, cleanText, words = words.takeIf { it.isNotEmpty() })
+            }.filter { it.text.isNotBlank() }.toList()
+    }
+
+    /**
+     * Removes line entries that are exact parsing artifacts: same timestamp AND
+     * same text appearing back to back. Legitimate repeated lines (e.g. a chorus
+     * sung again later) always have a different timestamp, so this never drops
+     * real lyrics — only the literal duplicate a single line's timestamp can
+     * accidentally be parsed into twice.
+     */
+    private fun dedupeAdjacent(entries: List<LyricsEntry>): List<LyricsEntry> {
+        if (entries.size < 2) return entries
+        val result = mutableListOf<LyricsEntry>()
+        for (entry in entries) {
+            val last = result.lastOrNull()
+            if (last != null && last.time == entry.time && last.text == entry.text) continue
+            result += entry
+        }
+        return result
     }
 
     fun findCurrentLineIndex(
         lines: List<LyricsEntry>,
         position: Long,
-        leadMs: Long = 300L,
+        leadMs: Long = 0L,
     ): Int {
         if (lines.isEmpty()) return -1
 

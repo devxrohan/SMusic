@@ -31,14 +31,18 @@ object LrcRedLyricsProvider : LyricsProvider {
         duration: Int,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val query = URLEncoder.encode("$title $artist".trim(), "UTF-8")
-            val searchUrl = "https://lrc.red/search.json?q=$query"
-            val json = httpGet(searchUrl) ?: error("lrc.red search failed")
-            val hits = parseHits(json)
-            val best = bestHit(hits, title, artist, duration)
-                ?: error("No matching lrc.red recording")
-            val isrc = best.isrc.orEmpty().trim().uppercase(Locale.ROOT)
-            if (!ISRC.matches(isrc)) error("Invalid lrc.red ISRC")
+            val knownIsrc = BiniLyricsProvider.isrcFor(id)?.uppercase(Locale.ROOT)
+                ?.takeIf(ISRC::matches)
+            val isrc = knownIsrc ?: run {
+                val query = URLEncoder.encode("$title $artist".trim(), "UTF-8")
+                val searchUrl = "https://lrc.red/search.json?q=$query"
+                val json = httpGet(searchUrl) ?: error("lrc.red search failed")
+                val hits = parseHits(json)
+                val best = bestHit(hits, title, artist, duration)
+                    ?: error("No matching lrc.red recording")
+                best.isrc.orEmpty().trim().uppercase(Locale.ROOT)
+                    .takeIf(ISRC::matches) ?: error("Invalid lrc.red ISRC")
+            }
             httpGet("https://lrc.red/s/$isrc.ttml")
                 ?.takeIf { it.contains("<tt", ignoreCase = true) && it.contains("<p", ignoreCase = true) }
                 ?: error("lrc.red TTML unavailable")

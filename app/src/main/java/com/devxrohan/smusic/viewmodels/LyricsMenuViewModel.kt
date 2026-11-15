@@ -6,6 +6,8 @@ import com.devxrohan.smusic.db.MusicDatabase
 import com.devxrohan.smusic.db.entities.LyricsEntity
 import com.devxrohan.smusic.lyrics.LyricsHelper
 import com.devxrohan.smusic.lyrics.LyricsResult
+import com.devxrohan.smusic.lyrics.forLyricsSearch
+import com.devxrohan.smusic.lyrics.artistForLyricsSearch
 import com.devxrohan.smusic.models.MediaMetadata
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +29,11 @@ constructor(
     val results = MutableStateFlow(emptyList<LyricsResult>())
     val isLoading = MutableStateFlow(false)
 
+    fun currentProviderName(mediaId: String): String? = lyricsHelper.providerNameFor(mediaId)
+
+    fun rememberProviderName(mediaId: String, providerName: String) =
+        lyricsHelper.rememberProviderName(mediaId, providerName)
+
     fun search(
         mediaId: String,
         title: String,
@@ -38,7 +45,7 @@ constructor(
         job?.cancel()
         job =
             viewModelScope.launch(Dispatchers.IO) {
-                lyricsHelper.getAllLyrics(mediaId, title, artist, duration) { result ->
+                lyricsHelper.getAllLyrics(mediaId, title.forLyricsSearch(), artist.artistForLyricsSearch(), duration) { result ->
                     results.update {
                         it + result
                     }

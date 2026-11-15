@@ -6,6 +6,9 @@ import com.devxrohan.smusic.lyrics.LyricsProvider
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.get
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -16,17 +19,21 @@ import java.util.concurrent.TimeUnit
 object YouLyLyricsProvider : LyricsProvider {
     override val name: String = "YouLyPlus"
 
+    // Preferred mirror order; concurrent requests avoid waiting on an unavailable mirror.
     private val baseUrls = listOf(
-        "https://lyricsplus.binimum.org/",
         "https://lyricsplus.prjktla.my.id/",
         "https://lyricsplus.atomix.one/",
-        "https://lyricsplus-seven.vercel.app/"
+        "https://lyricsplus.binimum.org/",
+        "https://lyricsplus.prjktla.workers.dev/",
+        "https://lyricsplus-seven.vercel.app/",
+        "https://lyrics-plus-backend.vercel.app/",
     )
 
     private val client by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
             .build()
     }
 
@@ -39,59 +46,55 @@ object YouLyLyricsProvider : LyricsProvider {
         duration: Int,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val cleanTitle = title.trim()
-            val cleanArtist = artist.trim()
-            if (cleanTitle.isBlank() || cleanArtist.isBlank()) {
-                throw IllegalArgumentException("Title and artist required")
-            }
-
+            val cleanTitle = title.forLyricsSearch()
+            val cleanArtist = artist.artistForLyricsSearch()
+            require(cleanTitle.isNotBlank() && cleanArtist.isNotBlank()) { "Title and artist required" }
             val encTitle = URLEncoder.encode(cleanTitle, "UTF-8")
             val encArtist = URLEncoder.encode(cleanArtist, "UTF-8")
-
-            for (baseUrl in baseUrls) {
+            coroutineScope {
+                val pending = baseUrls.map { baseUrl ->
+                    async(Dispatchers.IO) { fetchFromMirror(baseUrl, encTitle, encArtist, duration) }
+                }.toMutableList()
                 try {
-                    // Try TTML first
-                    val ttmlUrl = "${baseUrl}v1/ttml/get?title=$encTitle&artist=$encArtist" + (if (duration > 0) "&duration=$duration" else "")
-                    val ttmlReq = Request.Builder()
-                        .url(ttmlUrl)
-                        .header("User-Agent", "SMusic/1.0")
-                        .header("Accept", "application/json")
-                        .build()
-
-                    val ttmlResp = client.newCall(ttmlReq).execute()
-                    if (ttmlResp.isSuccessful) {
-                        val body = ttmlResp.body?.string()
-                        if (!body.isNullOrBlank()) {
-                            val json = JSONObject(body)
-                            val ttml = json.optString("ttml", "").trim()
-                            if (ttml.isNotBlank()) return@runCatching ttml
+                    while (pending.isNotEmpty()) {
+                        val (finished, lyrics) = select<Pair<kotlinx.coroutines.Deferred<String?>, String?>> {
+                            pending.forEach { job -> job.onAwait { job to it } }
                         }
+                        pending.remove(finished)
+                        if (!lyrics.isNullOrBlank()) return@coroutineScope lyrics
                     }
-
-                    // Fallback to LRC
-                    val lrcUrl = "${baseUrl}v2/lyrics/get?title=$encTitle&artist=$encArtist" + (if (duration > 0) "&duration=$duration" else "")
-                    val lrcReq = Request.Builder()
-                        .url(lrcUrl)
-                        .header("User-Agent", "SMusic/1.0")
-                        .header("Accept", "application/json")
-                        .build()
-
-                    val lrcResp = client.newCall(lrcReq).execute()
-                    if (lrcResp.isSuccessful) {
-                        val body = lrcResp.body?.string()
-                        if (!body.isNullOrBlank()) {
-                            val json = JSONObject(body)
-                            val lrc = json.optString("lyrics", "").trim()
-                            if (lrc.isNotBlank()) return@runCatching lrc
-                        }
-                    }
-                } catch (_: Exception) {
-                    continue
+                    error("Lyrics not found on YouLyPlus mirrors")
+                } finally {
+                    pending.forEach { it.cancel() }
                 }
             }
-
-            throw IllegalStateException("Lyrics not found on YouLyPlus")
         }
+    }
+
+    private fun fetchFromMirror(baseUrl: String, title: String, artist: String, duration: Int): String? {
+        val durationQuery = if (duration > 0) "&duration=$duration" else ""
+        val ttmlUrl = "${baseUrl}v1/ttml/get?title=$title&artist=$artist$durationQuery"
+        val ttml = runCatching {
+            val request = Request.Builder().url(ttmlUrl)
+                .header("User-Agent", "SMusic/1.0").header("Accept", "application/json").build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) null
+                else JSONObject(response.body?.string().orEmpty()).optString("ttml")
+                    .trim().takeIf(String::isNotBlank)
+            }
+        }.getOrNull()
+        if (!ttml.isNullOrBlank()) return ttml
+
+        val lrcUrl = "${baseUrl}v2/lyrics/get?title=$title&artist=$artist$durationQuery"
+        return runCatching {
+            val request = Request.Builder().url(lrcUrl)
+                .header("User-Agent", "SMusic/1.0").header("Accept", "application/json").build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) null
+                else JSONObject(response.body?.string().orEmpty()).optString("lyrics")
+                    .trim().takeIf(String::isNotBlank)
+            }
+        }.getOrNull()
     }
 
     override suspend fun getAllLyrics(

@@ -196,7 +196,6 @@ object LyricsTranslationHelper {
         baseUrl: String,
         model: String,
         mode: String = "Literal",
-        customPrompt: String? = null,
         provider: String = "OpenRouter",
         context: Context,
         songId: String = "",
@@ -243,7 +242,6 @@ object LyricsTranslationHelper {
                 baseUrl = baseUrl,
                 model = model,
                 mode = mode,
-                customPrompt = customPrompt,
                 provider = provider,
                 onLog = { logMsg ->
                     val cur = _status.value

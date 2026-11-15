@@ -62,6 +62,7 @@ fun LazyGridScope.GridMenuItem(
     tint: @Composable () -> Color = { LocalContentColor.current },
     @StringRes title: Int,
     enabled: Boolean = true,
+    subtitle: String? = null,
     onClick: () -> Unit,
 ) = GridMenuItem(
     modifier = modifier,
@@ -74,6 +75,7 @@ fun LazyGridScope.GridMenuItem(
     },
     title = title,
     enabled = enabled,
+    subtitle = subtitle,
     onClick = onClick
 )
 
@@ -82,6 +84,7 @@ fun LazyGridScope.GridMenuItem(
     icon: @Composable BoxScope.() -> Unit,
     @StringRes title: Int,
     enabled: Boolean = true,
+    subtitle: String? = null,
     onClick: () -> Unit,
 ) {
     item {
@@ -111,13 +114,19 @@ fun LazyGridScope.GridMenuItem(
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
                 textAlign = TextAlign.Center,
-                maxLines = 2,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(with(LocalDensity.current) {
-                        MaterialTheme.typography.labelMedium.lineHeight.toDp() * 2
-                    })
+                maxLines = 1,
+                modifier = Modifier.fillMaxWidth(),
             )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }

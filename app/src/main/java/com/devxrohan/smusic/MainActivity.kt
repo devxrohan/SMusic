@@ -1,65 +1,38 @@
 package com.devxrohan.smusic
 
 import android.Manifest
-import com.devxrohan.smusic.ui.component.LocalUserName
 import android.annotation.SuppressLint
-import androidx.compose.animation.core.LinearEasing
 import androidx.core.app.ActivityCompat
 import androidx.datastore.preferences.core.edit
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
-import androidx.compose.material3.Icon
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalDensity
-import android.content.ActivityNotFoundException
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.animation.core.animateFloatAsState
 import android.content.ComponentName
-import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.ExperimentalMaterial3Api
-import kotlin.math.roundToInt
-import androidx.compose.foundation.layout.statusBarsPadding
 import android.content.Context
-import androidx.compose.runtime.derivedStateOf
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.graphics.drawable.BitmapDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
-import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -68,21 +41,14 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -93,20 +59,15 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialogDefaults
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.contentColorFor
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -115,40 +76,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import com.devxrohan.smusic.ui.component.CircleIconButton
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastAny
-import androidx.compose.ui.util.fastFirstOrNull
-import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.util.Consumer
@@ -159,14 +98,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import coil.compose.AsyncImage
-import coil.imageLoader
-import coil.request.ImageRequest
 import com.devxrohan.smusic.innertube.YouTube
 import com.devxrohan.smusic.innertube.models.SongItem
 import com.devxrohan.smusic.innertube.models.WatchEndpoint
@@ -177,7 +112,6 @@ import com.devxrohan.smusic.constants.DockedContentGap
 import com.devxrohan.smusic.constants.DockedNavBarSurfaceHeight
 import com.devxrohan.smusic.constants.MiniPlayerHeight
 import com.devxrohan.smusic.constants.PauseSearchHistoryKey
-import androidx.compose.foundation.Image
 import com.devxrohan.smusic.constants.SearchSource
 import com.devxrohan.smusic.constants.SearchSourceKey
 import com.devxrohan.smusic.constants.SlimNavBarKey
@@ -185,7 +119,6 @@ import com.devxrohan.smusic.constants.NavBarStyle
 import com.devxrohan.smusic.constants.StopMusicOnTaskClearKey
 import com.devxrohan.smusic.db.MusicDatabase
 import com.devxrohan.smusic.db.entities.SearchHistory
-import com.devxrohan.smusic.extensions.toEnum
 import com.devxrohan.smusic.models.toMediaMetadata
 import com.devxrohan.smusic.playback.DownloadUtil
 import com.devxrohan.smusic.playback.MusicService
@@ -194,42 +127,30 @@ import com.devxrohan.smusic.playback.PlayerConnection
 import com.devxrohan.smusic.playback.queues.YouTubeQueue
 import com.devxrohan.smusic.ui.component.BottomSheet
 import com.devxrohan.smusic.ui.component.BottomSheetMenu
-import com.devxrohan.smusic.ui.component.IconButton
 import com.devxrohan.smusic.ui.component.SMusicBottomNav
 import com.devxrohan.smusic.ui.component.SpotifyLyrics
 import com.devxrohan.smusic.constants.AppFont
 import com.devxrohan.smusic.constants.AppFontKey
 import com.devxrohan.smusic.ui.component.CurvedBottomNavigationItem
-import com.devxrohan.smusic.ui.component.SMusicBottomNav
 import com.devxrohan.smusic.ui.component.LocalMenuState
 import com.devxrohan.smusic.ui.component.rememberBackdrop
 import com.devxrohan.smusic.ui.component.layerBackdrop
 import com.devxrohan.smusic.ui.component.LocalBackdrop
-import com.devxrohan.smusic.ui.component.Lyrics
 import com.devxrohan.smusic.constants.PlayerScreenStyleKey
 import com.devxrohan.smusic.constants.PlayerScreenStyle
 import com.devxrohan.smusic.ui.component.NamePreferenceManager
 import com.devxrohan.smusic.ui.component.NameProvider
-import com.devxrohan.smusic.ui.component.SwitchPreference
-import com.devxrohan.smusic.ui.component.TopSearch
 import com.devxrohan.smusic.ui.component.rememberBottomSheetState
 import com.devxrohan.smusic.ui.component.shimmer.ShimmerTheme
 import com.devxrohan.smusic.ui.menu.YouTubeSongMenu
 import com.devxrohan.smusic.ui.player.BottomSheetPlayer
-import com.devxrohan.smusic.ui.screens.HomeScreen
 import com.devxrohan.smusic.ui.screens.Screens
 import com.devxrohan.smusic.ui.screens.navigationBuilder
-import com.devxrohan.smusic.ui.screens.search.LocalSearchScreen
-import com.devxrohan.smusic.ui.screens.search.OnlineSearchScreen
 import com.devxrohan.smusic.ui.screens.settings.DarkMode
 import com.devxrohan.smusic.ui.screens.settings.NavigationTab
 import com.devxrohan.smusic.ui.theme.DefaultThemeColor
 import com.devxrohan.smusic.ui.theme.SMusicTheme
-import com.devxrohan.smusic.ui.theme.extractThemeColor
 import com.devxrohan.smusic.ui.utils.appBarScrollBehavior
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
-import com.devxrohan.smusic.ui.utils.backToMain
 import com.devxrohan.smusic.ui.utils.resetHeightOffset
 import com.devxrohan.smusic.utils.SyncUtils
 import com.devxrohan.smusic.utils.Updater
@@ -240,7 +161,6 @@ import com.devxrohan.smusic.utils.rememberEnumPreference
 import com.devxrohan.smusic.utils.rememberPreference
 import com.devxrohan.smusic.utils.isFreshInstall
 import com.devxrohan.smusic.utils.reportException
-import com.devxrohan.smusic.viewmodels.NewReleaseViewModel
 import com.valentinilk.shimmer.LocalShimmerTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
@@ -251,19 +171,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import timber.log.Timber
-import java.net.URL
 import java.net.URLDecoder
 import java.net.URLEncoder
 import javax.inject.Inject
-import kotlin.math.absoluteValue
-import kotlin.time.Duration.Companion.days
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.zIndex
-import kotlinx.coroutines.isActive
 
 @Suppress("DEPRECATION", "ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
 // Process-level state for "is this a real app open?" (see the ON_RESUME / ON_STOP observer).
@@ -1680,229 +1592,3 @@ class MainActivity : ComponentActivity() {
         const val ACTION_LIBRARY = "com.devxrohan.smusic.action.LIBRARY"
     }
 }
-
-val LocalDatabase = staticCompositionLocalOf<MusicDatabase> { error("No database provided") }
-val LocalPlayerConnection =
-    compositionLocalOf<PlayerConnection?> { null }
-val LocalPlayerAwareWindowInsets =
-    compositionLocalOf<WindowInsets> { error("No WindowInsets provided") }
-val LocalDownloadUtil = staticCompositionLocalOf<DownloadUtil> { error("No DownloadUtil provided") }
-val LocalSyncUtils = staticCompositionLocalOf<SyncUtils> { error("No SyncUtils provided") }
-
-
-@Composable
-fun NotificationPermissionPreference() {
-    val context = LocalContext.current
-    var permissionGranted by remember { mutableStateOf(false) }
-
-    val checkNotificationPermission = remember {
-        {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
-            } else {
-                NotificationManagerCompat.from(context).areNotificationsEnabled()
-            }
-        }
-    }
-
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        permissionGranted = isGranted
-        if (!isGranted) {
-            Log.d("NotificationPermission", "Permiso de notificaciones denegado")
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        permissionGranted = checkNotificationPermission()
-    }
-
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                permissionGranted = checkNotificationPermission()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    SwitchPreference(
-        title = { Text(stringResource(R.string.notification)) },
-        icon = {
-            Icon(
-                painter = painterResource(
-                    id = if (permissionGranted) R.drawable.notification_on
-                    else R.drawable.notification_off
-                ),
-                contentDescription = stringResource(
-                    if (permissionGranted) R.string.notifications_enabled
-                    else R.string.notifications_disabled
-                )
-            )
-        },
-        checked = permissionGranted,
-        onCheckedChange = { checked ->
-            when {
-                checked && !permissionGranted -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        openNotificationSettings(context)
-                    }
-                }
-                !checked && permissionGranted -> {
-                    openNotificationSettings(context)
-                }
-            }
-        }
-    )
-}
-
-private fun openNotificationSettings(context: Context) {
-    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-        }
-    } else {
-        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-            data = Uri.fromParts("package", context.packageName, null)
-        }
-    }
-
-    try {
-        context.startActivity(intent)
-    } catch (e: ActivityNotFoundException) {
-        Log.e("NotificationSettings", "No se pudo abrir configuración de notificaciones", e)
-        context.startActivity(Intent(Settings.ACTION_SETTINGS))
-    }
-}
-
-suspend fun checkForUpdates(context: Context): String? = withContext(Dispatchers.IO) {
-    // Same resilient GitHub routes (+ DNS-over-HTTPS fallback) as the update popup.
-    runCatching {
-        com.devxrohan.smusic.update.GitHubReleaseFetcher(context.applicationContext)
-            .fetchLatestRelease()
-            ?.versionName
-    }.getOrNull()
-}
-
-fun isNewerVersion(remoteVersion: String, currentVersion: String): Boolean {
-    val remote = remoteVersion.removePrefix("v").split(".").map { it.toIntOrNull() ?: 0 }
-    val current = currentVersion.removePrefix("v").split(".").map { it.toIntOrNull() ?: 0 }
-
-    for (i in 0 until maxOf(remote.size, current.size)) {
-        val r = remote.getOrNull(i) ?: 0
-        val c = current.getOrNull(i) ?: 0
-        if (r > c) return true
-        if (r < c) return false
-    }
-    return false
-}
-
-@Composable
-fun ProfileIconWithUpdateBadge(
-    currentVersion: String,
-    onProfileClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }
-            ) {
-                onProfileClick()
-            }
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.settings),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(22.dp)
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ModernHomeTopBar(
-    onSearchClick: () -> Unit,
-    onProfileClick: () -> Unit,
-    scrollBehavior: TopAppBarScrollBehavior
-) {
-    val context = LocalContext.current
-
-    val userName = LocalUserName.current
-    val displayName = if (userName.isNotEmpty()) userName else "Friend"
-
-    val collapsedFraction by remember {
-        derivedStateOf { scrollBehavior.state.collapsedFraction }
-    }
-
-    val contentAlpha = 1f - collapsedFraction
-    val yOffset = (-collapsedFraction * 120).roundToInt()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 20.dp)
-            .padding(top = 24.dp, bottom = 12.dp)
-            .offset {
-                IntOffset(x = 0, y = yOffset)
-            }
-    ) {
-        Column(modifier = Modifier.alpha(contentAlpha)) {
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .clickable { onProfileClick() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.settings),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Hi, $displayName",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    CircleIconButton(icon = R.drawable.favorite, onClick = { })
-                }
-            }
-        }
-    }
-}
-

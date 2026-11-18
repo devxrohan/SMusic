@@ -11,7 +11,7 @@ import androidx.navigation.NavController
 import androidx.compose.material3.TopAppBarScrollBehavior
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.AndroidAutoConstants
-import com.devxrohan.smusic.ui.component.PreferenceGroupTitle
+import com.devxrohan.smusic.ui.component.SettingsGeneralCategory
 import com.devxrohan.smusic.ui.component.SettingsPage
 import com.devxrohan.smusic.ui.component.SwitchPreference
 import com.devxrohan.smusic.utils.rememberPreference
@@ -34,14 +34,14 @@ fun AndroidAutoSettings(
         navController = navController,
         scrollBehavior = scrollBehavior,
     ) {
-        PreferenceGroupTitle(title = stringResource(R.string.android_auto_general))
+        SettingsGeneralCategory(title = stringResource(R.string.android_auto_general), items = listOf({
         SwitchPreference(
             title = { Text(stringResource(R.string.android_auto_enable)) },
             description = stringResource(R.string.android_auto_enable_desc),
             icon = { Icon(painterResource(R.drawable.car), null) },
             checked = autoEnabled,
             onCheckedChange = onAutoEnabledChange,
-        )
+        )}, {
         SwitchPreference(
             title = { Text(stringResource(R.string.android_auto_simplified_mode)) },
             description = stringResource(R.string.android_auto_simplified_mode_desc),
@@ -50,31 +50,33 @@ fun AndroidAutoSettings(
             onCheckedChange = onSimplifiedModeChange,
         )
 
-        PreferenceGroupTitle(title = stringResource(R.string.android_auto_library))
+        }))
+        SettingsGeneralCategory(title = stringResource(R.string.android_auto_library), items = listOf({
         SwitchPreference(
             title = { Text(stringResource(R.string.android_auto_show_liked_songs)) },
             icon = { Icon(painterResource(R.drawable.library_music), null) },
             checked = showLiked,
             onCheckedChange = onShowLikedChange,
-        )
+        )}, {
         SwitchPreference(
             title = { Text(stringResource(R.string.android_auto_show_downloaded)) },
             icon = { Icon(painterResource(R.drawable.download), null) },
             checked = showDownloaded,
             onCheckedChange = onShowDownloadedChange,
-        )
+        )}, {
         SwitchPreference(
             title = { Text(stringResource(R.string.android_auto_show_youtube_playlists)) },
             description = stringResource(R.string.android_auto_show_youtube_playlists_desc),
             icon = { Icon(painterResource(R.drawable.playlist_play), null) },
             checked = showPlaylists,
             onCheckedChange = onShowPlaylistsChange,
-        )
+        )}, {
         SwitchPreference(
             title = { Text(stringResource(R.string.android_auto_show_history)) },
             icon = { Icon(painterResource(R.drawable.history), null) },
             checked = showHistory,
             onCheckedChange = onShowHistoryChange,
         )
+        }))
     }
 }

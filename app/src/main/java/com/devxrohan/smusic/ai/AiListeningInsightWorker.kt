@@ -3,101 +3,77 @@ package com.devxrohan.smusic.ai
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.work.Constraints
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
+import androidx.work.*
+import com.devxrohan.smusic.MainActivity
 import com.devxrohan.smusic.R
-import com.devxrohan.smusic.constants.AiProviderKey
 import com.devxrohan.smusic.constants.AiListeningNotificationsKey
-import com.devxrohan.smusic.constants.OpenRouterApiKey
-import com.devxrohan.smusic.constants.OpenRouterBaseUrlKey
-import com.devxrohan.smusic.constants.OpenRouterModelKey
 import com.devxrohan.smusic.db.InternalDatabase
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.get
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class AiListeningInsightWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        if (!applicationContext.dataStore.get(AiListeningNotificationsKey, false)) return@withContext Result.success()
+        if (!applicationContext.dataStore.get(AiListeningNotificationsKey, false) || !canNotify(applicationContext)) {
+            return@withContext Result.success()
+        }
+        val db = try { InternalDatabase.newInstance(applicationContext) }
+            catch (_: Exception) { return@withContext Result.retry() }
         try {
-            val db = InternalDatabase.newInstance(applicationContext)
-            val mostPlayed = runCatching { db.mostPlayedSongs(fromTimeStamp = 0L, limit = 12).firstOrNull() }.getOrNull().orEmpty()
-            val recent = runCatching { db.recentSongs(limit = 8).firstOrNull() }.getOrNull().orEmpty()
+            val mostPlayed = db.mostPlayedSongs(fromTimeStamp = 0L, limit = 12).firstOrNull().orEmpty()
+            val recent = db.recentSongs(limit = 8).firstOrNull().orEmpty()
             val songs = (mostPlayed + recent).distinctBy { it.id }.take(16)
-            if (songs.isEmpty()) return@withContext Result.success()
-            val taste = songs.joinToString("\n") { song -> "${song.title} — ${song.artists.joinToString { it.name }}" }
-            val provider = applicationContext.dataStore.get(AiProviderKey, "Google").trim()
-            val key = applicationContext.dataStore.get(OpenRouterApiKey, "")
-            val storedBase = applicationContext.dataStore.get(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
-            val storedModel = applicationContext.dataStore.get(OpenRouterModelKey, "gpt-4o-mini")
-            val isPuter = provider.equals("Puter", true)
-            val base = if (isPuter && storedBase.contains("openrouter.ai")) "https://api.puter.com/v1/chat/completions" else storedBase
-            val model = if (isPuter && storedModel == "google/gemini-2.5-flash-lite") "gpt-4o-mini" else storedModel
-            if (provider.equals("DeepL", true)) return@withContext Result.success()
-            if (key.isBlank() && !isPuter && !provider.equals("Custom", true)) return@withContext Result.success()
-            val prompt = "Write one friendly, non-cheesy music discovery insight in 1-2 sentences based on these listening signals. Do not invent facts, do not recommend unsafe content, and return plain text only.\n$taste"
-            val isClaude = provider.equals("Claude", true)
-            val resolvedModel = if (isClaude && (model.isBlank() || model == "google/gemini-2.5-flash-lite")) "claude-3-5-haiku-latest"
-                else model.ifBlank { "google/gemini-2.5-flash-lite" }
-            val requestBody = JSONObject().apply {
-                put("model", resolvedModel)
-                put("max_tokens", 120)
-                put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
-                if (!isClaude) put("temperature", 0.7)
-            }.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val defaultUrl = if (isClaude) "https://api.anthropic.com/v1/messages" else "https://openrouter.ai/api/v1/chat/completions"
-            val configuredUrl = base.ifBlank { defaultUrl }.let { if (isClaude && it.contains("openrouter.ai")) defaultUrl else it }
-            val builder = Request.Builder().url(configuredUrl).post(requestBody)
-            if (key.isNotBlank()) {
-                if (isClaude) builder.addHeader("x-api-key", key).addHeader("anthropic-version", "2023-06-01")
-                else builder.addHeader("Authorization", "Bearer $key")
+            val taste = songs.joinToString("\n") { it.title + " — " + it.artists.joinToString { artist -> artist.name } }
+            val generated = if (songs.isEmpty()) null else AiTextClient.complete(
+                applicationContext,
+                "Write one friendly music discovery insight in 1-2 sentences from these listening signals. " +
+                    "Do not invent counts or listening dates. Return plain text only.\n" + taste,
+                120,
+            ).getOrNull()
+            val song = songs.firstOrNull()
+            val fallback = if (song == null) applicationContext.getString(R.string.ai_insight_empty_history)
+                else applicationContext.getString(R.string.ai_insight_history_summary,
+                    song.title, song.artists.joinToString { it.name }.ifBlank { applicationContext.getString(R.string.ai_insight_unknown_artist) })
+            if (applicationContext.dataStore.get(AiListeningNotificationsKey, false)) {
+                postInsight(applicationContext, generated ?: fallback, generated != null)
             }
-            val client = OkHttpClient.Builder().callTimeout(35, TimeUnit.SECONDS).build()
-            val response = client.newCall(builder.build()).execute()
-            if (!response.isSuccessful) return@withContext if (response.code >= 500 || response.code == 429) Result.retry() else Result.success()
-            val body = response.body?.string().orEmpty()
-            val parsed = JSONObject(body)
-            val message = if (isClaude) parsed.optJSONArray("content")?.optJSONObject(0)?.optString("text")?.trim().orEmpty()
-                else parsed.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content")?.trim().orEmpty()
-            if (message.isBlank()) return@withContext Result.retry()
-            postInsight(applicationContext, message)
             Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             Result.retry()
+        } finally {
+            db.close()
         }
     }
 
-    private fun postInsight(context: Context, message: String) {
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+    private fun postInsight(context: Context, message: String, aiGenerated: Boolean) {
+        if (!canNotify(context)) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "AI listening insights", NotificationManager.IMPORTANCE_DEFAULT))
+            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID,
+                context.getString(R.string.ai_insight_channel), NotificationManager.IMPORTANCE_DEFAULT))
         }
+        val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val pendingIntent = PendingIntent.getActivity(context, NOTIFICATION_ID, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.notifications)
-            .setContentTitle("Your music insight")
+            .setContentTitle(context.getString(if (aiGenerated) R.string.ai_insight_title else R.string.ai_insight_snapshot_title))
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
         manager.notify(NOTIFICATION_ID, notification)
@@ -107,23 +83,27 @@ class AiListeningInsightWorker(context: Context, params: WorkerParameters) : Cor
         private const val CHANNEL_ID = "ai_listening_insights"
         private const val NOTIFICATION_ID = 74102
         private const val WORK_NAME = "smusic_ai_listening_insights"
+        private const val IMMEDIATE_WORK_NAME = "smusic_ai_listening_insight_now"
+
+        fun canNotify(context: Context): Boolean = Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
         fun runNow(context: Context) {
             val request = OneTimeWorkRequestBuilder<AiListeningInsightWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
-            WorkManager.getInstance(context).enqueue(request)
+            WorkManager.getInstance(context).enqueueUniqueWork(IMMEDIATE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
         }
 
         fun setEnabled(context: Context, enabled: Boolean) {
             val manager = WorkManager.getInstance(context)
             if (!enabled) {
                 manager.cancelUniqueWork(WORK_NAME)
+                manager.cancelUniqueWork(IMMEDIATE_WORK_NAME)
                 return
             }
             val request = PeriodicWorkRequestBuilder<AiListeningInsightWorker>(24, TimeUnit.HOURS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setInitialDelay(1, TimeUnit.HOURS)
                 .build()
             manager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
         }

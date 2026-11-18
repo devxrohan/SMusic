@@ -123,7 +123,7 @@ fun RefreshAiRecommendationDialog(
                     }
                 } else {
                     Text(
-                        text = stringResource(R.string.ui_successfully_added_songs_to_recommended_by, successCount ?: 20),
+                        text = stringResource(R.string.ai_recommendations_completed, successCount ?: 0),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center

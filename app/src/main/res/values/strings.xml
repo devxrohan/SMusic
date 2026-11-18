@@ -1524,4 +1524,17 @@
     <string name="classic_show_source">Playback source</string>
     <string name="classic_artwork_width">Artwork width</string>
     <string name="classic_artwork_height">Artwork height</string>
+    <string name="settings_read_more">Read more</string>
+    <string name="settings_show_less">Show less</string>
+    <string name="ai_personalized_summary">Build a playlist from your listening taste. Uses your AI provider when configured, with listening-based mixes as a fallback.</string>
+    <string name="ai_listening_insight_summary">Receive a daily AI insight, or a listening snapshot when AI is unavailable. Track titles and artists are sent only to your configured AI provider.</string>
+    <string name="ai_recommendations_completed">Added %1$d songs to your personalized recommendations.</string>
+    <string name="ai_insight_channel">Listening insights</string>
+    <string name="ai_insight_title">Your music insight</string>
+    <string name="ai_insight_snapshot_title">Your listening snapshot</string>
+    <string name="ai_insight_empty_history">Play a few songs to start discovering your listening patterns.</string>
+    <string name="ai_insight_history_summary">Revisit “%1$s” by %2$s from your listening history, or start its radio to discover related music.</string>
+    <string name="ai_insight_unknown_artist">Unknown artist</string>
+    <string name="ai_insight_permission_needed">Allow notifications to receive listening insights.</string>
+    <string name="ai_insight_requested">Listening insight requested</string>
 </resources>

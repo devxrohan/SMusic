@@ -64,6 +64,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Button
 import com.devxrohan.smusic.constants.AiListeningNotificationsKey
 import com.devxrohan.smusic.ai.AiListeningInsightWorker
+import android.Manifest
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,13 +79,25 @@ fun AiSettings(
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     var listeningInsights by rememberPreference(AiListeningNotificationsKey, false)
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) AiListeningInsightWorker.runNow(context.applicationContext)
+        else Toast.makeText(context, context.getString(R.string.ai_insight_permission_needed), Toast.LENGTH_LONG).show()
+    }
+    fun requestInsight() {
+        if (Build.VERSION.SDK_INT >= 33 && !AiListeningInsightWorker.canNotify(context)) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            AiListeningInsightWorker.runNow(context.applicationContext)
+            Toast.makeText(context, context.getString(R.string.ai_insight_requested), Toast.LENGTH_SHORT).show()
+        }
+    }
     LaunchedEffect(listeningInsights) {
         AiListeningInsightWorker.setEnabled(context.applicationContext, listeningInsights)
     }
 
     var aiProvider by rememberPreference(AiProviderKey, "Google")
     var openRouterApiKey by rememberPreference(OpenRouterApiKey, "")
-    var openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://api.puter.com/v1/chat/completions")
+    var openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://api.puter.com/puterai/openai/v1/chat/completions")
     var openRouterModel by rememberPreference(OpenRouterModelKey, "gpt-4o-mini")
     var translateLanguage by rememberPreference(TranslateLanguageKey, "auto")
     var translateMode by rememberPreference(TranslateModeKey, "Literal")
@@ -188,7 +205,7 @@ fun AiSettings(
             "Nvidia" -> "https://build.nvidia.com/"
             "OrcaRouter" -> "https://orcarouter.com/"
             "Groq" -> "https://console.groq.com/keys"
-            "Puter" -> "https://puter.com/"
+            "Puter" -> "https://puter.com/dashboard"
             "DeepL" -> "https://www.deepl.com/pro-api"
             else -> null
         }
@@ -367,7 +384,7 @@ fun AiSettings(
                 {
                     ListPreference(
                         title = { Text(stringResource(R.string.ui_ai_provider)) },
-                        icon = { Icon(painterResource(R.drawable.auto_awesome), contentDescription = null) },
+                        icon = { Icon(painterResource(R.drawable.custom_ai_sparkle), contentDescription = null) },
                         selectedValue = aiProvider,
                         values = aiProviders,
                         valueText = { it },
@@ -417,7 +434,7 @@ fun AiSettings(
                                 }
                                 "Puter" -> {
                                     openRouterModel = "gpt-4o-mini"
-                                    openRouterBaseUrl = "https://api.puter.com/v1/chat/completions"
+                                    openRouterBaseUrl = "https://api.puter.com/puterai/openai/v1/chat/completions"
                                 }
                                 "DeepL" -> {
                                     openRouterBaseUrl = "https://api.deepl.com/v2/translate"
@@ -534,8 +551,8 @@ fun AiSettings(
                 {
                     SwitchPreference(
                         title = { Text(stringResource(R.string.ai_recommendations)) },
-                        description = stringResource(R.string.ai_recommendations_summary),
-                        icon = { Icon(painterResource(R.drawable.auto_awesome), contentDescription = null) },
+                        description = stringResource(R.string.ai_personalized_summary),
+                        icon = { Icon(painterResource(R.drawable.custom_ai_sparkle), contentDescription = null) },
                         checked = aiRecommendations,
                         onCheckedChange = { aiRecommendations = it }
                     )
@@ -558,10 +575,15 @@ fun AiSettings(
                 {
                     SwitchPreference(
                         title = { Text(stringResource(R.string.ui_daily_ai_listening_insight)) },
-                        description = stringResource(R.string.ui_opt_in_to_a_daily_notification),
-                        icon = { Icon(painterResource(R.drawable.auto_awesome), contentDescription = null) },
+                        description = stringResource(R.string.ai_listening_insight_summary),
+                        icon = { Icon(painterResource(R.drawable.custom_ai_sparkle), contentDescription = null) },
                         checked = listeningInsights,
-                        onCheckedChange = { listeningInsights = it }
+                        onCheckedChange = { enabled ->
+                            listeningInsights = enabled
+                            if (enabled && Build.VERSION.SDK_INT >= 33 && !AiListeningInsightWorker.canNotify(context)) {
+                                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
                     )
                 },
                 {
@@ -569,7 +591,7 @@ fun AiSettings(
                         title = { Text(stringResource(R.string.ui_generate_insight_now)) },
                         description = stringResource(R.string.ui_send_one_insight_notification_using_your),
                         icon = { Icon(painterResource(R.drawable.cached), contentDescription = null) },
-                        onClick = { AiListeningInsightWorker.runNow(context.applicationContext) },
+                        onClick = { requestInsight() },
                         isEnabled = listeningInsights
                     )
                 }

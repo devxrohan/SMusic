@@ -11,6 +11,7 @@ import androidx.room.DeleteTable
 import androidx.room.RenameColumn
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import androidx.room.TypeConverters
 import androidx.room.migration.AutoMigrationSpec
 import androidx.room.migration.Migration
@@ -61,6 +62,9 @@ class MusicDatabase(
                 }
             }
         }
+
+    suspend fun <T> withTransaction(block: suspend MusicDatabase.() -> T): T =
+        delegate.withTransaction { block(this@MusicDatabase) }
 
     fun close() = delegate.close()
 }

@@ -94,11 +94,7 @@ fun PreferenceEntry(
 
             if (description != null) {
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                CompactSettingsDescription(description)
             }
 
             content?.invoke()
@@ -355,4 +351,21 @@ fun PreferenceGroupTitle(
         color = MaterialTheme.colorScheme.primary,
         modifier = modifier.padding(start = 16.dp, bottom = 8.dp, top = 8.dp),
     )
+}
+
+/** Prevent long explanatory text from making settings cards dominate the screen. */
+@Composable
+fun CompactSettingsDescription(text: String) {
+    var expanded by androidx.compose.runtime.saveable.rememberSaveable(text) { mutableStateOf(false) }
+    var overflows by remember(text) { mutableStateOf(false) }
+    Column {
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis,
+            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow })
+        if (overflows || expanded) {
+            Text(stringResource(if (expanded) R.string.settings_show_less else R.string.settings_read_more), style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { expanded = !expanded }.padding(vertical = 6.dp))
+        }
+    }
 }

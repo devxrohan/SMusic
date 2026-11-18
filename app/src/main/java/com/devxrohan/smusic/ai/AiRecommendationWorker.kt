@@ -4,6 +4,10 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import timber.log.Timber
+import com.devxrohan.smusic.constants.AiRecommendationsKey
+import com.devxrohan.smusic.utils.dataStore
+import com.devxrohan.smusic.utils.get
+import kotlinx.coroutines.CancellationException
 
 class AiRecommendationWorker(
     appContext: Context,
@@ -11,6 +15,7 @@ class AiRecommendationWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        if (!applicationContext.dataStore.get(AiRecommendationsKey, false)) return Result.success()
         return try {
             Timber.tag("AiRecommendationWorker").d("Running periodic AI recommendation generation...")
             val result = AiRecommendationHelper.generateRecommendations(applicationContext)
@@ -19,6 +24,8 @@ class AiRecommendationWorker(
             } else {
                 Result.retry()
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Timber.tag("AiRecommendationWorker").e(e, "Error executing AI recommendation work")
             Result.retry()

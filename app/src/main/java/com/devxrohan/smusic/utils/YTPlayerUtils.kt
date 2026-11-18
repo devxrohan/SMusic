@@ -466,23 +466,6 @@ object YTPlayerUtils {
             .onFailure { Timber.tag(logTag).e(it, "Failed to fetch metadata") }
     }
 
-    private fun findFormat(
-        playerResponse: PlayerResponse,
-        audioQuality: AudioQuality,
-        connectivityManager: ConnectivityManager,
-        // optional override from user preference; if non-null, use this instead of ConnectivityManager
-        networkMetered: Boolean? = null,
-        avoidCodecs: Set<String> = emptySet(),
-    ): PlayerResponse.StreamingData.Format? {
-        val isMetered = networkMetered ?: connectivityManager.isActiveNetworkMetered
-        return selectAudioFormatCandidates(
-            playerResponse,
-            audioQuality,
-            isMetered,
-            avoidCodecs = avoidCodecs,
-        ).firstOrNull()
-    }
-
     private fun selectAudioFormatCandidates(
         playerResponse: PlayerResponse,
         audioQuality: AudioQuality,
@@ -507,7 +490,7 @@ object YTPlayerUtils {
 
         val effectiveQuality =
             when (audioQuality) {
-                AudioQuality.AUTO -> if (networkMetered) AudioQuality.HIGH else AudioQuality.HIGH
+                AudioQuality.AUTO -> AudioQuality.HIGH
                 else -> audioQuality
             }
 

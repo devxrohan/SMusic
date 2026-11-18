@@ -35,7 +35,6 @@ import com.devxrohan.smusic.db.MusicDatabase
 import com.devxrohan.smusic.extensions.toEnum
 import com.devxrohan.smusic.extensions.toInetSocketAddress
 import com.devxrohan.smusic.ui.component.NamePreferenceManager
-import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.get
 import com.devxrohan.smusic.utils.reportException
 import dagger.hilt.android.HiltAndroidApp

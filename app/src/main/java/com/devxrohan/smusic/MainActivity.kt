@@ -27,7 +27,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.setContent
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.snap
@@ -153,7 +152,6 @@ import com.devxrohan.smusic.ui.theme.SMusicTheme
 import com.devxrohan.smusic.ui.utils.appBarScrollBehavior
 import com.devxrohan.smusic.ui.utils.resetHeightOffset
 import com.devxrohan.smusic.utils.SyncUtils
-import com.devxrohan.smusic.utils.Updater
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.get
 import com.devxrohan.smusic.utils.getSuspend
@@ -259,9 +257,6 @@ class MainActivity : ComponentActivity() {
         playerConnection = null
     }
 
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
-    @OptIn(ExperimentalMaterial3Api::class)
     /**
      * A push message the system showed itself (app was in the background) opens the app with its data as
      * intent extras. Save it to the notification bell so it isn't lost.
@@ -366,8 +361,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             LaunchedEffect(Unit) {
-                // Uses the same resilient GitHub routes as the update popup (the
-                // old Updater hit a different repo and only one endpoint).
+                // Use the same release source as the update screen.
                 com.devxrohan.smusic.update.GitHubReleaseFetcher(applicationContext)
                     .fetchLatestRelease()
                     ?.versionName
@@ -1539,39 +1533,6 @@ class MainActivity : ComponentActivity() {
             }
             launchSingleTop = true
             restoreState = true
-        }
-    }
-
-    private fun handlevideoIdIntent(intent: Intent) {
-        val uri = intent.data ?: intent.extras?.getString(Intent.EXTRA_TEXT)?.toUri() ?: return
-        when {
-            uri.pathSegments.firstOrNull() == "watch" -> uri.getQueryParameter("v")
-            uri.host == "youtu.be" -> uri.pathSegments.firstOrNull()
-            uri.host == "play.smusic.app" -> {
-                if (uri.pathSegments.firstOrNull() == "song") {
-                    uri.getQueryParameter("id")
-                } else if (uri.pathSegments.firstOrNull() == "artist") {
-                    null
-                } else {
-                    uri.pathSegments.firstOrNull()
-                }
-            }
-            else -> null
-        }?.let { videoId ->
-            lifecycleScope.launch {
-                withContext(Dispatchers.IO) {
-                    YouTube.queue(listOf(videoId))
-                }.onSuccess {
-                    playerConnection?.playQueue(
-                        YouTubeQueue(
-                            WatchEndpoint(videoId = it.firstOrNull()?.id),
-                            it.firstOrNull()?.toMediaMetadata()
-                        )
-                    )
-                }.onFailure {
-                    reportException(it)
-                }
-            }
         }
     }
 

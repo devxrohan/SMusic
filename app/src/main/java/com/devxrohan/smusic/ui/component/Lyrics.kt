@@ -87,7 +87,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -101,7 +100,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -227,9 +225,7 @@ fun Lyrics(
     var shouldScrollToFirstLine by remember(currentSongId) { mutableStateOf(true) }
     var isAppMinimized by rememberSaveable { mutableStateOf(false) }
     var sliderPosition by remember { mutableStateOf<Long?>(null) }
-    var showImageOverlay by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
-    var cornerRadius by remember { mutableFloatStateOf(16f) }
 
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(true) }
 
@@ -450,12 +446,6 @@ fun Lyrics(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (isFullscreen) {
-            cornerRadius = 16f
-        }
-    }
-
     LaunchedEffect(playbackState) {
         if (isFullscreen && playbackState == Player.STATE_READY) {
             while (isActive) {
@@ -465,15 +455,6 @@ fun Lyrics(
             }
         }
     }
-
-    val imageScale by animateFloatAsState(
-        targetValue = if (showImageOverlay) 1f else 0.95f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "imageScale"
-    )
 
     LaunchedEffect(showMaxSelectionToast) {
         if (showMaxSelectionToast) {
@@ -1008,56 +989,6 @@ fun Lyrics(
                 }
             }
 
-            // Image overlay
-            AnimatedVisibility(
-                visible = showImageOverlay,
-                enter = fadeIn(tween(180)),
-                exit = fadeOut(tween(180)),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(1f)
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(26.dp))
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { showImageOverlay = false }
-                            )
-                        },
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        mediaMetadata?.let { metadata ->
-                            AsyncImage(
-                                model = metadata.thumbnailUrl,
-                                contentDescription = null,
-                                contentScale = ContentScale.FillBounds,
-                                modifier = Modifier
-                                    .fillMaxWidth(0.85f)
-                                    .aspectRatio(1f)
-                                    .scale(imageScale)
-                                    .clip(RoundedCornerShape(cornerRadius))
-                                    .then(
-                                        if (rotateBackground) {
-                                            Modifier.graphicsLayer {
-                                                rotationZ = rotation
-                                                transformOrigin = TransformOrigin.Center
-                                            }
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
-                            )
-                        }
-                    }
-                }
-            }
-
             // Mode selection indicator
             AnimatedVisibility(
                 visible = isSelectionModeActive,
@@ -1587,11 +1518,7 @@ fun Lyrics(
         // The player header already provides the main three-dot menu there.
         if (!isFullscreen && !forceShowContent) {
             mediaMetadata?.let { metadata ->
-                if (isSelectionModeActive) {
-                    // Selection mode buttons are now shown in the AnimatedVisibility above
-                    // This code block can remain as a fallback or be removed
-                } else {
-                    // Normal buttons in floating mode
+                if (!isSelectionModeActive) {
                     Row(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)

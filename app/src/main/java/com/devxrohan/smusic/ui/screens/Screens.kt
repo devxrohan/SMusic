@@ -8,9 +8,9 @@ import com.devxrohan.smusic.R
 
 @Immutable
 sealed class Screens(
-    @StringRes val titleId: Int,
-    @DrawableRes val iconIdInactive: Int,
-    @DrawableRes val iconIdActive: Int,
+    @param:StringRes val titleId: Int,
+    @param:DrawableRes val iconIdInactive: Int,
+    @param:DrawableRes val iconIdActive: Int,
     val route: String,
 ) {
     data object Home : Screens(

@@ -38,7 +38,7 @@ val GENRE_QUICK_CHIPS = listOf(
 
 @Singleton
 class GeneratorRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     val database: MusicDatabase,
 ) {
 

@@ -30,7 +30,7 @@ class StatsViewModel
 @Inject
 constructor(
     val database: MusicDatabase,
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val namePreferenceManager: NamePreferenceManager,
 ) : ViewModel() {
     val selectedOption = MutableStateFlow(OptionStats.CONTINUOUS)

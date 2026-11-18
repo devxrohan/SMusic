@@ -25,7 +25,7 @@ import com.devxrohan.smusic.R
  *
  * Runs inside Media3 DefaultAudioSink with O(1) complexity and zero heap allocations per frame.
  */
-enum class DjPreset(val title: String, val subtitle: String, @DrawableRes val iconRes: Int) {
+enum class DjPreset(val title: String, val subtitle: String, @param:DrawableRes val iconRes: Int) {
     DEFAULT("Flat / Reset", "Pure original mix", R.drawable.headphones),
     CLUB_BOOTH("Club Booth", "Warm echo & bass pump", R.drawable.graphic_eq),
     SLOWED_REVERB("Slowed + Reverb", "0.85x speed & spacious reverb", R.drawable.bedtime),

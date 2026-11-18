@@ -43,7 +43,7 @@ import javax.inject.Inject
 class OnlineSearchSuggestionViewModel
 @Inject
 constructor(
-    @ApplicationContext val context: Context,
+    @param:ApplicationContext val context: Context,
     private val database: MusicDatabase,
 ) : ViewModel() {
     val query = MutableStateFlow("")

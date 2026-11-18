@@ -25,7 +25,7 @@ import javax.inject.Inject
 class ExploreViewModel
 @Inject
 constructor(
-    @ApplicationContext val context: Context,
+    @param:ApplicationContext val context: Context,
     val database: MusicDatabase,
 ) : ViewModel() {
     val explorePage = MutableStateFlow<ExplorePage?>(null)

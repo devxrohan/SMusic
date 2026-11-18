@@ -36,7 +36,7 @@ import javax.inject.Inject
 class OnlineSearchViewModel
 @Inject
 constructor(
-    @ApplicationContext val context: Context,
+    @param:ApplicationContext val context: Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     val query = savedStateHandle.get<String>("query")!!

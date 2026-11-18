@@ -21,7 +21,7 @@ import javax.inject.Inject
 class YouTubeBrowseViewModel
 @Inject
 constructor(
-    @ApplicationContext val context: Context,
+    @param:ApplicationContext val context: Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     private val browseId = savedStateHandle.get<String>("browseId")!!

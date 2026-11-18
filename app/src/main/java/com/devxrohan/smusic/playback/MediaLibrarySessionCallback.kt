@@ -44,7 +44,7 @@ import javax.inject.Inject
 class MediaLibrarySessionCallback
 @Inject
 constructor(
-    @ApplicationContext val context: Context,
+    @param:ApplicationContext val context: Context,
     val database: MusicDatabase,
     val downloadUtil: DownloadUtil,
 ) : MediaLibrarySession.Callback {

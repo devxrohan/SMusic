@@ -63,7 +63,7 @@ data class PulseSummary(
  */
 @Singleton
 class PulseEngine @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val database: MusicDatabase,
 ) {
     private val mutex = Mutex()

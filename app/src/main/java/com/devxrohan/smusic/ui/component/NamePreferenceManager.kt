@@ -15,7 +15,7 @@ private val Context.nameDataStore by preferencesDataStore("user_name_preferences
 
 @Singleton
 class NamePreferenceManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     companion object {
         private val USER_NAME_KEY = stringPreferencesKey("user_name")

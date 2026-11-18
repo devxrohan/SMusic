@@ -54,7 +54,7 @@ data class PulseYtShelf(val id: String, val title: String, val label: String, va
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     val database: MusicDatabase,
     private val pulseEngine: com.devxrohan.smusic.pulse.PulseEngine,
     private val downloadUtil: DownloadUtil,

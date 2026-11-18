@@ -44,8 +44,8 @@ constructor(
     @ApplicationContext context: Context,
     val database: MusicDatabase,
     val databaseProvider: DatabaseProvider,
-    @DownloadCache val downloadCache: SimpleCache,
-    @PlayerCache val playerCache: SimpleCache,
+    @param:DownloadCache val downloadCache: SimpleCache,
+    @param:PlayerCache val playerCache: SimpleCache,
     private val pulseEngine: PulseEngine,
 ) {
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!

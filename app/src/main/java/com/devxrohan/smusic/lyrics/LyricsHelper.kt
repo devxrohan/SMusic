@@ -36,7 +36,7 @@ import androidx.annotation.Keep
 class LyricsHelper
 @Inject
 constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) {
     private val selectedProviderByMediaId = ConcurrentHashMap<String, String>()
 

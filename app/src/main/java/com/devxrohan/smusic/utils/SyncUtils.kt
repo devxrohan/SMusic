@@ -30,7 +30,7 @@ import javax.inject.Singleton
 @Singleton
 class SyncUtils @Inject constructor(
     val database: MusicDatabase,
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) {
     private suspend fun withAccountSync(block: suspend () -> Unit) {
         AccountSyncGate.mutex.withLock {

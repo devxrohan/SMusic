@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.devxrohan.smusic.ui.menu
 
 import com.devxrohan.smusic.utils.writeBackWithRetry

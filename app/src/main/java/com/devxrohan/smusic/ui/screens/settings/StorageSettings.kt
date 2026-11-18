@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.devxrohan.smusic.ui.screens.settings
 
 import androidx.compose.animation.core.animateFloatAsState

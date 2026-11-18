@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.devxrohan.smusic.ui.player
 
 import android.annotation.SuppressLint

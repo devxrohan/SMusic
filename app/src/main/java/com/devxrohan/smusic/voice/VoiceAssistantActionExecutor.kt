@@ -656,9 +656,9 @@ class VoiceAssistantActionExecutor(
 
                     val artistName = songToPlayOnline.artists.joinToString { it.name }
                     if (artistName.isNotBlank()) {
-                        speak(context.getString(R.string.voice_playing_feedback, songToPlayOnline.title, artistName))
+                        speak(context.getString(R.string.voice_playing_feedback, songToPlayOnline.title))
                     } else {
-                        speak(context.getString(R.string.voice_playing_simple, songToPlayOnline.title))
+                        speak(context.getString(R.string.voice_playing_simple))
                     }
                     return@launch
                 }

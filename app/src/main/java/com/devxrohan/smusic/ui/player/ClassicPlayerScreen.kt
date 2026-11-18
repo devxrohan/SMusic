@@ -8,6 +8,13 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import com.devxrohan.smusic.constants.ClassicArtworkHeightKey
+import com.devxrohan.smusic.constants.ClassicArtworkSizeKey
+import com.devxrohan.smusic.constants.ClassicShowAudioQualityKey
+import com.devxrohan.smusic.constants.ClassicShowLyricsLineKey
+import com.devxrohan.smusic.constants.ClassicShowPlayingFromKey
+import com.devxrohan.smusic.utils.rememberPreference
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +28,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -111,7 +119,7 @@ import kotlinx.coroutines.isActive
 import me.saket.squiggles.SquigglySlider
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ClassicPlayerScreen(
     mediaMetadata: MediaMetadata?,
@@ -138,6 +146,15 @@ fun ClassicPlayerScreen(
     val database = LocalDatabase.current
     val haptic = LocalHapticFeedback.current
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
+    val showQuality by rememberPreference(ClassicShowAudioQualityKey, true)
+    val showLyricsLine by rememberPreference(ClassicShowLyricsLineKey, true)
+    val showSource by rememberPreference(ClassicShowPlayingFromKey, true)
+    val artworkSizePercent by rememberPreference(ClassicArtworkSizeKey, 86)
+    val artworkHeightPercent by rememberPreference(ClassicArtworkHeightKey, 86)
+    val artworkZoom by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0.82f,
+        animationSpec = tween(420), label = "classicArtworkZoom",
+    )
     val screenConfiguration = LocalConfiguration.current
     val compactClassicLayout = screenConfiguration.screenHeightDp < 820 || screenConfiguration.screenWidthDp < 360
     // Keep the cover broad on regular phones. Metadata uses the exact same inset,
@@ -147,8 +164,12 @@ fun ClassicPlayerScreen(
     // Classic also bypasses the carousel side-peek width in Thumbnail, so the
     // cover can use the full metadata content width consistently on each phone.
     val classicArtworkPadding = 0.dp
-    val classicArtworkSize = (screenConfiguration.screenWidthDp.dp - classicHorizontalPadding - classicHorizontalPadding - 16.dp)
-        .coerceAtLeast(1.dp)
+    // Keep at least 5% side margins, including after restoring an older oversized preference.
+    val hiddenArtworkRows = (if (showLyricsLine) 0 else 1) + (if (showSource) 0 else 1)
+    val artworkWidthFraction = (artworkSizePercent.coerceIn(70, 90) + hiddenArtworkRows * 2).coerceAtMost(90) / 100f
+    val artworkHeightFraction = (artworkHeightPercent.coerceIn(70, 100) + hiddenArtworkRows * 3).coerceAtMost(100) / 100f
+    val classicArtworkSize = screenConfiguration.screenWidthDp.dp * artworkWidthFraction
+    val classicArtworkHeight = screenConfiguration.screenWidthDp.dp * artworkHeightFraction
     // Match the title/artist and seek bar edges to the unchanged artwork width.
     val classicContentHorizontalPadding = classicHorizontalPadding + 8.dp
     // Give the cover more of the vertical budget on compact phones. The artwork
@@ -354,12 +375,14 @@ fun ClassicPlayerScreen(
             ) {
                 // Preserve the existing artwork size whenever it fits, but constrain it
                 // to the actual available area on shorter or narrower devices.
-                val responsiveArtworkSize = minOf(classicArtworkSize, maxWidth, maxHeight).coerceAtLeast(1.dp)
+                val responsiveArtworkSize = minOf(classicArtworkSize, maxWidth).coerceAtLeast(1.dp)
+                val responsiveArtworkHeight = minOf(classicArtworkHeight, maxHeight).coerceAtLeast(1.dp)
                 Thumbnail(
                     sliderPositionProvider = { sliderPosition },
                     onOpenFullscreenLyrics = onOpenFullscreenLyrics,
                     shape = RoundedCornerShape(24.dp),
-                    artworkScale = 1f,
+                    artworkScale = artworkZoom,
+                    showPlayingFrom = showSource,
                     useCustomCornerRadius = true,
                     textColor = Color.White,
                     // Smaller inset than the shared default (32dp) so the
@@ -368,6 +391,7 @@ fun ClassicPlayerScreen(
                     // from" lines above it.
                     artworkPadding = classicArtworkPadding,
                     artworkSize = responsiveArtworkSize,
+                    artworkHeight = responsiveArtworkHeight,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -400,9 +424,10 @@ fun ClassicPlayerScreen(
                         color = Color.White,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Clip,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .basicMarquee(iterations = Int.MAX_VALUE)
                             .clickable(enabled = mediaMetadata?.album != null, interactionSource = remember { MutableInteractionSource() }, indication = null) {
                                 mediaMetadata?.album?.let { navController.navigate("album/${it.id}") }
                                 bottomSheetState.collapseSoft()
@@ -415,8 +440,8 @@ fun ClassicPlayerScreen(
                         color = Color.White.copy(alpha = 0.7f),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(),
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE),
                     )
                 }
                 Spacer(Modifier.width(12.dp))
@@ -440,18 +465,21 @@ fun ClassicPlayerScreen(
                 }
             }
 
-            // Visible breathing room below the title/artist row before lyrics.
-            Spacer(Modifier.height(metadataToLyricsGap))
+            if (showLyricsLine) {
+                // Visible breathing room below the title/artist row before lyrics.
+                Spacer(Modifier.height(metadataToLyricsGap))
 
-            ClassicLyricLineStrip(
-                mediaMetadata = mediaMetadata,
-                position = position,
-                duration = (mediaMetadata?.duration?.toLong() ?: 0L) * 1000L,
-                sliderPosition = sliderPosition,
-                isPlaying = isPlaying,
-                onClick = onOpenFullscreenLyrics,
-                modifier = Modifier.fillMaxWidth(),
-            )
+                ClassicLyricLineStrip(
+                    mediaMetadata = mediaMetadata,
+                    position = position,
+                    duration = (mediaMetadata?.duration?.toLong() ?: 0L) * 1000L,
+                    sliderPosition = sliderPosition,
+                    isPlaying = isPlaying,
+                    onClick = onOpenFullscreenLyrics,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+            }
 
             // The lyric strip is bottom-aligned; start the seek bar immediately
             // after it so the visible track sits close to the lyric line.
@@ -496,7 +524,7 @@ fun ClassicPlayerScreen(
                     .fillMaxWidth()
                     .height(24.dp)
             )
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp), contentAlignment = Alignment.Center) {
                 Text(
                     makeTimeString(sliderPosition ?: position),
                     style = MaterialTheme.typography.labelMedium,
@@ -504,13 +532,15 @@ fun ClassicPlayerScreen(
                     maxLines = 1,
                     modifier = Modifier.align(Alignment.CenterStart),
                 )
-                AudioQualityTag(
-                    currentFormat = currentFormat,
-                    mediaMetadata = mediaMetadata,
-                    tint = Color.White,
-                    onClick = { showClassicAudioPipelineDialog = true },
-                    modifier = Modifier.align(Alignment.Center),
-                )
+                if (showQuality) {
+                    AudioQualityTag(
+                        currentFormat = currentFormat,
+                        mediaMetadata = mediaMetadata,
+                        tint = Color.White,
+                        onClick = { showClassicAudioPipelineDialog = true },
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
                 Text(
                     makeTimeString(duration),
                     style = MaterialTheme.typography.labelMedium,

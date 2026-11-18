@@ -158,6 +158,7 @@ fun LyricsV2(
     sliderPositionProvider: () -> Long?,
     modifier: Modifier = Modifier,
     onSelectionChanged: (String) -> Unit = {},
+    selectionRequest: Int = 0,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val player = playerConnection.player
@@ -196,8 +197,11 @@ fun LyricsV2(
     // ── Selection mode state ──
     var isSelectionModeActive by rememberSaveable { mutableStateOf(false) }
     val selectedIndices = remember { mutableStateListOf<Int>() }
+    LaunchedEffect(selectionRequest) {
+        if (selectionRequest > 0) isSelectionModeActive = true
+    }
     var showMaxSelectionToast by remember { mutableStateOf(false) }
-    val maxSelectionLimit = 5
+    val maxSelectionLimit = com.devxrohan.smusic.utils.LyricsShareRenderer.MAX_SELECTED_LINES
     var showShareDialog by remember { mutableStateOf(false) }
     var shareDialogData by remember {
         mutableStateOf<com.devxrohan.smusic.ui.component.ShareLyricsData?>(null)

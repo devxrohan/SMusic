@@ -47,7 +47,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = 6
-        versionName = "2.2.0"
+        versionName = "2.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GOOGLE_API_KEY", googleApiKey.asBuildConfigString())
         buildConfigField("String", "STATS_API_KEY", statsApiKey.asBuildConfigString())

@@ -182,6 +182,7 @@ fun Lyrics(
     forceShowContent: Boolean = false,
     @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
     onSelectionChanged: (String) -> Unit = {},
+    selectionRequest: Int = 0,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val menuState = LocalMenuState.current
@@ -232,6 +233,9 @@ fun Lyrics(
     // Improved selection system
     var isSelectionModeActive by remember(currentSongId) { mutableStateOf(false) }
     val selectedIndices = remember(currentSongId) { mutableStateListOf<Int>() }
+    LaunchedEffect(selectionRequest) {
+        if (selectionRequest > 0) isSelectionModeActive = true
+    }
     var showMaxSelectionToast by remember { mutableStateOf(false) }
 
     // States for sharing
@@ -241,7 +245,7 @@ fun Lyrics(
 
     val lazyListState = rememberLazyListState()
     var isAnimating by remember { mutableStateOf(false) }
-    val maxSelectionLimit = 5
+    val maxSelectionLimit = com.devxrohan.smusic.utils.LyricsShareRenderer.MAX_SELECTED_LINES
 
     // The single shared, cached lyrics for this song — the exact same value
     // every other lyrics screen reads (see MusicService.ensureLyricsFetched).

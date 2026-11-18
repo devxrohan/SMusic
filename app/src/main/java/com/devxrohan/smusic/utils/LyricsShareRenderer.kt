@@ -12,10 +12,9 @@ import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.RadialGradient
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
@@ -26,13 +25,16 @@ import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.drawable.toBitmap
-import androidx.palette.graphics.Palette
-import coil.ImageLoader
+import coil.imageLoader
 import coil.request.ImageRequest
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.AppFont
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.roundToInt
@@ -49,6 +51,8 @@ import kotlin.math.roundToInt
  * instead of a fixed box with empty space in it.
  */
 object LyricsShareRenderer {
+    const val MAX_SELECTED_LINES = 10
+
 
     suspend fun render(
         context: Context,
@@ -58,6 +62,7 @@ object LyricsShareRenderer {
         artworkUrl: String?,
         appFont: AppFont,
         story: Boolean = false,
+        style: LyricsCardStyle = LyricsCardStyle.CLASSIC,
     ): Bitmap = withContext(Dispatchers.Default) {
         val lines = lyricsText
             .lines()
@@ -68,44 +73,7 @@ object LyricsShareRenderer {
         val type = Fonts(context, appFont)
         val cover = artworkUrl?.let { loadBitmap(context, it) }
 
-        // The passage gets its own height first, and the card is built down
-        // from that number rather than the other way round: a short line
-        // comes out as a strip just tall enough for it, not a 9:16 sheet
-        // with a sentence floating in the middle — unless a full-frame
-        // "story" picture was asked for, in which case the passage is
-        // centred inside the fixed 9:16 frame instead.
-        val headTop = SHARE_BODY_TOP
-        val frameRoom = SHARE_BODY_BOTTOM - SHARE_BODY_TOP
-        val plan = fittestPlan(type, lines, frameRoom)
-        val spare = if (story) (frameRoom - plan.content).coerceAtLeast(0f) else 0f
-        val bodyTop = headTop + spare / 2f
-        val bodyBottom = bodyTop + plan.content
-        val cardH = if (story) MAX_CARD_H else bodyBottom + GAP_BELOW_BODY + FOOTER_THUMB + FOOTER_PAD
-
-        val bitmap = Bitmap.createBitmap(CARD_W, cardH.roundToInt(), Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        drawBackdrop(canvas, cover, cardH)
-        drawBrand(canvas, context, type)
-
-        // The passage itself.
-        var y = bodyTop
-        for (row in plan.rows) {
-            val baseline = y + row.gapBefore - row.paint.ascent()
-            canvas.drawText(row.text, CARD_MARGIN, baseline, row.paint)
-            y += row.gapBefore + row.height
-        }
-
-        // Footer — which song this is.
-        val thumbY = cardH - FOOTER_PAD - FOOTER_THUMB
-        drawArtwork(canvas, cover, songTitle, CARD_MARGIN, thumbY, FOOTER_THUMB)
-        val textX = CARD_MARGIN + FOOTER_THUMB + 34f
-        val room = CARD_W - CARD_MARGIN - textX
-        val titlePaint = type.body(50f, Color.WHITE, bold = true)
-        canvas.drawText(ellipsised(songTitle, titlePaint, room), textX, thumbY + 74f, titlePaint)
-        val artistPaint = type.body(42f, 0x99FFFFFF.toInt())
-        canvas.drawText(ellipsised(artistName, artistPaint, room), textX, thumbY + 132f, artistPaint)
-
-        bitmap
+        renderStyledLyricsCard(context, lines, songTitle, artistName, cover, type, style, story)
     }
 
     /** Writes [bitmap] to the gallery (API 29+) or the app cache, and returns a shareable [Uri]. */
@@ -118,18 +86,27 @@ object LyricsShareRenderer {
             }
         }
 
-    private fun saveToMediaStore(context: Context, bitmap: Bitmap, fileName: String): Uri {
+    private suspend fun saveToMediaStore(context: Context, bitmap: Bitmap, fileName: String): Uri {
+        val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "$fileName.png")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
             put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/SMusic")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
-        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            ?: error("Failed to create new MediaStore record")
-        context.contentResolver.openOutputStream(uri)?.use { out ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("Unable to create an image record")
+        try {
+            requireNotNull(resolver.openOutputStream(uri)).use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+            }
+            currentCoroutineContext().ensureActive()
+            resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+            return uri
+        } catch (failure: Throwable) {
+            resolver.delete(uri, null, null)
+            throw failure
         }
-        return uri
     }
 
     private fun saveToCache(context: Context, bitmap: Bitmap, fileName: String): Uri {
@@ -141,94 +118,20 @@ object LyricsShareRenderer {
         return FileProvider.getUriForFile(context, "${context.packageName}.provider", imageFile)
     }
 
-    internal suspend fun loadBitmap(context: Context, url: String): Bitmap? = runCatching {
-        val loader = ImageLoader(context)
-        val request = ImageRequest.Builder(context)
-            .data(url)
-            // Palette needs pixel access, which a hardware bitmap can't give.
-            .allowHardware(false)
-            .build()
-        loader.execute(request).drawable?.toBitmap()
-    }.getOrNull()
-}
-
-// ── Backdrop ─────────────────────────────────────────────────────────────
-
-/**
- * The card's backdrop: a dim base in the cover's own colour, four soft glows
- * lifted straight off the artwork's palette, and a dark gradient laid over
- * the top so white text stays readable no matter where it lands.
- */
-internal fun drawBackdrop(canvas: Canvas, lead: Bitmap?, height: Float) {
-    val colors = paletteOf(lead)
-    canvas.drawColor(dimmed(colors.first()))
-
-    val anchors = listOf(
-        0.20f to 0.16f,
-        0.84f to 0.22f,
-        0.76f to 0.66f,
-        0.18f to 0.78f,
-    )
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    colors.forEachIndexed { index, color ->
-        val (fx, fy) = anchors[index]
-        val cx = CARD_W * fx
-        val cy = height * fy
-        val radius = CARD_W * 0.95f
-        paint.shader = RadialGradient(
-            cx,
-            cy,
-            radius,
-            intArrayOf(
-                ColorUtils.setAlphaComponent(color, 210),
-                ColorUtils.setAlphaComponent(color, 0),
-            ),
-            floatArrayOf(0f, 1f),
-            Shader.TileMode.CLAMP,
-        )
-        canvas.drawCircle(cx, cy, radius, paint)
+    internal suspend fun loadBitmap(context: Context, url: String): Bitmap? = try {
+        withTimeoutOrNull(4_000L) {
+            val request = ImageRequest.Builder(context.applicationContext)
+                .data(url)
+                .size(720, 720)
+                .allowHardware(false)
+                .build()
+            context.applicationContext.imageLoader.execute(request).drawable?.toBitmap()
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
     }
-    paint.shader = null
-
-    paint.shader = LinearGradient(
-        0f,
-        0f,
-        0f,
-        height,
-        intArrayOf(0x8C000000.toInt(), 0x59000000, 0xCC000000.toInt()),
-        floatArrayOf(0f, 0.42f, 1f),
-        Shader.TileMode.CLAMP,
-    )
-    canvas.drawRect(0f, 0f, CARD_W.toFloat(), height, paint)
-    paint.shader = null
-}
-
-/** Four colours off the sleeve, saturated and held to a mid lightness so any artwork yields a rich backdrop. */
-private fun paletteOf(bitmap: Bitmap?): List<Int> {
-    val fallback = listOf(0xFF3A1C71.toInt(), 0xFFD76D77.toInt(), 0xFF2B5876.toInt(), 0xFFFFAF7B.toInt())
-    val source = bitmap ?: return fallback
-    val swatches = runCatching {
-        Palette.from(source).maximumColorCount(24).generate().swatches
-            .sortedByDescending { it.population }
-            .map { it.rgb }
-    }.getOrNull().orEmpty()
-    if (swatches.isEmpty()) return fallback
-    return (swatches + fallback).take(4).map(::tuned)
-}
-
-private fun tuned(color: Int): Int {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(color, hsl)
-    hsl[1] = (hsl[1] * 1.35f).coerceAtMost(1f)
-    hsl[2] = hsl[2].coerceIn(0.28f, 0.58f)
-    return ColorUtils.HSLToColor(hsl)
-}
-
-private fun dimmed(color: Int): Int {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(color, hsl)
-    hsl[2] = 0.10f
-    return ColorUtils.HSLToColor(hsl)
 }
 
 // ── Fitting the passage ─────────────────────────────────────────────────
@@ -253,6 +156,16 @@ internal fun fittestPlan(type: Fonts, lines: List<String>, room: Float): ShareLy
         if (plan.content <= room) return plan
     }
     return planAt(type, lines, FIT_LADDER.last())
+}
+
+/** Keep complete leading lines at a readable minimum; overflowing trailing lines are excluded. */
+internal fun fittingCardPlan(type: Fonts, lines: List<String>, room: Float): ShareLyricPlan {
+    val candidates = lines.take(LyricsShareRenderer.MAX_SELECTED_LINES)
+    for (count in candidates.size downTo 1) {
+        val visible = candidates.take(count)
+        if (planAt(type, visible, 32f).content <= room) return fittestPlan(type, visible, room)
+    }
+    return ShareLyricPlan(emptyList(), 0f)
 }
 
 private fun planAt(type: Fonts, lines: List<String>, size: Float): ShareLyricPlan {
@@ -306,26 +219,54 @@ internal fun wrap(text: String, paint: Paint, width: Float): List<String> {
  * shadow so the mark stays legible however light or busy the backdrop's
  * gradient turns out at that corner.
  */
-internal fun drawBrand(canvas: Canvas, context: Context, type: Fonts) {
-    val white = type.heading(46f, 0xF2FFFFFF.toInt())
-    val red = type.heading(46f, BRAND_RED)
-    listOf(white, red).forEach { it.setShadowLayer(10f, 0f, 3f, 0x80000000.toInt()) }
+internal fun drawBrand(canvas: Canvas, context: Context, type: Fonts, onLight: Boolean = false) {
+    val white = type.heading(62f, if (onLight) 0xFF24201D.toInt() else 0xF2FFFFFF.toInt())
+    val red = type.heading(62f, BRAND_RED)
+    if (!onLight) listOf(white, red).forEach { it.setShadowLayer(10f, 0f, 3f, 0x80000000.toInt()) }
 
-    val musicWidth = white.measureText("Music")
+    val musicWidth = white.measureText("MUSIC")
     val sWidth = red.measureText("S")
     val textRight = CARD_W - CARD_MARGIN
 
     var x = textRight - musicWidth
-    canvas.drawText("Music", x, HEADER_BASELINE, white)
+    canvas.drawText("MUSIC", x, HEADER_BASELINE, white)
     x -= sWidth
     canvas.drawText("S", x, HEADER_BASELINE, red)
 
-    val logo = runCatching { BitmapFactory.decodeResource(context.resources, R.drawable.smusic_logo) }.getOrNull()
-    if (logo != null) {
-        val logoLeft = x - LOGO_GAP - LOGO_SIZE
-        val logoTop = HEADER_BASELINE - LOGO_SIZE * 0.80f
-        val dst = RectF(logoLeft, logoTop, logoLeft + LOGO_SIZE, logoTop + LOGO_SIZE)
-        canvas.drawBitmap(logo, null, dst, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+    drawShareBrandIcon(canvas, context, x - LOGO_GAP - LOGO_SIZE,
+        HEADER_BASELINE - LOGO_SIZE * 0.80f, LOGO_SIZE)
+}
+
+/** Uses the original app artwork; transparent asset padding must not shrink the exported mark. */
+internal fun drawShareBrandIcon(canvas: Canvas, context: Context, left: Float, top: Float, size: Float) {
+    val bitmap = BitmapFactory.decodeResource(context.resources, R.drawable.smusic_logo,
+        BitmapFactory.Options().apply { inScaled = false }) ?: return
+    try {
+        var minX = bitmap.width
+        var minY = bitmap.height
+        var maxX = -1
+        var maxY = -1
+        val row = IntArray(bitmap.width)
+        for (y in 0 until bitmap.height) {
+            bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
+            for (x in row.indices) if (Color.alpha(row[x]) > 8) {
+                minX = minOf(minX, x)
+                minY = minOf(minY, y)
+                maxX = maxOf(maxX, x)
+                maxY = maxOf(maxY, y)
+            }
+        }
+        if (maxX < minX || maxY < minY) return
+        val source = Rect(minX, minY, maxX + 1, maxY + 1)
+        val scale = size / maxOf(source.width(), source.height())
+        val width = source.width() * scale
+        val height = source.height() * scale
+        val x = left + (size - width) / 2f
+        val y = top + (size - height) / 2f
+        canvas.drawBitmap(bitmap, source, RectF(x, y, x + width, y + height),
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+    } finally {
+        bitmap.recycle()
     }
 }
 
@@ -398,14 +339,12 @@ internal const val CARD_CONTENT_W = CARD_W - CARD_MARGIN * 2
 /** A clean, legible red for the "S" in the mark — distinct from the artwork-driven backdrop behind it. */
 internal const val BRAND_RED = 0xFFFF3B30.toInt()
 
-private const val LOGO_SIZE = 50f
+private const val LOGO_SIZE = 62f
 private const val LOGO_GAP = 16f
 
 internal const val HEADER_BASELINE = 132f
 internal const val HEADER_BOTTOM = 170f
 
-private const val GAP_ABOVE_BODY = 20f
-private const val GAP_BELOW_BODY = 20f
 internal const val SHARE_BODY_TOP = HEADER_BOTTOM + 20f
 
 internal const val FOOTER_THUMB = 160f
@@ -413,7 +352,7 @@ internal const val FOOTER_PAD = 96f
 internal const val SHARE_BODY_BOTTOM = MAX_CARD_H - FOOTER_THUMB - FOOTER_PAD - 20f
 
 /** Sizes tried, largest first; the last rung is a floor, not a last resort — the frame grows past it instead of the type shrinking. */
-private val FIT_LADDER = floatArrayOf(96f, 88f, 80f, 72f, 64f, 56f, 50f, 44f, 38f, 32f)
+private val FIT_LADDER = floatArrayOf(72f, 64f, 56f, 50f, 44f, 38f, 32f, 28f, 24f)
 
 internal const val TRACKING = -0.7f / 34f
 private const val LEAD = 41f / 34f

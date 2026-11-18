@@ -168,6 +168,7 @@ fun SMusicLyricsScreen(
     }
     var sliderPosition by remember { mutableStateOf<Long?>(null) }
     var selectedLyricsText by remember(mediaMetadata.id) { mutableStateOf("") }
+    var selectionRequest by remember(mediaMetadata.id) { mutableStateOf(0) }
 
     LaunchedEffect(mediaMetadata.id) {
         sliderPosition = null
@@ -255,86 +256,19 @@ fun SMusicLyricsScreen(
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.systemBars)
                 ) {
-                    // Unified header across full width
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp)
-                            .zIndex(1f),  // Ensure header is above content
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Down arrow button (left)
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(
-                                        bounded = true,
-                                        radius = 16.dp
-                                    )
-                                ) { onBackClick() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.expand_more),
-                                contentDescription = stringResource(R.string.close),
-                                tint = textBackgroundColor,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        // Now Playing info in center
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.now_playing),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = textBackgroundColor
-                            )
-                            Text(
-                                text = mediaMetadata.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = textBackgroundColor.copy(alpha = 0.8f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // More button (right)
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(
-                                        bounded = true,
-                                        radius = 16.dp
-                                    )
-                                ) {
-                                    menuState.show {
-                                        LyricsMenu(
-                                            navController = navController,
-                                            lyricsProvider = { currentLyrics },
-                                            mediaMetadataProvider = { mediaMetadata },
-                                            selectedLyricsText = selectedLyricsText,
-                                            onDismiss = menuState::dismiss
-                                        )
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.more_horiz),
-                                contentDescription = stringResource(R.string.more_options),
-                                tint = textBackgroundColor,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
+                    LyricsPageHeader(
+                        metadata = mediaMetadata,
+                        color = textBackgroundColor,
+                        shareEnabled = !currentLyrics?.lyrics.isNullOrBlank() && currentLyrics?.lyrics != com.devxrohan.smusic.db.entities.LyricsEntity.LYRICS_NOT_FOUND,
+                        onSelectLyrics = { selectionRequest++ },
+                        onMore = {
+                            menuState.show {
+                                LyricsMenu(navController = navController, lyricsProvider = { currentLyrics },
+                                    mediaMetadataProvider = { mediaMetadata }, selectedLyricsText = selectedLyricsText,
+                                    onDismiss = menuState::dismiss)
+                            }
+                        },
+                    )
 
                     // Main content row
                     Row(
@@ -357,11 +291,14 @@ fun SMusicLyricsScreen(
                             ) {
                                 if (useLyricsV2) {
                                     LyricsV2(
-                                        sliderPositionProvider = { sliderPosition }
+                                        sliderPositionProvider = { sliderPosition },
+                                        selectionRequest = selectionRequest,
+                                        onSelectionChanged = { selectedLyricsText = it },
                                     )
                                 } else {
                                     Lyrics(
                                         sliderPositionProvider = { sliderPosition },
+                                        selectionRequest = selectionRequest,
                                         forceShowContent = true,
                                         modifier = modifier,
                                         onSelectionChanged = { selectedLyricsText = it },
@@ -574,85 +511,19 @@ fun SMusicLyricsScreen(
                         .fillMaxSize()
                         .padding(WindowInsets.systemBars.asPaddingValues())
                 ) {
-                    // Header with More button and Down arrow on opposite sides
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Down arrow button (left)
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(
-                                        bounded = true,
-                                        radius = 16.dp
-                                    )
-                                ) { onBackClick() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.expand_more),
-                                contentDescription = stringResource(R.string.close),
-                                tint = textBackgroundColor,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        // Centered content
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.now_playing),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = textBackgroundColor
-                            )
-                            Text(
-                                text = mediaMetadata.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = textBackgroundColor.copy(alpha = 0.8f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // More button (right)
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(
-                                        bounded = true,
-                                        radius = 16.dp
-                                    )
-                                ) {
-                                    menuState.show {
-                                        LyricsMenu(
-                                            navController = navController,
-                                            lyricsProvider = { currentLyrics },
-                                            mediaMetadataProvider = { mediaMetadata },
-                                            selectedLyricsText = selectedLyricsText,
-                                            onDismiss = menuState::dismiss
-                                        )
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.more_horiz),
-                                contentDescription = stringResource(R.string.more_options),
-                                tint = textBackgroundColor,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
+                    LyricsPageHeader(
+                        metadata = mediaMetadata,
+                        color = textBackgroundColor,
+                        shareEnabled = !currentLyrics?.lyrics.isNullOrBlank() && currentLyrics?.lyrics != com.devxrohan.smusic.db.entities.LyricsEntity.LYRICS_NOT_FOUND,
+                        onSelectLyrics = { selectionRequest++ },
+                        onMore = {
+                            menuState.show {
+                                LyricsMenu(navController = navController, lyricsProvider = { currentLyrics },
+                                    mediaMetadataProvider = { mediaMetadata }, selectedLyricsText = selectedLyricsText,
+                                    onDismiss = menuState::dismiss)
+                            }
+                        },
+                    )
 
                     Box(
                         modifier = Modifier
@@ -664,11 +535,13 @@ fun SMusicLyricsScreen(
                         if (useLyricsV2) {
                             LyricsV2(
                                 sliderPositionProvider = { sliderPosition },
+                                selectionRequest = selectionRequest,
                                 onSelectionChanged = { selectedLyricsText = it },
                             )
                         } else {
                             Lyrics(
                                 sliderPositionProvider = { sliderPosition },
+                                selectionRequest = selectionRequest,
                                 forceShowContent = true,
                                 modifier = modifier,
                                 onSelectionChanged = { selectedLyricsText = it },

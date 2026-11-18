@@ -16,6 +16,8 @@ import android.opengl.EGLExt
 import android.opengl.GLES20
 import android.opengl.GLUtils
 import android.media.MediaCodec
+import android.media.AudioFormat
+import android.os.SystemClock
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaExtractor
@@ -28,11 +30,16 @@ import android.view.Surface
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
+import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.AppFont
 import com.devxrohan.smusic.constants.AudioQuality
 import com.devxrohan.smusic.lyrics.LyricsEntry
 import com.devxrohan.smusic.models.MediaMetadata
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.File
@@ -91,14 +98,6 @@ object LyricsVideoRenderer {
     private const val VIDEO_BITRATE = 2_800_000
     private const val AUDIO_BITRATE = 128_000
 
-    /**
-     * Caps how long a single export runs for. This renders in real time (see
-     * the class doc), so this is also roughly the floor on how long "Create
-     * video" takes — a whole song's worth would make that minutes long for
-     * a feature meant for a verse or two, so a long selection is simply
-     * trimmed to this many milliseconds from its first line.
-     */
-    private const val MAX_CLIP_MS = 45_000L
     private const val DEFAULT_LINE_MS = 2_600L
     // Was 420ms — the fade-in/fade-out still uses the same smoothstep curve
     // below, just stretched out so the active line's brightness change reads
@@ -121,19 +120,17 @@ object LyricsVideoRenderer {
         artworkUrl: String?,
         appFont: AppFont,
         mediaMetadata: MediaMetadata?,
+        style: LyricsVideoStyle = LyricsVideoStyle.LYRICS,
         onProgress: (Progress) -> Unit = {},
     ): RenderResult = withContext(Dispatchers.Default) {
-        onProgress(Progress(0f, "Preparing"))
+        onProgress(Progress(0f, context.getString(R.string.lyrics_share_stage_preparing)))
 
         val rawLines = buildTimedLines(entries, fallbackText)
         require(rawLines.isNotEmpty()) { "Nothing to animate" }
 
-        val clipStart = rawLines.first().startMs
-        val clipEndUncapped = rawLines.last().endMs
-        val clipEnd = (clipStart + MAX_CLIP_MS)
-            .coerceAtMost(clipEndUncapped)
-            .coerceAtLeast(clipStart + 1_200L)
-        val totalMs = clipEnd - clipStart
+        val window = lyricsClipWindow(rawLines.first().startMs, rawLines.last().endMs)
+        val clipStart = window.startMs
+        val totalMs = window.durationMs
 
         val lines = rawLines.mapNotNull { line ->
             val s = (line.startMs - clipStart).coerceIn(0L, totalMs)
@@ -154,36 +151,47 @@ object LyricsVideoRenderer {
         val width = CARD_W
         val height = MAX_CARD_H.roundToInt()
 
-        val backdrop = buildBackdrop(context, cover, songTitle, artistName, type, width, height)
+        val backdrop = buildBackdrop(context, cover, songTitle, artistName, type, width, height, style)
         val layouts = layoutLines(lines, type)
 
         val audioSource = mediaMetadata?.let { metadata ->
-            runCatching { resolveAudioSource(context, metadata) }.getOrNull()
-                ?: runCatching { resolveAudioSource(context, metadata, forceAac = true) }.getOrNull()
+            withTimeoutOrNull(20_000L) { resolveAudioSource(context, metadata, forceAac = true) }
+                ?: withTimeoutOrNull(20_000L) { resolveAudioSource(context, metadata) }
         }
 
         val workDir = File(context.cacheDir, "videos").apply { mkdirs() }
         val outFile = File(workDir, "lyrics_${System.currentTimeMillis()}.mp4")
 
-        val hasAudio = encode(
-            context = context,
-            outFile = outFile,
-            width = width,
-            height = height,
-            totalMs = totalMs,
-            backdrop = backdrop,
-            layouts = layouts,
-            type = type,
-            audioSource = audioSource,
-            mediaMetadata = mediaMetadata,
-            clipStartMs = clipStart,
-            onProgress = onProgress,
-        )
+        try {
+            val hasAudio = encode(
+                context = context,
+                outFile = outFile,
+                width = width,
+                height = height,
+                totalMs = totalMs,
+                backdrop = backdrop,
+                layouts = layouts,
+                type = type,
+                audioSource = audioSource,
+                mediaMetadata = mediaMetadata,
+                clipStartMs = clipStart,
+                cover = cover,
+                style = style,
+                songTitle = songTitle,
+                artistName = artistName,
+                onProgress = onProgress,
+            )
 
-        onProgress(Progress(0.95f, "Saving"))
-        val uri = saveToGallery(context, outFile)
-        onProgress(Progress(1f, "Done"))
-        RenderResult(uri, hasAudio)
+            onProgress(Progress(0.95f, context.getString(R.string.lyrics_share_stage_saving)))
+            val uri = saveToGallery(context, outFile)
+            onProgress(Progress(1f, context.getString(R.string.lyrics_share_stage_done)))
+            RenderResult(uri, hasAudio)
+        } catch (failure: Throwable) {
+            outFile.delete()
+            throw failure
+        } finally {
+            backdrop.recycle()
+        }
     }
 
     /** A still first-frame preview using the same fixed-position fade treatment
@@ -196,18 +204,20 @@ object LyricsVideoRenderer {
         artistName: String,
         artworkUrl: String?,
         appFont: AppFont,
+        style: LyricsVideoStyle = LyricsVideoStyle.LYRICS,
     ): Bitmap = withContext(Dispatchers.Default) {
         val lines = buildTimedLines(entries, fallbackText)
         val type = Fonts(context, appFont)
         val cover = artworkUrl?.let { LyricsShareRenderer.loadBitmap(context, it) }
         val width = CARD_W
         val height = MAX_CARD_H.roundToInt()
-        val backdrop = buildBackdrop(context, cover, songTitle, artistName, type, width, height)
+        val backdrop = buildBackdrop(context, cover, songTitle, artistName, type, width, height, style)
         if (lines.isEmpty()) return@withContext backdrop
         val layouts = layoutLines(lines, type)
         val canvas = Canvas(backdrop)
         val tMs = (lines.first().startMs + 120L).coerceAtMost(lines.first().endMs - 1).coerceAtLeast(0L)
-        drawLyricStack(canvas, width, layouts, tMs)
+        if (style == LyricsVideoStyle.LYRICS) drawLyricStack(canvas, width, layouts, tMs)
+        else drawLyricsVideoScene(canvas, cover, type, style, 120L, lines.first().text, songTitle, artistName)
         backdrop
     }
 
@@ -222,11 +232,13 @@ object LyricsVideoRenderer {
         type: Fonts,
         width: Int,
         height: Int,
+        style: LyricsVideoStyle,
     ): Bitmap {
         val backdrop = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val c = Canvas(backdrop)
         drawBackdrop(c, cover, height.toFloat())
         drawBrand(c, context, type)
+        if (style != LyricsVideoStyle.LYRICS) return backdrop
         val thumbY = height - FOOTER_PAD - FOOTER_THUMB
         drawArtwork(c, cover, songTitle, CARD_MARGIN, thumbY, FOOTER_THUMB)
         val textX = CARD_MARGIN + FOOTER_THUMB + 34f
@@ -246,13 +258,7 @@ object LyricsVideoRenderer {
         }
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return null
-        // Use the same best-quality stream selection as playback. This app
-        // commonly receives Opus; the export pipeline below decodes that stream
-        // to PCM and encodes AAC for the MP4 container instead of silently
-        // switching to a lower-ranked AAC source just for sharing.
-        // Opus decoding is provided by the platform codec on modern Android.
-        // On older / vendor-limited devices without an Opus decoder, request an
-        // AAC-compatible source instead of producing a video with no audio.
+        // AAC can be muxed directly into MP4; Opus remains the fallback for sources without AAC.
         val avoidCodecs = if (forceAac || !supportsOpusDecoder()) setOf("opus") else emptySet()
         val result = YTPlayerUtils.playerResponseForPlayback(
             videoId = id,
@@ -444,7 +450,8 @@ object LyricsVideoRenderer {
      * stream picker ranks it above AAC, see `codecRank` in [YTPlayerUtils])
      * to PCM, then re-encode that PCM to AAC, since `MediaMuxer`'s MP4 writer
      * only reliably takes AAC on every API level this app supports. */
-    private fun transcodeToAac(plan: AudioPlan): EncodedAudio? {
+    private suspend fun transcodeToAac(plan: AudioPlan): EncodedAudio? {
+        val exportContext = currentCoroutineContext()
         val sourceMime = plan.format.getString(MediaFormat.KEY_MIME) ?: return null
         val decoder = runCatching { MediaCodec.createDecoderByType(sourceMime) }.getOrNull() ?: return null
         val sampleRate = runCatching { plan.format.getInteger(MediaFormat.KEY_SAMPLE_RATE) }.getOrDefault(48_000)
@@ -456,6 +463,7 @@ object LyricsVideoRenderer {
         }
 
         return try {
+            plan.format.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
             decoder.configure(plan.format, null, null, 0)
             decoder.start()
             val encFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channelCount).apply {
@@ -474,7 +482,8 @@ object LyricsVideoRenderer {
             var decoderInputDone = false
             var encoderEosQueued = false
             var encoderOutputDone = false
-            var idleSpins = 0
+            var lastProgressAt = SystemClock.elapsedRealtime()
+            var audioEndUs = 0L
 
             // Always drain the AAC encoder while feeding it. The previous
             // implementation dropped decoded PCM whenever dequeueInputBuffer
@@ -484,6 +493,7 @@ object LyricsVideoRenderer {
             fun drainEncoder(timeoutUs: Long): Boolean {
                 var progressed = false
                 while (true) {
+                    exportContext.ensureActive()
                     val index = encoder.dequeueOutputBuffer(encoderInfo, timeoutUs)
                     when {
                         index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
@@ -517,7 +527,9 @@ object LyricsVideoRenderer {
                 }
             }
 
-            while (!encoderOutputDone && idleSpins < 3_000) {
+            while (!encoderOutputDone) {
+                exportContext.ensureActive()
+                check(SystemClock.elapsedRealtime() - lastProgressAt < 8_000L) { "Audio codec stopped making progress" }
                 var progressed = false
 
                 if (!decoderInputDone) {
@@ -528,7 +540,10 @@ object LyricsVideoRenderer {
                     // Seek may land on a packet before the selected verse. Advance
                     // the extractor before acquiring a decoder buffer so no empty
                     // preroll buffers or duplicate zero timestamps reach the codec.
+                    val seekDeadline = SystemClock.elapsedRealtime() + 8_000L
                     while (!extractorDone && timeUs >= 0L && timeUs < plan.startUs) {
+                        exportContext.ensureActive()
+                        check(SystemClock.elapsedRealtime() < seekDeadline) { "Audio source could not seek to the selected passage" }
                         if (!plan.extractor.advance()) {
                             extractorDone = true
                             timeUs = -1L
@@ -578,35 +593,36 @@ object LyricsVideoRenderer {
                     // Keep retrying this PCM chunk until the AAC encoder accepts
                     // it. Drain encoded output between retries to avoid backpressure.
                     if (pcmBytes != null) {
-                        var queued = false
-                        var retryCount = 0
-                        while (!queued && retryCount < 3_000 && !encoderOutputDone) {
-                            val encoderInputIndex = encoder.dequeueInputBuffer(10_000)
+                        val cursor = PcmInputCursor(pcmBytes.size, channelCount, sampleRate, presentationTimeUs)
+                        var deadline = SystemClock.elapsedRealtime() + 8_000L
+                        while (!cursor.complete && !encoderOutputDone) {
+                            exportContext.ensureActive()
+                            check(SystemClock.elapsedRealtime() < deadline) { "AAC encoder input stalled" }
+                            val encoderInputIndex = encoder.dequeueInputBuffer(1_000)
                             if (encoderInputIndex >= 0) {
-                                val encoderInput = encoder.getInputBuffer(encoderInputIndex)
-                                if (encoderInput != null && pcmBytes.size <= encoderInput.capacity()) {
-                                    encoderInput.clear()
-                                    encoderInput.put(pcmBytes)
-                                    encoder.queueInputBuffer(encoderInputIndex, 0, pcmBytes.size, presentationTimeUs, 0)
-                                    queued = true
-                                    progressed = true
-                                } else {
-                                    encoder.queueInputBuffer(encoderInputIndex, 0, 0, presentationTimeUs, 0)
-                                }
-                            } else {
-                                drainEncoder(0)
-                                retryCount++
+                                val input = encoder.getInputBuffer(encoderInputIndex)
+                                    ?: error("AAC encoder returned no input buffer")
+                                input.clear()
+                                val slice = cursor.next(input.remaining()) ?: break
+                                input.put(pcmBytes, slice.offset, slice.size)
+                                encoder.queueInputBuffer(encoderInputIndex, 0, slice.size, slice.timeUs, 0)
+                                audioEndUs = slice.timeUs + slice.size.toLong() / (channelCount * 2) * 1_000_000L / sampleRate
+                                deadline = SystemClock.elapsedRealtime() + 8_000L
+                                progressed = true
                             }
+                            drainEncoder(0)
                         }
-                        if (!queued) throw IllegalStateException("AAC encoder could not accept decoded audio")
                     }
 
                     if (decoderEos && !encoderEosQueued) {
                         var queued = false
+                        val deadline = SystemClock.elapsedRealtime() + 8_000L
                         while (!queued && !encoderOutputDone) {
+                            exportContext.ensureActive()
+                            check(SystemClock.elapsedRealtime() < deadline) { "AAC encoder did not accept end of stream" }
                             val encoderInputIndex = encoder.dequeueInputBuffer(10_000)
                             if (encoderInputIndex >= 0) {
-                                encoder.queueInputBuffer(encoderInputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                encoder.queueInputBuffer(encoderInputIndex, 0, 0, audioEndUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                 queued = true
                                 encoderEosQueued = true
                             } else {
@@ -619,12 +635,14 @@ object LyricsVideoRenderer {
                 }
 
                 if (drainEncoder(0)) progressed = true
-                idleSpins = if (progressed) 0 else idleSpins + 1
+                if (progressed) lastProgressAt = SystemClock.elapsedRealtime()
             }
 
             if (encoderOutputDone && outputFormat != null && samples.isNotEmpty()) {
                 EncodedAudio(outputFormat!!, samples)
             } else null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             null
         } finally {
@@ -650,15 +668,19 @@ object LyricsVideoRenderer {
         audioSource: AudioSource?,
         mediaMetadata: MediaMetadata?,
         clipStartMs: Long,
+        cover: Bitmap?,
+        style: LyricsVideoStyle,
+        songTitle: String,
+        artistName: String,
         onProgress: (Progress) -> Unit,
     ): Boolean {
         // Resolved up front, before the muxer or the video encoder exist: this
         // is what lets its final (always-AAC) format be added as a track
         // before the video track's own format is even known, in whichever
         // order each actually becomes ready.
-        suspend fun encodeAudio(source: AudioSource): EncodedAudio? {
-            val plan = openAudioTrack(context, source, clipStartMs, totalMs) ?: return null
-            return try {
+        suspend fun encodeAudio(source: AudioSource): EncodedAudio? = withContext(Dispatchers.IO) {
+            val plan = openAudioTrack(context, source, clipStartMs, totalMs) ?: return@withContext null
+            try {
                 if (plan.format.getString(MediaFormat.KEY_MIME) == MediaFormat.MIMETYPE_AUDIO_AAC) {
                     bufferAacSamples(plan)
                 } else {
@@ -669,14 +691,16 @@ object LyricsVideoRenderer {
             }
         }
 
+        onProgress(Progress(0.03f, context.getString(R.string.lyrics_share_stage_audio)))
         var encodedAudio = audioSource?.let { encodeAudio(it) }
         // If a vendor Opus decoder fails at runtime, retry with the same playback
         // resolver's AAC-compatible stream instead of silently exporting muted video.
         if (encodedAudio == null && audioSource is AudioSource.Remote && mediaMetadata != null) {
-            val fallback = resolveAudioSource(context, mediaMetadata, forceAac = true)
+            val fallback = withTimeoutOrNull(20_000L) { resolveAudioSource(context, mediaMetadata, forceAac = true) }
             if (fallback != null && fallback != audioSource) encodedAudio = encodeAudio(fallback)
         }
 
+        val exportContext = currentCoroutineContext()
         val videoFormat = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, VIDEO_BITRATE)
@@ -698,6 +722,7 @@ object LyricsVideoRenderer {
             if (endOfStream) encoder.signalEndOfInputStream()
             var eosWaits = 0
             while (true) {
+                exportContext.ensureActive()
                 val outIndex = encoder.dequeueOutputBuffer(bufferInfo, if (endOfStream) 10_000 else 1_000)
                 when {
                     outIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
@@ -726,44 +751,52 @@ object LyricsVideoRenderer {
         }
 
         try {
-            val totalFrames = ((totalMs * FPS) / 1000L).toInt().coerceAtLeast(1)
-            val frameBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val frameCanvas = Canvas(frameBitmap)
-            EglFrameRenderer(inputSurface, width, height).use { frameRenderer ->
-                for (i in 0 until totalFrames) {
-                    val tMs = (i * 1000L) / FPS
-                    frameCanvas.drawBitmap(backdrop, 0f, 0f, null)
-                    drawLyricStack(frameCanvas, width, layouts, tMs)
-                    // Explicit zero-based presentation timestamps prevent the
-                    // phone's uptime from leaking into the MP4 track duration.
-                    frameRenderer.draw(frameBitmap, tMs * 1_000_000L)
-                    drain(false)
+            try {
+                val totalFrames = ((totalMs * FPS) / 1000L).toInt().coerceAtLeast(1)
+                val frameBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val frameCanvas = Canvas(frameBitmap)
+                EglFrameRenderer(inputSurface, width, height).use { frameRenderer ->
+                    for (i in 0 until totalFrames) {
+                        exportContext.ensureActive()
+                        val tMs = (i * 1000L) / FPS
+                        frameCanvas.drawBitmap(backdrop, 0f, 0f, null)
+                        if (style == LyricsVideoStyle.LYRICS) drawLyricStack(frameCanvas, width, layouts, tMs)
+                        else {
+                            val active = layouts.lastOrNull { it.line.startMs <= tMs }?.line ?: layouts.first().line
+                            drawLyricsVideoScene(frameCanvas, cover, type, style, tMs, active.text, songTitle, artistName)
+                        }
+                        // Explicit zero-based presentation timestamps prevent the
+                        // phone's uptime from leaking into the MP4 track duration.
+                        frameRenderer.draw(frameBitmap, tMs * 1_000_000L)
+                        drain(false)
 
-                    if (i % 6 == 0) {
-                        onProgress(Progress(0.05f + 0.75f * i / totalFrames, "Rendering frames"))
+                        if (i % 6 == 0) {
+                            onProgress(Progress(0.05f + 0.75f * i / totalFrames, context.getString(R.string.lyrics_share_stage_frames)))
+                        }
                     }
                 }
+                frameBitmap.recycle()
+                drain(true)
+            } finally {
+                runCatching { encoder.stop() }
+                encoder.release()
+                inputSurface.release()
             }
-            frameBitmap.recycle()
-            drain(true)
+
+            var hasAudio = false
+            if (encodedAudio != null && muxerStarted && audioTrackIndex >= 0) {
+                onProgress(Progress(0.85f, "Adding audio"))
+                encodedAudio.samples.forEach { (bytes, info) ->
+                    muxer.writeSampleData(audioTrackIndex, ByteBuffer.wrap(bytes), info)
+                }
+                hasAudio = true
+            }
+
+            return hasAudio
         } finally {
-            runCatching { encoder.stop() }
-            encoder.release()
-            inputSurface.release()
+            if (muxerStarted) runCatching { muxer.stop() }
+            muxer.release()
         }
-
-        var hasAudio = false
-        if (encodedAudio != null && muxerStarted && audioTrackIndex >= 0) {
-            onProgress(Progress(0.85f, "Adding audio"))
-            encodedAudio.samples.forEach { (bytes, info) ->
-                muxer.writeSampleData(audioTrackIndex, ByteBuffer.wrap(bytes), info)
-            }
-            hasAudio = true
-        }
-
-        if (muxerStarted) runCatching { muxer.stop() }
-        muxer.release()
-        return hasAudio
     }
 
     /** EGL is used only as a timestamped bridge to MediaCodec's input Surface.
@@ -927,21 +960,41 @@ object LyricsVideoRenderer {
 
     // ── Saving ───────────────────────────────────────────────────────────
 
-    private fun saveToGallery(context: Context, file: File): Uri {
+    private suspend fun saveToGallery(context: Context, file: File): Uri = withContext(Dispatchers.IO) {
+        currentCoroutineContext().ensureActive()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = context.contentResolver
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
                 put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
                 put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/SMusic")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            val uri = context.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-                ?: error("Failed to create new MediaStore record")
-            context.contentResolver.openOutputStream(uri)?.use { out ->
-                file.inputStream().use { it.copyTo(out) }
+            val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                ?: error("Unable to create a video record")
+            try {
+                val exportContext = currentCoroutineContext()
+                requireNotNull(resolver.openOutputStream(uri)).use { output ->
+                    file.inputStream().use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            exportContext.ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+                exportContext.ensureActive()
+                resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                file.delete()
+                uri
+            } catch (failure: Throwable) {
+                resolver.delete(uri, null, null)
+                throw failure
             }
-            file.delete()
-            return uri
+        } else {
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         }
-        return FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
     }
 }

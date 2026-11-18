@@ -100,7 +100,6 @@ import com.devxrohan.smusic.playback.queues.YouTubeQueue
 import com.devxrohan.smusic.ui.component.AlbumGridItem
 import com.devxrohan.smusic.ui.component.ArtistGridItem
 import com.devxrohan.smusic.ui.component.LocalMenuState
-import com.devxrohan.smusic.ui.component.NavigationTitle
 import com.devxrohan.smusic.ui.component.SongGridItem
 import com.devxrohan.smusic.ui.component.SongListItem
 import com.devxrohan.smusic.ui.component.YouTubeGridItem
@@ -625,7 +624,7 @@ fun HomeScreen(
 
                 keepListening?.takeIf { it.isNotEmpty() }?.let { keepListening ->
                     item {
-                        NavigationTitle(
+                        HomeSectionTitle(
                             title = stringResource(R.string.keep_listening),
                             modifier = Modifier.animateItem()
                         )
@@ -655,7 +654,7 @@ fun HomeScreen(
                 // and only while a YouTube account is connected.
                 if (isYouTubeHome && youtubeQuickPicks.isNotEmpty()) {
                     item(key = "youtube_quick_picks_title") {
-                        NavigationTitle(
+                        HomeSectionTitle(
                             title = stringResource(R.string.quick_picks),
                             label = stringResource(R.string.ui_youtube_music),
                             modifier = Modifier.animateItem()
@@ -683,7 +682,7 @@ fun HomeScreen(
                         val shelf = pulseYtShelves[index]
                         if (shelf.items.isNotEmpty()) {
                             item(key = "pulse_yt_${shelf.id}") {
-                                NavigationTitle(title = shelf.title, label = shelf.label, modifier = Modifier.animateItem())
+                                HomeSectionTitle(title = shelf.title, label = shelf.label, modifier = Modifier.animateItem())
                             }
                             item(key = "pulse_yt_${shelf.id}_row") {
                                 LazyRow(
@@ -698,9 +697,10 @@ fun HomeScreen(
                     if (index < similarRows.size) {
                         val recommendation = similarRows[index]
                         item(key = "similar_title_${index}_${recommendation.title.id}") {
-                            NavigationTitle(
+                            HomeSectionTitle(
                                 label = stringResource(R.string.similar_to),
                                 title = recommendation.title.title,
+                                preserveTitle = true,
                                 thumbnail = recommendation.title.thumbnailUrl?.let { thumbnailUrl ->
                                     {
                                         val shape =
@@ -746,7 +746,7 @@ fun HomeScreen(
                     if (!isYouTubeHome && index < pulseShelves.size) {
                         val shelf = pulseShelves[index]
                         item(key = "pulse_${shelf.id}") {
-                            NavigationTitle(
+                            HomeSectionTitle(
                                 title = shelf.title,
                                 label = shelf.reason.takeIf { it.isNotBlank() },
                                 modifier = Modifier.animateItem()
@@ -769,7 +769,7 @@ fun HomeScreen(
 
                 if (pulseDiscover.isNotEmpty()) {
                     item(key = "pulse_discover") {
-                        NavigationTitle(
+                        HomeSectionTitle(
                             title = stringResource(R.string.pulse_shelf_discover),
                             modifier = Modifier.animateItem()
                         )
@@ -789,8 +789,9 @@ fun HomeScreen(
                 val accountSections = homePage?.sections.orEmpty()
                 accountSections.forEach { it ->
                     item {
-                        NavigationTitle(
+                        HomeSectionTitle(
                             title = it.title,
+                            preserveTitle = it.endpoint?.isArtistEndpoint == true,
                             label = it.label,
                             thumbnail = it.thumbnail?.let { thumbnailUrl ->
                                 {
@@ -827,7 +828,7 @@ fun HomeScreen(
 
                 forgottenFavorites?.takeIf { it.isNotEmpty() }?.let { forgottenFavorites ->
                     item {
-                        NavigationTitle(
+                        HomeSectionTitle(
                             title = stringResource(R.string.forgotten_favorites),
                             modifier = Modifier.animateItem()
                         )

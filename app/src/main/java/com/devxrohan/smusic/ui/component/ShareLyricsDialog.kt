@@ -1,82 +1,40 @@
-/*
- * SMusic Project Original (2026)
- * Licensed Under GPL-3.0 | see git history for contributors
- */
-
 package com.devxrohan.smusic.ui.component
 
-import android.annotation.SuppressLint
+import android.content.ClipData
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CropPortrait
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.StayCurrentPortrait
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.AppFont
 import com.devxrohan.smusic.constants.AppFontKey
 import com.devxrohan.smusic.lyrics.LyricsEntry
 import com.devxrohan.smusic.models.MediaMetadata
+import com.devxrohan.smusic.utils.LyricsCardStyle
 import com.devxrohan.smusic.utils.LyricsShareRenderer
 import com.devxrohan.smusic.utils.LyricsVideoRenderer
+import com.devxrohan.smusic.utils.LyricsVideoStyle
 import com.devxrohan.smusic.utils.rememberPreference
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
-/** What a producing screen hands [ShareLyricsDialog]: the picked text, plus the
- * same lines' own timing when the screen has it (the lyrics screen does — the
- * overflow-menu entry point doesn't, and passes an empty list), which is what
- * lets "Video" mode animate in sync instead of just evenly-paced. */
+/** Selected text and its original song-relative timestamps. */
 data class ShareLyricsData(
     val text: String,
     val entries: List<LyricsEntry> = emptyList(),
@@ -84,367 +42,223 @@ data class ShareLyricsData(
     val artists: String,
 )
 
-private enum class ShareMode { CARD, STORY, VIDEO }
+internal enum class ShareMode { CARD, STORY, VIDEO }
+internal sealed interface LyricsPreview {
+    data object Loading : LyricsPreview
+    data class Ready(val bitmap: Bitmap) : LyricsPreview
+    data object Failed : LyricsPreview
+}
 
-/** Share actions for lyrics that have already been selected on the lyrics screen. */
-@SuppressLint("LocalContextGetResourceValueCall")
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ShareLyricsDialog(
-    data: ShareLyricsData,
-    mediaMetadata: MediaMetadata?,
-    onDismiss: () -> Unit,
-) {
-    val (lyricsText, entries, songTitle, artists) = data
+fun ShareLyricsDialog(data: ShareLyricsData, mediaMetadata: MediaMetadata?, onDismiss: () -> Unit) {
+    if (data.text.isBlank()) {
+        LaunchedEffect(Unit) { onDismiss() }
+        return
+    }
+    val appFontKey by rememberPreference(AppFontKey, defaultValue = AppFont.APPLE.key)
+    // Repeated verses can have identical text but different audio timestamps.
+    key(data, mediaMetadata?.id, mediaMetadata?.thumbnailUrl, appFontKey) {
+        LyricsShareSheet(data, mediaMetadata, AppFont.fromKey(appFontKey), onDismiss)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun LyricsShareSheet(data: ShareLyricsData, metadata: MediaMetadata?, font: AppFont, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scrollState = rememberScrollState()
-    val selectedText = lyricsText.trim()
-
-    val appFontKey by rememberPreference(AppFontKey, defaultValue = AppFont.APPLE.key)
-    val appFont = remember(appFontKey) { AppFont.fromKey(appFontKey) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var mode by remember { mutableStateOf(ShareMode.CARD) }
-    var image by remember(selectedText, songTitle, artists) { mutableStateOf<Bitmap?>(null) }
-    var failed by remember(selectedText, songTitle, artists) { mutableStateOf(false) }
-    var saved by remember(selectedText, songTitle, artists) { mutableStateOf(false) }
-
-    var videoUri by remember(selectedText, songTitle, artists) { mutableStateOf<Uri?>(null) }
-    var videoHasAudio by remember { mutableStateOf(true) }
-    var videoGenerating by remember { mutableStateOf(false) }
-    var videoProgress by remember { mutableFloatStateOf(0f) }
-    var videoStage by remember { mutableStateOf("") }
-    var videoFailed by remember { mutableStateOf(false) }
-    var videoPreview by remember(selectedText, songTitle, artists) { mutableStateOf<Bitmap?>(null) }
-
-    suspend fun generateVideo(): Uri? {
-        videoGenerating = true
-        videoFailed = false
-        videoProgress = 0f
-        val result = runCatching {
-            LyricsVideoRenderer.render(
-                context = context,
-                entries = entries,
-                fallbackText = selectedText,
-                songTitle = songTitle,
-                artistName = artists,
-                artworkUrl = mediaMetadata?.thumbnailUrl,
-                appFont = appFont,
-                mediaMetadata = mediaMetadata,
-                onProgress = { p -> videoProgress = p.fraction; videoStage = p.stage },
-            )
-        }.onFailure { videoFailed = true }.getOrNull()
-        videoGenerating = false
-        videoUri = result?.uri
-        videoHasAudio = result?.hasAudio ?: true
-        if (result != null && !result.hasAudio) {
-            Toast.makeText(context, "Video created without audio — couldn't load this song's audio", Toast.LENGTH_LONG).show()
+    var style by remember { mutableStateOf(LyricsCardStyle.CLASSIC) }
+    var videoStyle by remember { mutableStateOf(LyricsVideoStyle.LYRICS) }
+    var retry by remember { mutableIntStateOf(0) }
+    var saved by remember(mode, style) { mutableStateOf(false) }
+    var videoUri by remember(videoStyle) { mutableStateOf<Uri?>(null) }
+    var videoJob by remember { mutableStateOf<Job?>(null) }
+    var exporting by remember { mutableStateOf(false) }
+    var imageBusy by remember { mutableStateOf(false) }
+    var videoError by remember { mutableStateOf(false) }
+    var silentVideo by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var stage by remember { mutableStateOf("") }
+    val text = data.text.trim()
+    val preview by key(mode, style, videoStyle, retry) {
+        produceState<LyricsPreview>(LyricsPreview.Loading) {
+            value = LyricsPreview.Loading
+            suspend fun render(artwork: String?): Bitmap = if (mode == ShareMode.VIDEO) {
+                LyricsVideoRenderer.renderPreview(context, data.entries, text, data.songTitle, data.artists, artwork, font, style = videoStyle)
+            } else {
+                LyricsShareRenderer.render(context, text.lines().filter { it.isNotBlank() }.joinToString("\n"),
+                    data.songTitle, data.artists, artwork, font, story = mode == ShareMode.STORY, style = style)
+            }
+            try {
+                // Text is ready immediately; an unavailable artwork request never owns the loading state.
+                value = LyricsPreview.Ready(render(null))
+                metadata?.thumbnailUrl?.let { url ->
+                    val completed = render(url)
+                    coroutineContext.ensureActive()
+                    value = LyricsPreview.Ready(completed)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (value !is LyricsPreview.Ready) value = LyricsPreview.Failed
+            }
         }
-        return result?.uri
+
     }
 
-    // A still preview of the video's first frame — same backdrop/brand/artwork
-    // as Card/Story, with the fixed-position fade lyric treatment.
-    LaunchedEffect(selectedText, songTitle, artists, mediaMetadata?.thumbnailUrl, appFont, mode) {
-        if (mode != ShareMode.VIDEO || selectedText.isBlank()) return@LaunchedEffect
-        videoPreview = runCatching {
-            LyricsVideoRenderer.renderPreview(
-                context = context,
-                entries = entries,
-                fallbackText = selectedText,
-                songTitle = songTitle,
-                artistName = artists,
-                artworkUrl = mediaMetadata?.thumbnailUrl,
-                appFont = appFont,
-            )
-        }.getOrNull()
+    val designPreviews by produceState<List<Bitmap?>>(List(if (mode == ShareMode.VIDEO) LyricsVideoStyle.entries.size else LyricsCardStyle.entries.size) { null }, mode, text, data.songTitle, metadata?.thumbnailUrl, font) {
+        val rendered = MutableList<Bitmap?>(if (mode == ShareMode.VIDEO) LyricsVideoStyle.entries.size else LyricsCardStyle.entries.size) { null }
+        // Only the current selection is rendered; there are no sample songs or placeholder passages.
+        repeat(rendered.size) { index ->
+            try {
+                rendered[index] = if (mode == ShareMode.VIDEO) {
+                    LyricsVideoRenderer.renderPreview(context, data.entries, text, data.songTitle, data.artists,
+                        metadata?.thumbnailUrl, font, style = LyricsVideoStyle.entries[index])
+                } else {
+                    LyricsShareRenderer.render(context, text.lines().filter { it.isNotBlank() }.joinToString("\n"),
+                        data.songTitle, data.artists, metadata?.thumbnailUrl, font,
+                        story = mode == ShareMode.STORY, style = LyricsCardStyle.entries[index])
+                }
+                value = rendered.toList()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A failed option does not block the selected full preview or other designs.
+            }
+        }
     }
 
-    LaunchedEffect(selectedText, songTitle, artists, mediaMetadata?.thumbnailUrl, appFont, mode) {
-        if (mode == ShareMode.VIDEO) return@LaunchedEffect
-        image = null
-        failed = false
-        saved = false
-        if (selectedText.isBlank()) return@LaunchedEffect
-        image = runCatching {
-            val cardText = selectedText.lines().filter { it.isNotBlank() }.take(5).joinToString("\n")
-            LyricsShareRenderer.render(
-                context = context,
-                lyricsText = cardText,
-                songTitle = songTitle,
-                artistName = artists,
-                artworkUrl = mediaMetadata?.thumbnailUrl,
-                appFont = appFont,
-                story = mode == ShareMode.STORY,
-            )
-        }.onFailure { failed = true }.getOrNull()
+    fun message(id: Int) = Toast.makeText(context, context.getString(id), Toast.LENGTH_SHORT).show()
+    fun share(uri: Uri, mime: String) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri("lyrics", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_lyrics)))
+    }
+    fun exportImage(bitmap: Bitmap, send: Boolean) {
+        if (imageBusy) return
+        imageBusy = true
+        scope.launch {
+            try {
+                val uri = LyricsShareRenderer.saveToFile(context, bitmap, "lyrics_${System.currentTimeMillis()}")
+                if (send) share(uri, "image/png") else {
+                    saved = true
+                    message(R.string.lyrics_share_image_saved)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                message(R.string.lyrics_share_save_error)
+            } finally {
+                imageBusy = false
+            }
+        }
+    }
+
+    fun exportVideo(send: Boolean) {
+        if (exporting || videoJob?.isActive == true) return
+        videoJob = scope.launch {
+            exporting = true
+            videoError = false
+            try {
+                val uri = videoUri ?: LyricsVideoRenderer.render(context, data.entries, text, data.songTitle,
+                    data.artists, metadata?.thumbnailUrl, font, metadata, style = videoStyle,
+                    onProgress = { update -> progress = update.fraction; stage = update.stage })
+                    .also { result -> videoUri = result.uri; silentVideo = !result.hasAudio }.uri
+                if (send) share(uri, "video/mp4") else message(R.string.lyrics_share_video_saved)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                videoError = true
+            } finally {
+                exporting = false
+                videoJob = null
+            }
+        }
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
         dragHandle = { BottomSheetDefaults.DragHandle() },
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 720.dp)
-                .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(R.string.share_lyrics),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-            )
-
-            val bitmap = image
-            val ratio = bitmap?.let { it.width.toFloat() / it.height } ?: (9f / 16f)
-            val previewModifier = Modifier
-                .fillMaxWidth((0.72f * ratio).coerceIn(0.4f, 0.9f))
-                .heightIn(max = 300.dp)
-                .aspectRatio(ratio)
-                .clip(RoundedCornerShape(20.dp))
-            when {
-                mode == ShareMode.VIDEO -> Box(modifier = previewModifier, contentAlignment = Alignment.Center) {
-                    val preview = videoPreview
-                    if (preview != null) {
-                        Image(
-                            bitmap = preview.asImageBitmap(),
-                            contentDescription = stringResource(R.string.share_lyrics_image),
-                            modifier = Modifier.matchParentSize().clip(RoundedCornerShape(20.dp)),
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier.matchParentSize().background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
-                        }
-                    }
-                    if (videoGenerating || videoUri != null || videoFailed) {
-                        Box(
-                            modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.45f)).clip(RoundedCornerShape(20.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                when {
-                                    videoGenerating -> {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(28.dp),
-                                            strokeWidth = 2.5.dp,
-                                            color = Color.White,
-                                            progress = { videoProgress },
-                                        )
-                                        Text(videoStage, style = MaterialTheme.typography.bodySmall, color = Color.White)
-                                    }
-                                    videoUri != null -> {
-                                        Icon(Icons.Filled.Videocam, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
-                                        Text("Video ready", style = MaterialTheme.typography.bodySmall, color = Color.White)
-                                    }
-                                    videoFailed -> {
-                                        Text("Couldn't create video", style = MaterialTheme.typography.bodySmall, color = Color.White)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                bitmap != null -> Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = stringResource(R.string.share_lyrics_image),
-                    modifier = previewModifier,
-                )
-                !failed -> Box(
-                    modifier = previewModifier.background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
-                }
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(R.string.share_lyrics), style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text(data.songTitle, style = MaterialTheme.typography.bodyMedium,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilterChip(
-                    selected = mode == ShareMode.CARD,
-                    onClick = { mode = ShareMode.CARD },
-                    label = { Text("Card") },
-                    leadingIcon = {
-                        Icon(Icons.Filled.CropPortrait, contentDescription = null, modifier = Modifier.size(18.dp))
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                )
-                FilterChip(
-                    selected = mode == ShareMode.STORY,
-                    onClick = { mode = ShareMode.STORY },
-                    label = { Text("Story") },
-                    leadingIcon = {
-                        Icon(Icons.Filled.StayCurrentPortrait, contentDescription = null, modifier = Modifier.size(18.dp))
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                )
-                FilterChip(
-                    selected = mode == ShareMode.VIDEO,
-                    onClick = { mode = ShareMode.VIDEO },
-                    label = { Text("Video") },
-                    leadingIcon = {
-                        Icon(Icons.Filled.Videocam, contentDescription = null, modifier = Modifier.size(18.dp))
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                )
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                LyricsShareFormatPicker(mode, !exporting && !imageBusy, onModeChange = { mode = it })
+                LyricsSharePreview(preview, onRetry = { retry++ })
+                if (mode != ShareMode.VIDEO) {
+                    LyricsShareDesignPicker(style, previews = designPreviews,
+                        enabled = !imageBusy, onSelect = { style = it })
+                } else {
+                    LyricsVideoDesignPicker(videoStyle, previews = designPreviews, enabled = !exporting, onSelect = { videoStyle = it })
+                    if (exporting) {
+                        LinearWavyProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stage, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { videoJob?.cancel() }) { Text(stringResource(R.string.lyrics_share_cancel_export)) }
+                        }
+                    } else if (videoUri != null) {
+                        Text(stringResource(if (silentVideo) R.string.lyrics_share_no_audio else R.string.lyrics_share_video_ready),
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (videoError) Text(stringResource(R.string.lyrics_share_video_error), color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                Spacer(Modifier.height(4.dp))
             }
-
-            Spacer(modifier = Modifier.height(18.dp))
-            if (mode == ShareMode.VIDEO) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                val uri = videoUri ?: generateVideo() ?: return@launch
-                                runCatching {
-                                    context.contentResolver.openInputStream(uri)?.close()
-                                    saved = true
-                                    Toast.makeText(context, "Video saved", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        enabled = !videoGenerating,
-                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Icon(painterResource(R.drawable.download), contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text(
-                                text = if (videoUri != null) "Saved" else if (videoGenerating) "Creating…" else "Create video",
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                            )
+            val bitmap = (preview as? LyricsPreview.Ready)?.bitmap
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 16.dp, bottom = 12.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = {
+                            if (mode == ShareMode.VIDEO) exportVideo(true) else bitmap?.let { exportImage(it, true) }
+                        }, shapes = ButtonDefaults.shapesFor(ButtonDefaults.MediumContainerHeight),
+                            enabled = !exporting && !imageBusy && (mode == ShareMode.VIDEO || bitmap != null),
+                            modifier = Modifier.weight(1f).heightIn(min = ButtonDefaults.MediumContainerHeight)) {
+                            Icon(painterResource(R.drawable.share), null, Modifier.size(24.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(stringResource(if (mode == ShareMode.VIDEO) R.string.lyrics_share_share_video else R.string.lyrics_share_share_image),
+                                style = MaterialTheme.typography.titleMedium)
+                        }
+                        FilledTonalButton(onClick = {
+                            if (mode == ShareMode.VIDEO) exportVideo(false) else bitmap?.let { exportImage(it, false) }
+                        }, shapes = ButtonDefaults.shapesFor(ButtonDefaults.MediumContainerHeight),
+                            enabled = !exporting && !imageBusy && (mode == ShareMode.VIDEO || bitmap != null),
+                            contentPadding = PaddingValues(16.dp), modifier = Modifier.heightIn(min = ButtonDefaults.MediumContainerHeight)) {
+                            Icon(painterResource(R.drawable.download),
+                                stringResource(if (mode == ShareMode.VIDEO) R.string.lyrics_share_save_video else R.string.lyrics_share_save_image),
+                                Modifier.size(24.dp))
+                            if (saved) { Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.lyrics_share_saved)) }
                         }
                     }
-
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                val uri = videoUri ?: generateVideo() ?: return@launch
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "video/mp4"
-                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share video"))
-                            }
-                        },
-                        enabled = !videoGenerating,
-                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Icon(painterResource(R.drawable.share), contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text(if (videoGenerating) "Creating…" else "Share video", fontSize = 11.sp, maxLines = 1)
+                    if (mode != ShareMode.VIDEO) TextButton(onClick = {
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, buildString {
+                                append('"').append(text).append("\"\n\n").append(data.songTitle).append(" - ").append(data.artists)
+                                metadata?.id?.let { append("\nhttps://play.smusic.app/song?id=$it") }
+                            })
                         }
-                    }
-                }
-                if (videoGenerating) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    LinearProgressIndicator(
-                        progress = { videoProgress },
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            val songLink = mediaMetadata?.id?.let { "https://play.smusic.app/song?id=$it" }
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, buildString {
-                                    append("\"").append(selectedText).append("\"\n\n")
-                                    append(songTitle).append(" - ").append(artists)
-                                    songLink?.let { append("\n").append(it) }
-                                })
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_lyrics)))
-                            onDismiss()
-                        },
-                        enabled = selectedText.isNotBlank(),
-                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Icon(painterResource(R.drawable.share), contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text("Share text", fontSize = 11.sp, maxLines = 1)
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            val drawn = image ?: return@OutlinedButton
-                            scope.launch {
-                                runCatching {
-                                    LyricsShareRenderer.saveToFile(context, drawn, "lyrics_saved_${System.currentTimeMillis()}")
-                                    saved = true
-                                    Toast.makeText(context, "Image saved", Toast.LENGTH_SHORT).show()
-                                }.onFailure {
-                                    Toast.makeText(context, "Failed to save image: ${it.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        enabled = image != null,
-                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Icon(painterResource(R.drawable.download), contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text(if (saved) "Saved" else "Save image", fontSize = 11.sp, maxLines = 1)
-                        }
-                    }
-
-                    Button(
-                        onClick = {
-                            val drawn = image ?: return@Button
-                            scope.launch {
-                                runCatching {
-                                    val uri = LyricsShareRenderer.saveToFile(context, drawn, "lyrics_${System.currentTimeMillis()}")
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "image/png"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_as_image)))
-                                }.onFailure {
-                                    failed = true
-                                    Toast.makeText(context, "Failed to create image: ${it.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        enabled = image != null,
-                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Icon(painterResource(R.drawable.share), contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text("Share image", fontSize = 11.sp, maxLines = 1)
-                        }
+                        context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_lyrics)))
+                    }, modifier = Modifier.align(Alignment.CenterHorizontally), enabled = text.isNotBlank()) {
+                        Text(stringResource(R.string.lyrics_share_share_text))
                     }
                 }
             }

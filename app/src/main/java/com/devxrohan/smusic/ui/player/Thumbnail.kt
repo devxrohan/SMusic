@@ -101,6 +101,7 @@ fun Thumbnail(
     // Optional fixed square size for layouts (such as Classic) that must not
     // change artwork dimensions when the available vertical space differs.
     artworkSize: Dp? = null,
+    artworkHeight: Dp? = null,
 ) {
 
 
@@ -350,31 +351,16 @@ fun Thumbnail(
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                // The artwork must stay perfectly square. Letting Compose's own
-                                // aspectRatio modifier compute that size — instead of manually
-                                // computing a Dp value — is what actually fixes this correctly:
-                                // it automatically picks the largest square that fits inside
-                                // whichever of this grid cell's own width/height is smaller, using
-                                // this cell's real bounds rather than a value calculated from the
-                                // wrong reference (an earlier version compared against the full
-                                // screen width here instead of this cell's own width, which made
-                                // the artwork noticeably smaller than it should be on cells that
-                                // are narrower than the full screen, i.e. basically always, since
-                                // this carousel deliberately shows a sliver of the next item at
-                                // each edge). This also keeps the earlier overlap fix (the square
-                                // never exceeds the space actually available for it, so it can't
-                                // spill over the title/artist row below it on short screens).
+                                // Default players keep square artwork. Classic may supply independent
+                                // dimensions; both remain inside the cell so artwork cannot overlap controls.
                                 BoxWithConstraints(contentAlignment = Alignment.Center) {
-                                    // A fixed dp size alone can exceed the artwork cell on short
-                                    // phones or landscape layouts. Cap it to the real cell bounds
-                                    // so the square stays consistent where possible, but never
-                                    // collides with the header, metadata, or controls.
                                     val safeArtworkSize = artworkSize?.coerceAtMost(
-                                        minOf(maxWidth, maxHeight).coerceAtLeast(1.dp)
+                                        (if (artworkHeight == null) minOf(maxWidth, maxHeight) else maxWidth).coerceAtLeast(1.dp)
                                     )
+                                    val safeArtworkHeight = artworkHeight?.coerceIn(1.dp, maxHeight.coerceAtLeast(1.dp))
                                     Box(
                                         modifier = if (safeArtworkSize != null) {
-                                            Modifier.size(safeArtworkSize)
+                                            Modifier.width(safeArtworkSize).height(safeArtworkHeight ?: safeArtworkSize)
                                         } else {
                                             Modifier
                                                 .padding(artworkPadding)

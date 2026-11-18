@@ -502,6 +502,8 @@ fun PlayerSettings(
                     )
                 )
 
+        if (playerScreenStyle == PlayerScreenStyle.CLASSIC) ClassicPlayerOptions()
+
         SettingsGeneralCategory(
             title = stringResource(R.string.queue),
             items = listOf(

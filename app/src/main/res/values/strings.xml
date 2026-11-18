@@ -33,7 +33,7 @@
     <string name="new_release_albums">New releases</string>
     <string name="forgotten_favorites">Forgotten favorites</string>
     <string name="similar_to">Similar to</string>
-    <string name="keep_listening">Keep listening</string>
+    <string name="keep_listening">The Usuals</string>
 
     <!-- History -->
     <string name="today">Today</string>
@@ -960,7 +960,7 @@
     <string name="pulse_unhide">Unhide</string>
     <string name="pulse_rebuild">Rebuild Pulse from my history</string>
     <string name="pulse_how_learns">How Pulse learns</string>
-    <string name="pulse_how_learns_body">Pulse learns on this device from what you actually do: songs you finish or replay, ones you skip, what you like, and what you play together. Nothing leaves your phone. As it learns, Keep Listening, Similar To and a few extra shelves become more personal.</string>
+    <string name="pulse_how_learns_body">Pulse learns on this device from what you actually do: songs you finish or replay, ones you skip, what you like, and what you play together. Nothing leaves your phone. As it learns, The Usuals, Similar To and a few extra shelves become more personal.</string>
     <string name="home_header_style">Home Header Style</string>
     <string name="home_header_style_smusic">Morning Aura</string>
     <string name="home_header_style_apple_listen">Apple Listen</string>
@@ -1483,4 +1483,45 @@
     <string name="current_lyrics_source">Current source</string>
     <string name="choose_lyrics_source">Choose lyrics source</string>
     <string name="lyrics_source_unknown">Lyrics source information unavailable</string>
+
+    <!-- Lyrics sharing -->
+    <string name="lyrics_share_card">Card</string>
+    <string name="lyrics_share_story">Story</string>
+    <string name="lyrics_share_video">Video</string>
+    <string name="lyrics_share_close">Close</string>
+    <string name="lyrics_share_preview_error">Preview could not be created</string>
+    <string name="lyrics_share_retry">Try again</string>
+    <string name="lyrics_share_design">Design</string>
+    <string name="lyrics_share_classic">Classic</string>
+    <string name="lyrics_share_artwork">Artwork</string>
+    <string name="lyrics_share_paper">Paper</string>
+    <string name="lyrics_share_midnight">Midnight</string>
+    <string name="lyrics_share_cancel_export">Cancel export</string>
+    <string name="lyrics_share_video_ready">Video ready</string>
+    <string name="lyrics_share_no_audio">Video saved without audio</string>
+    <string name="lyrics_share_video_error">Unable to create video. Try again.</string>
+    <string name="lyrics_share_share_video">Share video</string>
+    <string name="lyrics_share_share_image">Share image</string>
+    <string name="lyrics_share_save_video">Save video</string>
+    <string name="lyrics_share_save_image">Save image</string>
+    <string name="lyrics_share_saved">Saved</string>
+    <string name="lyrics_share_share_text">Share text</string>
+    <string name="lyrics_share_video_saved">Video saved</string>
+    <string name="lyrics_share_image_saved">Image saved</string>
+    <string name="lyrics_share_save_error">Unable to save image</string>
+    <string name="lyrics_share_stage_preparing">Preparing preview</string>
+    <string name="lyrics_share_stage_audio">Preparing selected audio</string>
+    <string name="lyrics_share_stage_frames">Rendering video</string>
+    <string name="lyrics_share_stage_saving">Saving video</string>
+    <string name="lyrics_share_stage_done">Done</string>
+    <string name="lyrics_share_video_lyrics">Lyrics</string>
+    <string name="lyrics_share_video_cassette">Cassette</string>
+    <string name="lyrics_share_video_record">Photo</string>
+    <string name="lyrics_share_video_spotlight">Halo</string>
+    <string name="lyrics_share_dark">Dark</string>
+    <string name="classic_show_quality">Audio quality badge</string>
+    <string name="classic_show_lyrics">Inline lyrics</string>
+    <string name="classic_show_source">Playback source</string>
+    <string name="classic_artwork_width">Artwork width</string>
+    <string name="classic_artwork_height">Artwork height</string>
 </resources>

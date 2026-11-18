@@ -1,8 +1,6 @@
 package com.devxrohan.smusic.ui.screens
 
 import android.annotation.SuppressLint
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -44,7 +42,6 @@ import com.devxrohan.smusic.ui.screens.settings.PrivacySettings
 import com.devxrohan.smusic.ui.screens.settings.SettingsScreen
 import com.devxrohan.smusic.ui.screens.settings.StorageSettings
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @SuppressLint("UnrememberedMutableState")
 @OptIn(ExperimentalMaterial3Api::class)
 fun NavGraphBuilder.navigationBuilder(

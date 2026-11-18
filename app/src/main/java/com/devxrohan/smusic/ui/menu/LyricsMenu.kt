@@ -66,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
@@ -98,6 +99,7 @@ fun LyricsMenu(
     viewModel: LyricsMenuViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val database = LocalDatabase.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -352,7 +354,7 @@ fun LyricsMenu(
             if (!isLoading && results.isEmpty()) {
                 item {
                     Text(
-                        text = context.getString(R.string.lyrics_not_found),
+                        text = resources.getString(R.string.lyrics_not_found),
                         textAlign = TextAlign.Center,
                         modifier =
                             Modifier
@@ -853,7 +855,7 @@ fun LyricsMenu(
             val provider = viewModel.currentProviderName(mediaMetadataProvider().id)
             Toast.makeText(
                 context,
-                if (provider.isNullOrBlank()) context.getString(R.string.lyrics_source_unknown) else "Lyrics: $provider",
+                if (provider.isNullOrBlank()) resources.getString(R.string.lyrics_source_unknown) else "Lyrics: $provider",
                 Toast.LENGTH_SHORT,
             ).show()
         }

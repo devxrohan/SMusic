@@ -59,9 +59,11 @@ private val TITLE_SUFFIXES = listOf(
     Regex("""\s+song\s+title\b.*$""", RegexOption.IGNORE_CASE),
     Regex("""\s*\d+(?:[.,]\d+)?\s*[KMB]?\s*(?:plays?|views?|streams?)\b.*$""", RegexOption.IGNORE_CASE),
     Regex("""\s*[|·]\s*(?:official\s+)?(?:audio|video|lyrics?)\b.*$""", RegexOption.IGNORE_CASE),
+    Regex("""\s+official\s+(?:music\s+)?(?:video|audio|lyric(?:s)?(?:\s+video)?|visuali[sz]er)\s*$""", RegexOption.IGNORE_CASE),
 )
 private val ARTIST_PREFIXES = listOf(
-    Regex("""^\s*(?:song\s+)?artist\s*[:：-]?\s*""", RegexOption.IGNORE_CASE),
+    // A bare "Artist" can be part of the performer's name, not a metadata label.
+    Regex("""^\s*(?:song\s+artist\b\s*[:：-]?|artist\s*[:：-])\s*""", RegexOption.IGNORE_CASE),
     Regex("""^\s*various\s+artists\s*[:：-]?\s*""", RegexOption.IGNORE_CASE),
 )
 private val ARTIST_SUFFIXES = listOf(

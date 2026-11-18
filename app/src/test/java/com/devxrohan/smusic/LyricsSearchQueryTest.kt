@@ -29,4 +29,12 @@ class LyricsSearchQueryTest {
         assertTrue("artist two" in artists)
         assertTrue("guest" in artists)
     }
+    @Test
+    fun `artist words and recording qualifiers are preserved`() {
+        assertEquals("Artist Two", "Artist Two".artistForLyricsSearch())
+        assertEquals("Artist", "Artist".artistForLyricsSearch())
+        assertEquals("Guest", "Artist: Guest".artistForLyricsSearch())
+        assertEquals("Song (Live)", "Song (Live) Official Video".forLyricsSearch())
+        assertEquals("Song (Acoustic)", "Song (Acoustic)".forLyricsSearch())
+    }
 }

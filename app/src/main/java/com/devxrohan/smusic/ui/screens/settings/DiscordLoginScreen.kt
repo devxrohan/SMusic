@@ -26,6 +26,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
@@ -52,6 +53,7 @@ private const val SAMSUNG_USER_AGENT =
 @Composable
 fun DiscordLoginScreen(navController: NavController) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var discordToken by rememberPreference(DiscordTokenKey, "")
     var webView: WebView? = null
@@ -83,7 +85,7 @@ fun DiscordLoginScreen(navController: NavController) {
                     settings[com.devxrohan.smusic.constants.DiscordNameKey] = userInfo.name
                 }
                 launch(Dispatchers.Main) {
-                    Toast.makeText(context, context.getString(R.string.login_success), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, resources.getString(R.string.login_success), Toast.LENGTH_SHORT).show()
                     webView?.loadUrl("about:blank")
                     navController.navigateUp()
                 }

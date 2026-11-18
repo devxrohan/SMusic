@@ -1,7 +1,6 @@
 package com.devxrohan.smusic.ui.screens.settings
 
 import com.devxrohan.smusic.ui.utils.bottomSafeArea
-import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
@@ -12,7 +11,6 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -357,8 +355,6 @@ fun WaterDropIconButton(
 
 // ==================== ORIGINAL FUNCTIONS ====================
 
-@SuppressLint("ObsoleteSdkInt")
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 fun getAppVersion(context: Context): String {
     return try {
         val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -379,7 +375,6 @@ fun getAppVersion(context: Context): String {
     }
 }
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 fun VersionCard(navController: NavController) {
     val context = LocalContext.current
@@ -660,7 +655,6 @@ fun UpdateDownloadDialog(
 }
 
 // ==================== MAIN SETTINGS SCREEN ====================
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(

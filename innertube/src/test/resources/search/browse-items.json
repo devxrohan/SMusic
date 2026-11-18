@@ -1,0 +1,134 @@
+[
+  {
+    "flexColumns": [
+      {
+        "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+            "runs": [
+              {
+                "text": "Fixture Artist"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+            "runs": [
+              {
+                "text": "Song"
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "Fixture Artist",
+                "navigationEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "UC_fixture_artist"
+                  }
+                }
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "3:42"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "thumbnail": {
+      "musicThumbnailRenderer": {
+        "thumbnail": {
+          "thumbnails": [
+            {
+              "url": "https://example.invalid/fixture-song.png",
+              "width": 120,
+              "height": 120
+            }
+          ]
+        }
+      }
+    },
+    "navigationEndpoint": {
+      "browseEndpoint": {
+        "browseId": "UC_fixture_artist",
+        "browseEndpointContextSupportedConfigs": {
+          "browseEndpointContextMusicConfig": {
+            "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+          }
+        }
+      }
+    }
+  },
+  {
+    "flexColumns": [
+      {
+        "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+            "runs": [
+              {
+                "text": "Fixture Album"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "musicResponsiveListItemFlexColumnRenderer": {
+          "text": {
+            "runs": [
+              {
+                "text": "Album"
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "Fixture Artist",
+                "navigationEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "UC_fixture_artist"
+                  }
+                }
+              },
+              {
+                "text": " • "
+              },
+              {
+                "text": "2024"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "thumbnail": {
+      "musicThumbnailRenderer": {
+        "thumbnail": {
+          "thumbnails": [
+            {
+              "url": "https://example.invalid/fixture-song.png",
+              "width": 120,
+              "height": 120
+            }
+          ]
+        }
+      }
+    },
+    "navigationEndpoint": {
+      "browseEndpoint": {
+        "browseId": "MPRE_fixture_album",
+        "browseEndpointContextSupportedConfigs": {
+          "browseEndpointContextMusicConfig": {
+            "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+          }
+        }
+      }
+    }
+  }
+]

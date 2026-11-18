@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -107,6 +108,7 @@ fun HistoryScreen(
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val database = LocalDatabase.current
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
@@ -158,10 +160,10 @@ fun HistoryScreen(
 
     fun dateAgoToString(dateAgo: DateAgo): String {
         return when (dateAgo) {
-            DateAgo.Today -> context.getString(R.string.today)
-            DateAgo.Yesterday -> context.getString(R.string.yesterday)
-            DateAgo.ThisWeek -> context.getString(R.string.this_week)
-            DateAgo.LastWeek -> context.getString(R.string.last_week)
+            DateAgo.Today -> resources.getString(R.string.today)
+            DateAgo.Yesterday -> resources.getString(R.string.yesterday)
+            DateAgo.ThisWeek -> resources.getString(R.string.this_week)
+            DateAgo.LastWeek -> resources.getString(R.string.last_week)
             is DateAgo.Other -> dateAgo.date.format(DateTimeFormatter.ofPattern("yyyy/MM"))
         }
     }
@@ -450,7 +452,7 @@ fun HistoryScreen(
                     if (songs.isNotEmpty()) {
                         playerConnection?.playQueue(
                             ListQueue(
-                                title = context.getString(R.string.history),
+                                title = resources.getString(R.string.history),
                                 items = songs.map { it.toMediaItem() }.shuffled()
                             )
                         )
@@ -458,7 +460,7 @@ fun HistoryScreen(
                 } else {
                     playerConnection?.playQueue(
                         ListQueue(
-                            title = context.getString(R.string.history),
+                            title = resources.getString(R.string.history),
                             items = allWrappedItems.map { it.item.song.toMediaItem() }.shuffled()
                         )
                     )

@@ -46,8 +46,8 @@ android {
         applicationId = "com.devxrohan.smusic"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 6
+        versionName = "2.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GOOGLE_API_KEY", googleApiKey.asBuildConfigString())
         buildConfigField("String", "STATS_API_KEY", statsApiKey.asBuildConfigString())
@@ -162,6 +162,7 @@ configurations.all {
 }
 
 dependencies {
+    testImplementation(libs.junit)
     // Firebase Cloud Messaging (push messages to all users, see tools/README.md)
     implementation(platform("com.google.firebase:firebase-bom:35.0.0"))
     implementation("com.google.firebase:firebase-messaging")

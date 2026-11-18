@@ -92,9 +92,8 @@ fun CloudGlowPlayerScreen(
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val artworkUrl = mediaMetadata?.thumbnailUrl?.highQualityThumbnail()
-    val isLiked by playerConnection.currentSong
-        .collectAsState(initial = null)
-        .let { state -> derivedStateOf { state.value?.song?.liked == true } }
+    val currentSong by playerConnection.currentSong.collectAsState(initial = null)
+    val isLiked = currentSong?.song?.liked == true
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val playerBackground = PlayerBackgroundStyle.DEFAULT

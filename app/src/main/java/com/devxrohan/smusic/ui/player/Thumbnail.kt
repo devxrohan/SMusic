@@ -117,9 +117,12 @@ fun Thumbnail(
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
     val canSkipNext by playerConnection.canSkipNext.collectAsState()
 
-    val customCornerRadius by context.dataStore.data
-        .map { it[androidx.datastore.preferences.core.floatPreferencesKey("thumbnail_corner_radius")] ?: 16f }
-        .collectAsState(initial = 16f)
+    val cornerRadiusFlow = remember(context) {
+        context.dataStore.data.map {
+            it[androidx.datastore.preferences.core.floatPreferencesKey("thumbnail_corner_radius")] ?: 16f
+        }
+    }
+    val customCornerRadius by cornerRadiusFlow.collectAsState(initial = 16f)
 
     val effectiveShape = if (useCustomCornerRadius) RoundedCornerShape(customCornerRadius.dp) else shape
 

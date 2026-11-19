@@ -4,7 +4,6 @@ package com.devxrohan.smusic.ui.player
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -107,7 +106,7 @@ internal fun SpotifyRoundIconButton(
             .size(42.dp)
             .clip(CircleShape)
             .background(if (transparent) Color.Transparent else Color.White.copy(alpha = 0.12f))
-            .clickable(onClick = onClick),
+            .playerControlClickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Image(
@@ -129,7 +128,7 @@ internal fun SpotifyPlainIconButton(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .clickable(onClick = onClick),
+            .playerControlClickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Image(

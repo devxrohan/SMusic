@@ -15,7 +15,6 @@ import com.devxrohan.smusic.constants.ClassicShowAudioQualityKey
 import com.devxrohan.smusic.constants.ClassicShowLyricsLineKey
 import com.devxrohan.smusic.constants.ClassicShowPlayingFromKey
 import com.devxrohan.smusic.utils.rememberPreference
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,8 +65,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -144,7 +141,6 @@ fun ClassicPlayerScreen(
     val context = LocalContext.current
     val menuState = LocalMenuState.current
     val database = LocalDatabase.current
-    val haptic = LocalHapticFeedback.current
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
     val showQuality by rememberPreference(ClassicShowAudioQualityKey, true)
     val showLyricsLine by rememberPreference(ClassicShowLyricsLineKey, true)
@@ -152,7 +148,7 @@ fun ClassicPlayerScreen(
     val artworkSizePercent by rememberPreference(ClassicArtworkSizeKey, 86)
     val artworkHeightPercent by rememberPreference(ClassicArtworkHeightKey, 86)
     val artworkZoom by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.82f,
+        targetValue = if (isPlaying) 1f else 0.94f,
         animationSpec = tween(420), label = "classicArtworkZoom",
     )
     val screenConfiguration = LocalConfiguration.current
@@ -428,7 +424,7 @@ fun ClassicPlayerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .basicMarquee(iterations = Int.MAX_VALUE)
-                            .clickable(enabled = mediaMetadata?.album != null, interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                            .playerControlClickable(enabled = mediaMetadata?.album != null, interactionSource = remember { MutableInteractionSource() }, indication = null) {
                                 mediaMetadata?.album?.let { navController.navigate("album/${it.id}") }
                                 bottomSheetState.collapseSoft()
                             }
@@ -450,8 +446,7 @@ fun ClassicPlayerScreen(
                         .size(44.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.12f))
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        .playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             playerConnection.toggleLike()
                         },
                     contentAlignment = Alignment.Center
@@ -563,7 +558,7 @@ fun ClassicPlayerScreen(
                     tint = if (shuffleModeEnabled) accent else Color.White.copy(alpha = 0.5f),
                     modifier = Modifier
                         .size(24.dp)
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled }
+                        .playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled }
                 )
                 Icon(
                     painter = painterResource(R.drawable.classic_skip_previous),
@@ -571,12 +566,12 @@ fun ClassicPlayerScreen(
                     tint = Color.White.copy(alpha = if (canSkipPrevious) 1f else 0.35f),
                     modifier = Modifier
                         .size(34.dp)
-                        .clickable(enabled = canSkipPrevious, interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.seekToPrevious() }
+                        .playerControlClickable(enabled = canSkipPrevious, interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.seekToPrevious() }
                 )
                 Box(
                     modifier = Modifier
                         .size(if (compactClassicLayout) 68.dp else 72.dp)
-                        .clickable(
+                        .playerControlClickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = { playerConnection.player.togglePlayPause() },
@@ -596,7 +591,7 @@ fun ClassicPlayerScreen(
                     tint = Color.White.copy(alpha = if (canSkipNext) 1f else 0.35f),
                     modifier = Modifier
                         .size(34.dp)
-                        .clickable(enabled = canSkipNext, interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.seekToNext() }
+                        .playerControlClickable(enabled = canSkipNext, interactionSource = remember { MutableInteractionSource() }, indication = null) { playerConnection.player.seekToNext() }
                 )
                 Icon(
                     painter = painterResource(
@@ -609,7 +604,7 @@ fun ClassicPlayerScreen(
                     tint = if (repeatMode != Player.REPEAT_MODE_OFF) accent else Color.White.copy(alpha = 0.5f),
                     modifier = Modifier
                         .size(24.dp)
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                        .playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             playerConnection.player.repeatMode = when (repeatMode) {
                                 Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                                 Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
@@ -632,7 +627,7 @@ fun ClassicPlayerScreen(
                     painter = painterResource(R.drawable.lyrics),
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onOpenFullscreenLyrics() }
+                    modifier = Modifier.size(20.dp).playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onOpenFullscreenLyrics() }
                 )
                 if (sleepTimerEnabled) {
                     Text(
@@ -641,14 +636,14 @@ fun ClassicPlayerScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = accent,
                         maxLines = 1,
-                        modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = playerConnection.service.sleepTimer::clear)
+                        modifier = Modifier.playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = playerConnection.service.sleepTimer::clear)
                     )
                 } else {
                     Icon(
                         painter = painterResource(R.drawable.bedtime),
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showSleepTimerDialog = true }
+                        modifier = Modifier.size(20.dp).playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showSleepTimerDialog = true }
                     )
                 }
                 val classicDownloadScale by animateFloatAsState(
@@ -676,7 +671,7 @@ fun ClassicPlayerScreen(
                         .size(20.dp)
                         .scale(classicDownloadScale)
                         .alpha(classicDownloadAlpha)
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                        .playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             mediaMetadata?.let { metadata ->
                                 if (download?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) {
                                     androidx.media3.exoplayer.offline.DownloadService.sendRemoveDownload(
@@ -692,7 +687,7 @@ fun ClassicPlayerScreen(
                     painter = painterResource(R.drawable.queue_music),
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { queueSheetState.expandSoft() }
+                    modifier = Modifier.size(20.dp).playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { queueSheetState.expandSoft() }
                 )
                 Icon(
                     painter = painterResource(R.drawable.more_horiz),
@@ -700,7 +695,7 @@ fun ClassicPlayerScreen(
                     tint = Color.White,
                     modifier = Modifier
                         .size(20.dp)
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                        .playerControlClickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                             currentSong?.let { song ->
                                 menuState.show {
                                     PlayerMenu(

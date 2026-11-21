@@ -353,8 +353,8 @@ fun NavGraphBuilder.navigationBuilder(
     composable(com.devxrohan.smusic.ui.screens.settings.DeveloperRoute) {
         com.devxrohan.smusic.ui.screens.settings.DeveloperScreen(navController)
     }
-    composable(com.devxrohan.smusic.ui.screens.settings.PreviousVersionsRoute) {
-        com.devxrohan.smusic.ui.screens.settings.PreviousVersionsScreen(navController)
+    composable(com.devxrohan.smusic.ui.screens.settings.PreviousVersionsRoute + "?release={release}") { entry ->
+        com.devxrohan.smusic.ui.screens.settings.PreviousVersionsScreen(navController, initialTag = entry.arguments?.getString("release"))
     }
     composable(com.devxrohan.smusic.ui.screens.settings.AnnouncementRoute) {
         com.devxrohan.smusic.ui.screens.settings.AnnouncementScreen(navController)

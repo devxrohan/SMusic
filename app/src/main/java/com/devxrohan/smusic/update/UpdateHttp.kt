@@ -24,20 +24,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/**
- * Shared network layer for everything in the update package (release check,
- * previous versions, developer profile, announcements, APK download).
- *
- * Why this exists: on some Wi-Fi networks (ISP / router DNS that poisons or
- * drops github.com, broken IPv6 routes, captive DNS) the phone's *system*
- * DNS cannot resolve or reach GitHub even though mobile data works fine.
- * Every old fallback (OkHttp, HttpURLConnection) used that same system DNS,
- * so they all failed together. Here every request is tried twice:
- *
- *  1. normal system DNS (IPv4 addresses first, so a broken IPv6 route can't stall us)
- *  2. the same request again, but names are resolved through DNS-over-HTTPS
- *     (Cloudflare / Google, reached by IP so no DNS is needed to bootstrap)
- */
+/** Cancellable update requests with staggered transport fallbacks and DNS recovery. */
 internal object UpdateHttp {
 
     private const val USER_AGENT_PREFIX = "SMusic/"
@@ -116,11 +103,7 @@ internal object UpdateHttp {
     private val systemClient: OkHttpClient by lazy { baseBuilder(8).dns(SystemDnsV4First).build() }
     private val dohClient: OkHttpClient by lazy { baseBuilder(8).dns(DohDns).build() }
 
-    /**
-     * APK downloads need NO overall call timeout. The old client used an 18 s
-     * callTimeout for everything, and callTimeout covers the whole body read,
-     * so any APK that needed more than 18 s on a slower Wi-Fi was aborted.
-     */
+    /** Use read-stall limits for APK downloads; a total call timeout would abort slow healthy transfers. */
     private fun downloadBuilder() = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -151,12 +134,7 @@ internal object UpdateHttp {
         }
     }
 
-    /**
-     * GET [url] and run [parse] on the body. Tries system DNS first, then
-     * DNS-over-HTTPS. Returns null when both fail, when the server answers
-     * with an HTTP error (a different DNS can't fix that), or when [parse]
-     * rejects the body (e.g. an ISP block page that returned HTTP 200).
-     */
+    /** Parse a GET response using system DNS, then DoH; stop on HTTP errors or exhausted transports. */
     suspend fun <T : Any> fetch(
         url: String,
         accept: String? = null,
@@ -180,12 +158,7 @@ internal object UpdateHttp {
 
     // ---- Racing ----------------------------------------------------------
 
-    /**
-     * Runs the [steps] as a prioritised race. Step 0 starts immediately; each
-     * later step starts after its delay (ms) OR as soon as the previous step
-     * fails, whichever comes first. The first non-null result wins and the
-     * rest are cancelled. Returns null only when every step failed.
-     */
+    /** Race transports in priority order, starting a fallback after its delay or predecessor failure. */
     class Step<T : Any>(val delayMs: Long, val block: suspend () -> T?)
 
     fun <T : Any> step(delayMs: Long, block: suspend () -> T?): Step<T> = Step(delayMs, block)

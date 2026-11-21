@@ -70,6 +70,7 @@ class PreviousVersionsViewModel @Inject constructor(
 fun PreviousVersionsScreen(
     navController: NavController,
     viewModel: PreviousVersionsViewModel = hiltViewModel(),
+    initialTag: String? = null,
 ) {
     val releases by viewModel.releases.collectAsState()
     val loading by viewModel.loading.collectAsState()
@@ -77,7 +78,7 @@ fun PreviousVersionsScreen(
 
     // Which single release (by tag) is currently expanded, if any — only
     // one open at a time keeps the list scannable.
-    var expandedTag by remember { mutableStateOf<String?>(null) }
+    var expandedTag by remember(initialTag) { mutableStateOf(initialTag) }
 
     Scaffold(
         topBar = {
@@ -112,7 +113,13 @@ fun PreviousVersionsScreen(
                     )
                 }
                 else -> {
+                    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    androidx.compose.runtime.LaunchedEffect(releases, initialTag) {
+                        val index = releases.indexOfFirst { it.tag_name == initialTag }
+                        if (index >= 0) listState.scrollToItem(index)
+                    }
                     LazyColumn(
+                        state = listState,
                         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + bottomSafeArea()),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
@@ -125,6 +132,7 @@ fun PreviousVersionsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
+                                        if (!isExpanded) com.devxrohan.smusic.ui.component.preloadReleaseArtwork(context, release.body.orEmpty())
                                         expandedTag = if (isExpanded) null else release.tag_name
                                     }
                             ) {
@@ -188,11 +196,7 @@ fun PreviousVersionsScreen(
                                         Column {
                                             if (!release.body.isNullOrBlank()) {
                                                 Spacer(modifier = Modifier.height(12.dp))
-                                                Text(
-                                                    text = formatReleaseNotes(release.body),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                )
+                                                com.devxrohan.smusic.ui.component.ReleaseNotes(release.body)
                                             }
                                             if (!release.html_url.isNullOrBlank()) {
                                                 Spacer(modifier = Modifier.height(12.dp))

@@ -1,13 +1,6 @@
 package com.devxrohan.smusic.update
 
-/**
- * Turns a GitHub release body (Markdown, or the plain text made from the Atom feed) into clean,
- * readable plain text:
- *  - line breaks are kept as written (GitHub shows single newlines as line breaks too),
- *  - never more than ONE blank line in a row, no leading/trailing blank lines,
- *  - Markdown syntax is removed (# headings, ** bold **, `code`, [links](url), images, quotes, rules),
- *  - bullets become "•", leaked HTML (<br>, <p>, comments ...) is cleaned up.
- */
+/** Converts release markup into readable plain text for surfaces that cannot render rich notes. */
 fun formatReleaseNotes(raw: String): String {
     var text = raw.replace("\r\n", "\n").replace('\r', '\n')
     if (text.isBlank()) return ""

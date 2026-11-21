@@ -38,11 +38,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.serialization.json.Json
 
-/**
- * Handles update/announcement notifications. App updates are read directly
- * from GitHub Releases. Developer announcements retain their existing Worker
- * manifest source and are delivered independently from the update pipeline.
- */
+/** Load app updates from GitHub and deliver developer announcements from the existing worker source. */
 object AppNotificationManager {
     private const val UPDATE_CHANNEL_ID = "update_notification_channel"
     private const val ANNOUNCEMENT_CHANNEL_ID = "announcement_notification_channel"
@@ -117,12 +113,7 @@ object AppNotificationManager {
         }
     }
 
-    /**
-     * Runs the two background pipelines independently. GitHub update failures
-     * must never prevent the developer announcement endpoint from being read.
-     * This is important because announcements are intentionally authored and
-     * delivered through the Worker endpoint.
-     */
+    /** Run update and announcement checks independently so failure in one cannot suppress the other. */
     suspend fun checkNowAndNotify(context: Context): Boolean {
         val dataStore = context.dataStore
         dataStore.edit { it[LastUpdateCheckKey] = System.currentTimeMillis() }
@@ -151,11 +142,7 @@ object AppNotificationManager {
             }
         }
 
-        // ANNOUNCEMENT PIPELINE: always fetch the Worker independently.
-        // A GitHub outage/network block must not suppress developer messages.
-        // One source of truth: when the phone has Google Play services, developer messages come ONLY from
-        // Firebase push (so the Worker can never show a second, different message). The Worker list is
-        // just a fallback for phones without Play services.
+        // Fetch announcements independently of GitHub; preserve the existing push-delivery policy.
         if (hasPlayServices(context)) announcementSucceeded = true else runCatching {
             val manifest = UpdateChecker(GitHubReleaseFetcher(context.applicationContext)).checkManifest()
                 ?: return@runCatching
@@ -226,12 +213,7 @@ object AppNotificationManager {
 
     private const val UPDATE_FETCH_INTERVAL_MS = 30 * 60 * 1000L
 
-    /**
-     * Background / fetch path: posts the "update available" notification only the
-     * first time a given version is found. (If the user swiped it, background
-     * checks must not nag again; it returns on the next app open instead, see
-     * [notifyPendingUpdateOnAppOpen].)
-     */
+    /** Notify once per discovered update in background checks; foreground re-entry handles dismissal. */
     private suspend fun ensureUpdateNotification(context: Context, update: UpdateInfo) {
         val dataStore = context.dataStore
         val lastVersion = dataStore.data.map { it[LastNotifiedVersionKey] ?: "" }.first()
@@ -243,12 +225,7 @@ object AppNotificationManager {
         }
     }
 
-    /**
-     * Called when the app is opened / brought to the foreground (not by the 60 s
-     * poll). If an update is still pending and its notification isn't in the
-     * shade (user swiped it), post it again. If the app was updated meanwhile,
-     * remove the notification and all pending state instead.
-     */
+    /** Repost a pending, dismissed update notification on app foreground entry, not periodic polling. */
     fun notifyPendingUpdateOnAppOpen(context: Context) {
         scope.launch {
             val pending = getPendingUpdate(context)
@@ -281,10 +258,7 @@ object AppNotificationManager {
         runCatching { NotificationManagerCompat.from(context).cancel(UPDATE_NOTIFICATION_ID) }
     }
 
-    /**
-     * The "Update notifications" switch. Off: no update notifications on the phone (the update still
-     * shows in the app's Notifications screen, with its badge, until installed). On: the previous behaviour.
-     */
+    /** Disable phone update notifications without hiding available updates from the in-app inbox. */
     suspend fun setUpdateNotificationsEnabled(context: Context, enabled: Boolean) {
         context.dataStore.edit { it[EnableUpdateNotificationKey] = enabled }
         if (enabled) {
@@ -321,7 +295,9 @@ object AppNotificationManager {
             clearPendingUpdate(context)
             return null
         }
-        return info.takeIf { info.versionCode > BuildConfig.VERSION_CODE }
+        return info.takeIf {
+            UpdateEligibility.newerCode(it.versionName, it.versionCode, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) != null
+        }
     }
 
     suspend fun hasPendingUpdate(context: Context): Boolean = getPendingUpdate(context) != null
@@ -411,10 +387,8 @@ object AppNotificationManager {
     private fun isExpired(info: AnnouncementInfo, now: Long = System.currentTimeMillis()): Boolean =
         info.expiresAt > 0L && now >= info.expiresAt
 
-    /**
-     * What the bell shows: Firebase push messages (plus the Worker list only on phones without Play
-     * services), minus anything whose time has run out, de-duplicated by id.
-     */
+    /** What the bell shows: Firebase push messages (plus the Worker list only on phones without Play
+     * services), minus anything whose time has run out, de-duplicated by id. */
     suspend fun getCachedAnnouncements(context: Context): List<AnnouncementInfo> {
         val now = System.currentTimeMillis()
         val worker = if (hasPlayServices(context)) emptyList() else readList(context, AnnouncementsCacheKey)
@@ -422,11 +396,7 @@ object AppNotificationManager {
         return (worker + push).filterNot { isExpired(it, now) }.distinctBy { it.id }
     }
 
-    /**
-     * A message delivered by Firebase Cloud Messaging. Stored for the bell (apart from the Worker cache)
-     * and, when [notify] is true and not yet seen, shown as its own notification. Messages that already
-     * ran out of time are ignored.
-     */
+    /** Store push announcements in the inbox and notify only when requested and not already seen. */
     suspend fun onPushAnnouncement(context: Context, info: AnnouncementInfo, notify: Boolean = true) {
         if (info.id.isBlank() || (info.title.isBlank() && info.message.isBlank())) return
         if (isExpired(info)) return
@@ -440,10 +410,8 @@ object AppNotificationManager {
         if (info.id !in seenIds) showPushNotification(context, info)
     }
 
-    /**
-     * The user swiped a push notification away on the phone. It never comes back as a phone
-     * notification, and it is NOT removed from the in-app Notifications screen.
-     */
+    /** The user swiped a push notification away on the phone. It never comes back as a phone
+     * notification, and it is NOT removed from the in-app Notifications screen. */
     suspend fun onPushNotificationSwiped(context: Context, id: String) {
         // Intentionally nothing: swiping the phone notification only dismisses that copy.
         // The message stays in the app's Notifications screen until its time is up, or until

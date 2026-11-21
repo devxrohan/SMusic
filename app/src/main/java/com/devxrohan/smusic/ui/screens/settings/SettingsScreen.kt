@@ -562,12 +562,7 @@ fun UpdateDownloadDialog(
                                     ) {
                                         Text(stringResource(R.string.whats_new), fontWeight = FontWeight.SemiBold)
                                         Spacer(Modifier.height(8.dp))
-                                        Text(
-                                            com.devxrohan.smusic.update.formatReleaseNotes(s.info.changelog),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            lineHeight = 18.sp,
-                                        )
+                                        com.devxrohan.smusic.ui.component.ReleaseNotes(s.info.changelog)
                                     }
                                 }
                             }

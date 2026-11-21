@@ -27,26 +27,6 @@ import com.devxrohan.smusic.ui.component.CommunityLinksRow
 
 const val AboutRoute = "settings/about"
 
-private data class AppFeature(
-    val icon: Int,
-    val titleRes: Int,
-    val descriptionRes: Int,
-)
-
-private val appFeatures = listOf(
-    AppFeature(R.drawable.play, R.string.feature_streaming_title, R.string.feature_streaming_desc),
-    AppFeature(R.drawable.download, R.string.feature_downloads_title, R.string.feature_downloads_desc),
-    AppFeature(R.drawable.lyrics, R.string.feature_lyrics_title, R.string.feature_lyrics_desc),
-    AppFeature(R.drawable.equalizer, R.string.feature_equalizer_title, R.string.feature_equalizer_desc),
-    AppFeature(R.drawable.mic, R.string.feature_recognition_title, R.string.feature_recognition_desc),
-    AppFeature(R.drawable.queue_music, R.string.feature_import_title, R.string.feature_import_desc),
-    AppFeature(R.drawable.palette, R.string.feature_themes_title, R.string.feature_themes_desc),
-    AppFeature(R.drawable.grid_view, R.string.feature_player_styles_title, R.string.feature_player_styles_desc),
-    AppFeature(R.drawable.tune, R.string.feature_navbar_title, R.string.feature_navbar_desc),
-    AppFeature(R.drawable.restore, R.string.feature_backup_title, R.string.feature_backup_desc),
-    AppFeature(R.drawable.update, R.string.feature_updates_title, R.string.feature_updates_desc),
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
@@ -82,18 +62,19 @@ fun AboutScreen(
                 .fillMaxSize()
                 .padding(top = padding.calculateTopPadding())
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
+                .widthIn(max = 640.dp)
+                .padding(horizontal = 20.dp)
                 .padding(bottom = bottomSafe),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Image(
                 painter = painterResource(R.mipmap.ic_launcher_foreground),
                 contentDescription = null,
                 modifier = Modifier
-                    .size(96.dp)
-                    .clip(RoundedCornerShape(24.dp))
+                    .size(88.dp)
+                    .clip(com.devxrohan.smusic.ui.component.rememberArtworkFlower())
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(12.dp)
             )
@@ -102,7 +83,7 @@ fun AboutScreen(
 
             Text(
                 text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold
             )
 
@@ -114,70 +95,11 @@ fun AboutScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(36.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             CommunityLinksRow(modifier = Modifier.padding(bottom = 22.dp))
 
-            Text(
-                text = stringResource(R.string.features),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .align(Alignment.Start)
-                    .padding(bottom = 12.dp)
-            )
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                    appFeatures.forEachIndexed { index, feature ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(feature.icon),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Column(modifier = Modifier.padding(start = 14.dp)) {
-                                Text(
-                                    text = stringResource(feature.titleRes),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = stringResource(feature.descriptionRes),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        if (index != appFeatures.lastIndex) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                            )
-                        }
-                    }
-                }
-            }
+            AboutFeatures()
 
             Spacer(modifier = Modifier.height(40.dp))
 

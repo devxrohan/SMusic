@@ -134,61 +134,8 @@ fun AnnouncementScreen(navController: NavController) {
             ) {
                 pendingUpdate?.let { update ->
                     item(key = "pending_update") {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                            shape = RoundedCornerShape(18.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(42.dp)
-                                            .clip(RoundedCornerShape(13.dp))
-                                            .background(MaterialTheme.colorScheme.primaryContainer),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.update),
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.size(23.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = stringResource(R.string.update_notification_title),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = "Version ${update.versionName}",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = stringResource(R.string.ui_smusic_v_is_ready_to_download, update.versionName),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Button(
-                                    onClick = {
-                                        navController.navigate(com.devxrohan.smusic.ui.screens.settings.CheckForUpdateRoute)
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) { Text(stringResource(R.string.ui_update_now)) }
-                            }
+                        UpdateNotificationCard(update.versionName) {
+                            navController.navigate(CheckForUpdateRoute)
                         }
                     }
                 }

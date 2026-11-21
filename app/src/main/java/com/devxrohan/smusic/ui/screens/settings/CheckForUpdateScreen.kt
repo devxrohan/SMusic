@@ -143,7 +143,9 @@ fun CheckForUpdateScreen(
 
             if (releaseHistory.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
-                ReleaseHistorySection(releases = releaseHistory)
+                ReleaseHistorySection(releases = releaseHistory, onRelease = { release ->
+                    navController.navigate(PreviousVersionsRoute + "?release=" + android.net.Uri.encode(release.tag_name))
+                })
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -248,6 +250,7 @@ private fun UpdateHero(
 @Composable
 private fun ReleaseHistorySection(
     releases: List<com.devxrohan.smusic.update.GitHubRelease>,
+    onRelease: (com.devxrohan.smusic.update.GitHubRelease) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -258,33 +261,9 @@ private fun ReleaseHistorySection(
     ) {
         Text(stringResource(R.string.ui_release_history), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
-        releases.forEachIndexed { index, release ->
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        release.versionName.ifBlank { release.tag_name },
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        if (release.published_at.isNullOrBlank()) "" else release.published_at!!.take(10),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (!release.body.isNullOrBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        com.devxrohan.smusic.update.formatReleaseNotes(release.body!!),
-                        maxLines = 3,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (index != releases.lastIndex) Spacer(Modifier.height(12.dp))
+        releases.forEach { release ->
+            TextButton(onClick = { onRelease(release) }, modifier = Modifier.fillMaxWidth()) {
+                Text(release.versionName, modifier = Modifier.fillMaxWidth())
             }
         }
     }
@@ -342,7 +321,7 @@ private fun UpdateResultSection(
             ) {
                 Text(stringResource(R.string.whats_new), fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                Text(com.devxrohan.smusic.update.formatReleaseNotes(info.changelog), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                com.devxrohan.smusic.ui.component.ReleaseNotes(info.changelog)
             }
         }
 

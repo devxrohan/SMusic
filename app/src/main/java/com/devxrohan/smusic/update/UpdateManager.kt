@@ -38,13 +38,7 @@ sealed class UpdateState {
     data class Failed(val info: UpdateInfo, val message: String) : UpdateState()
 }
 
-/**
- * In-app updater: GitHub Releases (several raced routes, DNS-over-HTTPS
- * fallback) is the source for versions and APKs, the Worker manifest is the
- * last-resort version source, and if even that fails the browser is opened on
- * the direct APK. The APK is streamed into the app cache and the system
- * package installer handles the final install.
- */
+/** Coordinates release checks, APK downloads and installer handoff with browser fallback. */
 @Singleton
 class UpdateManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -72,15 +66,12 @@ class UpdateManager @Inject constructor(
     }
 
     private fun showAvailable(info: UpdateInfo) {
+        com.devxrohan.smusic.ui.component.preloadReleaseArtwork(context, info.changelog)
         _state.value = existingApkFor(info)?.let { UpdateState.ReadyToInstall(info, it) }
             ?: UpdateState.Available(info)
     }
 
-    /**
-     * Called on every successful "you're on the newest version" result (and
-     * after an app update): removes the persistent notification, the bell
-     * badge data, the snooze and the downloaded APK.
-     */
+    /** Clear update notification, badge, snooze and downloaded APK after confirming the installed version. */
     private suspend fun onUpToDate() {
         AppNotificationManager.clearPendingUpdate(context)
         context.dataStore.edit { it.remove(UpdateSnoozeUntilKey) }
@@ -90,12 +81,7 @@ class UpdateManager @Inject constructor(
 
     @Volatile private var lastSilentCheckAt = 0L
 
-    /**
-     * Foreground check. [force] = app open / onboarding finished: always hits the
-     * network. Otherwise it is throttled so the 60 s foreground poll doesn't
-     * hammer GitHub. "Later" hides the popup for a while (snooze) but the
-     * update stays pending (bell badge + notification) until it is installed.
-     */
+    /** Throttle foreground polling; forced checks bypass the interval and Later only hides the dialog. */
     suspend fun checkSilently(force: Boolean = false) {
         if (_state.value != UpdateState.Idle && _state.value !is UpdateState.Available) return
         val now = System.currentTimeMillis()
@@ -145,11 +131,7 @@ class UpdateManager @Inject constructor(
     }
 
 
-    /**
-     * Apply the channel preference before starting a network check. The settings
-     * composable also persists this preference, but its write is asynchronous;
-     * writing it here prevents the checker from racing and reading the old value.
-     */
+    /** Persist the selected channel before checking to avoid racing the asynchronous settings write. */
     suspend fun onBetaUpdatesChanged(enabled: Boolean) {
         context.dataStore.edit { it[BetaUpdatesKey] = enabled }
 
@@ -168,10 +150,7 @@ class UpdateManager @Inject constructor(
                 _state.value = UpdateState.Idle
             }
         } else {
-            // A previously discovered stable update may be sitting in Available /
-            // ReadyToInstall. Re-enter the normal foreground check so enabling
-            // beta immediately queries GitHub instead of requiring an app restart.
-            // Do not disturb an APK download already in progress.
+            // Recheck immediately when beta updates are enabled, including from a pending stable update.
             if (_state.value !is UpdateState.Downloading) {
                 _state.value = UpdateState.Idle
                 lastSilentCheckAt = 0L
@@ -204,11 +183,7 @@ class UpdateManager @Inject constructor(
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Throwable) {
-            // checkForUpdate() already tried every GitHub route (each with a
-            // DNS-over-HTTPS retry) and then the Worker. Nothing worked, so
-            // hand the user the direct APK / latest release in the browser.
-            // Refresh the bell announcements in the background, without making
-            // the browser fallback wait for it.
+            // Open the direct APK or release page only after all update transports and fallbacks fail.
             scope.launch { runCatching { UpdateCheckWorker.runAnnouncementFallback(context) } }
             openUrlInBrowser(releaseFetcher.fallbackDownloadUrl())
             UpdateCheckResult.Failed(error.message ?: "Couldn't reach GitHub Releases")

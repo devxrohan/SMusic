@@ -5,14 +5,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.runBlocking
 
-/**
- * Receives Firebase push messages.
- *
- * Send DATA-only messages: {id, title, message, expiresAt, imageUrl}. expiresAt = epoch millis, 0 = no limit. The app then decides what to do:
- * the message is saved for the notification bell and shown as a notification, even if the app is closed.
- * (A message that also carries a "notification" block is shown by the system itself while the app is in
- * the background; it is saved to the bell when the user taps it.)
- */
+/** Handles data-only announcement payloads; expiresAt uses epoch milliseconds. */
 class SMusicMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {

@@ -6,11 +6,7 @@ import androidx.work.WorkerParameters
 import androidx.datastore.preferences.core.edit
 import com.devxrohan.smusic.utils.dataStore
 
-/**
- * Background WorkManager job: runs the combined update + announcement check.
- * (The Worker *endpoint* is also the last-resort update source inside
- * [UpdateChecker.checkForUpdate], after every GitHub route has failed.)
- */
+/** Run combined update and announcement checks through WorkManager. */
 class UpdateCheckWorker(
     appContext: Context,
     workerParams: WorkerParameters,

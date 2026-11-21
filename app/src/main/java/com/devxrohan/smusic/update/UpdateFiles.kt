@@ -3,14 +3,7 @@ package com.devxrohan.smusic.update
 import android.content.Context
 import java.io.File
 
-/**
- * Everything about the APKs the in-app updater downloads, in one place, so the
- * downloader, the "clear" button in Storage settings and the automatic
- * cleanup all agree on where the files are.
- *
- * Files live in the app cache (cacheDir/updates). The legacy external
- * "updates" folder from older builds is cleaned too.
- */
+/** Centralizes updater-owned APK discovery and cleanup without deleting unrelated files. */
 object UpdateFiles {
     fun dir(context: Context): File = File(context.cacheDir, "updates").apply { mkdirs() }
 

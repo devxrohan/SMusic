@@ -60,24 +60,7 @@ data class GitHubUserProfile(
     val html_url: String? = null,
 )
 
-/**
- * GitHub transport for releases, release history and the developer profile.
- *
- * Every lookup is a prioritised race between several independent GitHub
- * endpoints (fastest / richest first, others join after a short stagger or as
- * soon as the previous one fails), and every request additionally falls back
- * from system DNS to DNS-over-HTTPS (see [UpdateHttp]). Successful results for
- * release history and the developer profile are cached on disk so the
- * About / Previous versions / Developer screens still show something real
- * when the network blocks GitHub.
- *
- * Endpoints used (all GitHub, none needs a token):
- *  - api.github.com/repos/{repo}/releases[/latest]   full data, but rate limited per IP (60/h,
- *                                                      easily exhausted on a shared Wi-Fi)
- *  - github.com/{repo}/releases.atom                   tag, title, changelog; NOT rate limited
- *  - github.com/{repo}/releases/latest (redirect)     tag only; NOT rate limited
- *  - github.com/{repo}/releases/expanded_assets/{tag} APK asset links for a tag; NOT rate limited
- */
+/** Fetches release metadata through prioritized GitHub transports with cached fallbacks. */
 @Singleton
 class GitHubReleaseFetcher @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -132,24 +115,8 @@ class GitHubReleaseFetcher @Inject constructor(
         .replace("&nbsp;", " ")
         .replace("&amp;", "&")
 
-    /** Atom `<content>` is escaped HTML; turn it into readable plain text. */
-    private fun htmlToText(raw: String): String {
-        var html = xmlUnescape(raw)
-        // In HTML, newlines in the source are plain whitespace; only <br> and block tags break lines.
-        // (Keeping them produced a blank line after every <br> and between every bullet.)
-        html = html.replace(Regex("\\s*\\n\\s*"), " ")
-        html = html
-            .replace(Regex("(?i)<br\\s*/?>"), "\n")
-            .replace(Regex("(?i)<li[^>]*>"), "\n\u2022 ")
-            .replace(Regex("(?i)</li>"), "")
-            .replace(Regex("(?i)</?(p|div|ul|ol|h[1-6]|pre|blockquote|table|tr|details|summary)[^>]*>"), "\n")
-            .replace(Regex("<[^>]+>"), "")
-        return xmlUnescape(html)
-            .lines()
-            .joinToString("\n") { it.trim() }
-            .replace(Regex("\n{3,}"), "\n\n")
-            .trim()
-    }
+    /** Preserve Atom HTML so headings, links, artwork and lists survive rich-text rendering. */
+    private fun releaseBodyFromAtom(raw: String): String = xmlUnescape(raw).trim()
 
     private fun decodeTag(raw: String): String =
         runCatching { URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8") }.getOrDefault(raw)
@@ -166,7 +133,7 @@ class GitHubReleaseFetcher @Inject constructor(
             GitHubRelease(
                 tag_name = decodeTag(rawTag),
                 name = titleRegex.find(entry)?.groupValues?.get(1)?.let(::xmlUnescape)?.trim()?.takeIf { it.isNotBlank() },
-                body = contentRegex.find(entry)?.groupValues?.get(1)?.let(::htmlToText),
+                body = contentRegex.find(entry)?.groupValues?.get(1)?.let(::releaseBodyFromAtom),
                 published_at = updatedRegex.find(entry)?.groupValues?.get(1),
                 prerelease = Regex("""-(alpha|beta|rc|pre|preview)([.+-]|$)""", RegexOption.IGNORE_CASE)
                     .containsMatchIn(decodeTag(rawTag)),
@@ -242,12 +209,7 @@ class GitHubReleaseFetcher @Inject constructor(
         release
     }
 
-    /**
-     * Where to send the browser when the in-app check completely failed.
-     * Uses GitHub's permanent ".../releases/latest/download/<file>" link when the
-     * APK name is stable (no version number in it), so the browser downloads the
-     * newest APK directly; otherwise the Releases "latest" page.
-     */
+    /** Choose a direct asset or latest-release browser URL when in-app update checks fail. */
     fun fallbackDownloadUrl(): String {
         val cached = readCache(CACHE_LATEST)
             ?.let { runCatching { json.decodeFromString(GitHubRelease.serializer(), it) }.getOrNull() }
@@ -273,11 +235,7 @@ class GitHubReleaseFetcher @Inject constructor(
             parseAtom(xml).filter { !it.prerelease }.takeIf { it.isNotEmpty() }
         }
 
-    /**
-     * Beta-aware update lookup. Uses the same GitHub API/Atom endpoints and
-     * transport/cache strategy as the stable checker, but includes pre-releases
-     * only when the user explicitly enables the beta channel.
-     */
+    /** Reuse stable release transports and caches; include prereleases only for opted-in users. */
     suspend fun fetchLatestEligibleRelease(
         currentVersion: String,
         currentVersionCode: Int,
@@ -316,8 +274,9 @@ class GitHubReleaseFetcher @Inject constructor(
         if (allReleases.isEmpty()) return@withContext null
 
         val candidates = allReleases.filter { release ->
-            val code = release.versionCode
-            code != null && code > currentVersionCode
+            UpdateEligibility.newerCode(
+                release.versionName, release.versionCode, currentVersion, currentVersionCode,
+            ) != null
         }
 
         // A successful release-list response with no eligible newer release means
@@ -397,11 +356,7 @@ class GitHubReleaseFetcher @Inject constructor(
             }
     }
 
-    /**
-     * Streams a release asset into [target]. Tries system DNS first and then
-     * DNS-over-HTTPS, two attempts each, with no overall time limit (only a
-     * per-read stall timeout) so big APKs on slow Wi-Fi are not cut off.
-     */
+    /** Stream APK assets with DNS fallback and read-stall timeouts, without a total download deadline. */
     suspend fun downloadApk(url: String, target: File, onProgress: (Int) -> Unit) =
         withContext(Dispatchers.IO) {
             var lastError: Throwable? = null
@@ -424,10 +379,8 @@ class GitHubReleaseFetcher @Inject constructor(
 
     // ---- Announcement manifest (Worker) ----------------------------------
 
-    /**
-     * Worker manifest (announcements, and the last-resort update/developer
-     * fallback). Same DNS-over-HTTPS safety net as everything else.
-     */
+    /** Worker manifest (announcements, and the last-resort update/developer fallback). Same
+     * DNS-over-HTTPS safety net as everything else. */
     suspend fun fetchAnnouncementManifest(url: String): AppManifest? = withContext(Dispatchers.IO) {
         if (url.isBlank()) return@withContext null
         UpdateHttp.fetch(url, "application/json") { body, _ ->

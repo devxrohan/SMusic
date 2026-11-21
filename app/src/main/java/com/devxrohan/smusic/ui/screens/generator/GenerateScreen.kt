@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.devxrohan.smusic.ui.screens.generator
 
 import androidx.compose.animation.AnimatedVisibility
@@ -58,12 +60,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
+import com.devxrohan.smusic.ui.component.DottedSlider as Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -92,7 +94,7 @@ fun GenerateScreen(
     onNavigateToPlaylist: (String) -> Unit,
     viewModel: GenerateViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         viewModel.navEvents.collect { event ->
@@ -102,14 +104,14 @@ fun GenerateScreen(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
+    androidx.compose.material3.Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = { AiStudioHeader(onBack) },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { contentInsets ->
         LazyColumn(
             contentPadding = PaddingValues(
-                top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 84.dp,
+                top = contentInsets.calculateTopPadding() + 12.dp,
                 bottom = LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Bottom).asPaddingValues().calculateBottomPadding() + 32.dp,
                 start = 16.dp,
                 end = 16.dp
@@ -117,6 +119,10 @@ fun GenerateScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize()
         ) {
+            item(key = "modePicker") {
+                AiStudioModePicker(state.selectedMode, !state.isGenerating, viewModel::selectMode)
+            }
+
             // Error Message
             state.error?.let { err ->
                 item(key = "errorCard") {
@@ -165,7 +171,7 @@ fun GenerateScreen(
             // Options & Generation Control Card
             item(key = "optionsCard") {
                 Card(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     ),
@@ -176,7 +182,7 @@ fun GenerateScreen(
                             Box(
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(com.devxrohan.smusic.ui.component.rememberArtworkFlower())
                                     .background(MaterialTheme.colorScheme.primaryContainer),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -269,8 +275,7 @@ fun GenerateScreen(
                                                 selected = isSelected,
                                                 onClick = { viewModel.setSelectedTag(chip) },
                                                 label = { Text(chip, fontWeight = FontWeight.Medium) },
-                                                shape = CircleShape,
-                                                colors = FilterChipDefaults.filterChipColors(
+                                                                    colors = FilterChipDefaults.filterChipColors(
                                                     selectedContainerColor = MaterialTheme.colorScheme.primary,
                                                     selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
                                                 )
@@ -317,9 +322,9 @@ fun GenerateScreen(
 
                         // Generate action button
                         Button(
+                            shapes = com.devxrohan.smusic.ui.component.appButtonShapes(),
                             onClick = viewModel::generate,
                             enabled = !state.isGenerating,
-                            shape = CircleShape,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary
@@ -336,187 +341,16 @@ fun GenerateScreen(
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 text = stringResource(R.string.ui_generate_playlist_2),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
                 }
             }
 
-            // Modes Header
-            item(key = "modesHeader") {
-                Text(
-                    text = stringResource(R.string.ui_discovery_engines),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp)
-                )
-            }
-
-            // Mode Cards
-            items(GenerateMode.entries.toList(), key = { it.name }) { mode ->
-                val isSelected = state.selectedMode == mode
-                val badgeColor = modeBadgeColor(mode)
-
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = !state.isGenerating) { viewModel.selectMode(mode) }
-                        .then(
-                            if (isSelected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
-                            else Modifier
-                        )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(badgeColor.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = modeIcon(mode),
-                                contentDescription = null,
-                                tint = badgeColor,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        Spacer(Modifier.width(14.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = mode.label,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = mode.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
         }
 
-        // Top AppBar Header
-        Surface(
-            shape = RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 1.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.back),
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                Spacer(Modifier.width(4.dp))
-
-                Column {
-                    Text(
-                        text = stringResource(R.string.ui_smusic_ai_studio),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = stringResource(R.string.ui_choose_a_mode_build_your_next),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        if (state.isGenerating) {
-            Dialog(
-                onDismissRequest = {},
-                properties = DialogProperties(
-                    dismissOnBackPress = false,
-                    dismissOnClickOutside = false,
-                    usePlatformDefaultWidth = false,
-                ),
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(0.88f),
-                    shape = RoundedCornerShape(26.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    tonalElevation = 8.dp,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(26.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(42.dp),
-                            strokeWidth = 3.dp,
-                        )
-                        Text(
-                            text = stringResource(R.string.ui_building_your_playlist),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = state.loadingMessage.ifBlank { "Finding songs and preparing your playlist…" },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
+        if (state.isGenerating) AiStudioProgress(state.loadingMessage)
     }
-}
-
-private fun modeIcon(mode: GenerateMode): ImageVector = when (mode) {
-    GenerateMode.MY_MIX -> Icons.Filled.AutoAwesome
-    GenerateMode.SMART_AI -> Icons.Filled.AutoAwesome
-    GenerateMode.SONG_RADIO -> Icons.Filled.MusicNote
-    GenerateMode.SIMILAR_ARTISTS -> Icons.Filled.People
-    GenerateMode.TAG -> Icons.Filled.Sell
-    GenerateMode.NEVER_HEARD -> Icons.Filled.Explore
-    GenerateMode.TOP -> Icons.AutoMirrored.Filled.TrendingUp
-    GenerateMode.RECENT -> Icons.Filled.History
-}
-
-private fun modeBadgeColor(mode: GenerateMode): Color = when (mode) {
-    GenerateMode.MY_MIX -> Color(0xFF9C27B0)
-    GenerateMode.SMART_AI -> Color(0xFF00BCD4)
-    GenerateMode.SONG_RADIO -> Color(0xFFFF9800)
-    GenerateMode.SIMILAR_ARTISTS -> Color(0xFFE91E63)
-    GenerateMode.TAG -> Color(0xFF009688)
-    GenerateMode.NEVER_HEARD -> Color(0xFF4CAF50)
-    GenerateMode.TOP -> Color(0xFFFFC107)
-    GenerateMode.RECENT -> Color(0xFF3F51B5)
 }

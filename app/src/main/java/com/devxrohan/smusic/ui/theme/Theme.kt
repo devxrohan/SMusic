@@ -11,6 +11,10 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -25,7 +29,7 @@ import com.google.material.color.score.Score
 import androidx.compose.runtime.saveable.Saver
 import com.devxrohan.smusic.constants.AppFont
 
-/** SMusic's own fixed brand color — red, matching the "S" in the wordmark. Always used now; dynamic (wallpaper-derived) color is gone entirely. */
+/** Fallback brand seed before artwork has loaded. */
 val DefaultThemeColor = Color(0xFFE53935)
 
 val ColorSaver = Saver<Color, Int>(
@@ -42,32 +46,41 @@ fun SMusicTheme(
     appFont: AppFont = AppFont.APPLE,
     themeColor: Color = DefaultThemeColor,
     themePresetId: String = ThemePresets.SMUSIC_DEFAULT.id,
+    artworkPaletteAvailable: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
 
-    val typography = remember(appFont) {
-        buildAppTypography(appFont)
+    val textScale by com.devxrohan.smusic.utils.rememberPreference(com.devxrohan.smusic.constants.AppTextScaleKey, 1f)
+    val typography = remember(appFont, textScale) {
+        buildAppTypography(appFont, textScale)
     }
 
-    val colorScheme = remember(darkTheme, pureBlack, themeColor, themePresetId) {
-        if (themePresetId != ThemePresets.SMUSIC_DEFAULT.id) {
-            ThemePresets.fromId(themePresetId).toColorScheme()
-        } else {
-            SchemeTonalSpot(Hct.fromInt(themeColor.toArgb()), darkTheme, 0.0)
-                .toColorScheme()
-                .pureBlack(pureBlack, darkTheme)
+    val initialScheme = remember(context, darkTheme) {
+        ThemePresets.fromId(if (darkTheme) "rosewood" else "rose_paper").toColorScheme()
+    }
+    // Keep the displayed palette while the next HCT scheme is computed off the UI thread.
+    val colorScheme by produceState(initialScheme, context, darkTheme, pureBlack, themeColor, themePresetId, artworkPaletteAvailable) {
+        value = withContext(Dispatchers.Default) {
+            if (themePresetId == "system_dynamic" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context))
+                    .pureBlack(pureBlack, darkTheme)
+            } else if (themePresetId != ThemePresets.SMUSIC_DEFAULT.id) {
+                ThemePresets.fromId(themePresetId).toColorScheme()
+            } else if (!artworkPaletteAvailable) {
+                ThemePresets.fromId(if (darkTheme) "rosewood" else "rose_paper").toColorScheme()
+            } else {
+                balancedArtworkScheme(themeColor, darkTheme).pureBlack(pureBlack, darkTheme)
+            }
         }
     }
 
-    val motionScheme = if (expressive) {
-        MotionScheme.expressive()
-    } else {
-        MotionScheme.standard()
+    val motionScheme = remember(expressive) {
+        if (expressive) MotionScheme.expressive() else MotionScheme.standard()
     }
 
     MaterialExpressiveTheme(
-        colorScheme = colorScheme,
+        colorScheme = animateAppColorScheme(colorScheme),
         typography = typography,
         shapes = MaterialTheme.shapes,
         motionScheme = motionScheme,

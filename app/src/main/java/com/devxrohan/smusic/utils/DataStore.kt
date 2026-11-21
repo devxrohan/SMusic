@@ -18,10 +18,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.properties.ReadOnlyProperty
 
-val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings", produceMigrations = { listOf(LibrarySortPreferenceMigration) })
 
 // Cache for DataStore values to avoid blocking calls
-@PublishedApi internal val dataStoreCache = mutableMapOf<String, Any?>()
+@PublishedApi internal val dataStoreCache: MutableMap<String, Any?> = java.util.Collections.synchronizedMap(mutableMapOf())
 
 /** Invalidates cached preferences after security/session changes so removed credentials cannot be resurrected. */
 internal fun invalidateDataStoreCache(vararg keys: Preferences.Key<*>) {
@@ -95,13 +95,13 @@ fun <T> rememberPreference(
     val coroutineScope = rememberCoroutineScope()
 
     val state =
-        remember {
+        remember(context, key, defaultValue) {
             context.dataStore.data
                 .map { it[key] ?: defaultValue }
                 .distinctUntilChanged()
         }.collectAsState(context.dataStore[key] ?: defaultValue)
 
-    return remember {
+    return remember(context, key, defaultValue, state, coroutineScope) {
         object : MutableState<T> {
             override var value: T
                 get() = state.value
@@ -132,13 +132,13 @@ inline fun <reified T : Enum<T>> rememberEnumPreference(
 
     val initialValue = context.dataStore[key].toEnum(defaultValue = defaultValue)
     val state =
-        remember {
+        remember(context, key, defaultValue) {
             context.dataStore.data
                 .map { it[key].toEnum(defaultValue = defaultValue) }
                 .distinctUntilChanged()
         }.collectAsState(initialValue)
 
-    return remember {
+    return remember(context, key, defaultValue, state, coroutineScope) {
         object : MutableState<T> {
             override var value: T
                 get() = state.value

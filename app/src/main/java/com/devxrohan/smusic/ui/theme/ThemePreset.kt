@@ -4,11 +4,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 
-/**
- * A complete look — background, surfaces, text, and accent together — not
- * just an accent hue. Selecting one restyles the whole app, not a single
- * swatch.
- */
+/** A complete look — background, surfaces, text, and accent together — not just an accent hue. Selecting
+ * one restyles the whole app, not a single swatch. */
 data class ThemePreset(
     val id: String,
     val displayName: String,
@@ -38,11 +35,16 @@ object ThemePresets {
         accent = Color(accent)
     )
 
-    /** "SMusic" is our own default — same red brand, kept first so it stays the fallback. */
+    /** "SMusic" is our own default — same red brand, retained as the fallback. */
     val SMUSIC_DEFAULT = dark("smusic_default", "SMusic", 0xFF0A0A0A, 0xFF121212, 0xFF1C1C1E, 0xFF262628, 0xFFE53935)
 
     val DARK = listOf(
         SMUSIC_DEFAULT,
+        dark("system_dynamic", "Wallpaper", 0xFF171216, 0xFF211B20, 0xFF30282E, 0xFF3C333A, 0xFFE9B4D0),
+        dark("rosewood", "Rosewood", 0xFF1B1110, 0xFF261A18, 0xFF392724, 0xFF4B322E, 0xFFFFB4AA),
+        dark("soft_lilac", "Soft Lilac", 0xFF161219, 0xFF211C25, 0xFF302837, 0xFF40354A, 0xFFD3BBF5),
+        dark("moss", "Moss", 0xFF12150F, 0xFF1C2118, 0xFF293123, 0xFF38422E, 0xFFBDCF9C),
+        dark("slate_blue", "Slate Blue", 0xFF111419, 0xFF1A2028, 0xFF27313D, 0xFF354251, 0xFFAFCAE8),
         dark("midnight", "Midnight", 0xFF0A0A0A, 0xFF121212, 0xFF1C1C1E, 0xFF262628, 0xFFE62429),
         dark("charcoal", "Charcoal", 0xFF181818, 0xFF1E1E1E, 0xFF2A2A2C, 0xFF343436, 0xFF1DB954),
         dark("deep_ocean", "Deep Ocean", 0xFF07101A, 0xFF0D1B2A, 0xFF16283D, 0xFF1E3450, 0xFF3AA0FF),
@@ -52,6 +54,8 @@ object ThemePresets {
     )
 
     val LIGHT = listOf(
+        light("rose_paper", "Rose Paper", 0xFFFFF8F6, 0xFFFFF0EC, 0xFFF4DDD7, 0xFFE8CCC5, 0xFF9B4C42),
+        light("lavender_paper", "Lavender Paper", 0xFFFCF8FF, 0xFFF5EEFC, 0xFFE9DEF3, 0xFFDCCDE9, 0xFF745391),
         light("pure", "Pure", 0xFFFFFFFF, 0xFFFFFFFF, 0xFFF1F1F2, 0xFFE6E6E8, 0xFFE62429),
         light("cream", "Cream", 0xFFFBF6EE, 0xFFFFFFFF, 0xFFF1E9D8, 0xFFE9DDC4, 0xFFB5652C),
         light("cloud", "Cloud", 0xFFF3F5F8, 0xFFFFFFFF, 0xFFE6EAF0, 0xFFD8DEE8, 0xFF3A6FE0),

@@ -122,6 +122,14 @@ private val AppFontFamily = FontFamily(Font(R.font.linotte))
 val AppTypography = buildTypography(AppFontFamily)
 val SystemTypography = buildTypography(FontFamily.Default)
 
-fun buildAppTypography(appFont: AppFont): Typography {
-    return buildTypography(appFont.getFontFamily())
+fun buildAppTypography(appFont: AppFont, textScale: Float = 1f): Typography {
+    val base = buildTypography(appFont.getFontFamily())
+    fun TextStyle.scaled() = copy(fontSize = fontSize * textScale.coerceIn(0.9f, 1.2f),
+        platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false))
+    return base.copy(
+        displayLarge = base.displayLarge.scaled(), displayMedium = base.displayMedium.scaled(), displaySmall = base.displaySmall.scaled(),
+        headlineLarge = base.headlineLarge.scaled(), headlineMedium = base.headlineMedium.scaled(), headlineSmall = base.headlineSmall.scaled(),
+        titleLarge = base.titleLarge.scaled(), titleMedium = base.titleMedium.scaled(), titleSmall = base.titleSmall.scaled(),
+        bodyLarge = base.bodyLarge.scaled(), bodyMedium = base.bodyMedium.scaled(), bodySmall = base.bodySmall.scaled(),
+        labelLarge = base.labelLarge.scaled(), labelMedium = base.labelMedium.scaled(), labelSmall = base.labelSmall.scaled())
 }

@@ -64,12 +64,7 @@ enum class AppFont(val title: String, val key: String) {
         }
     }
 
-    /**
-     * The same face as [getFontFamily], but as an Android [Typeface] for code that
-     * draws straight onto a [android.graphics.Canvas] (e.g. the lyrics share card)
-     * rather than through a Composable. [bold] picks the heaviest weight this font
-     * ships for display-style text, or its regular weight otherwise.
-     */
+    /** Returns a Canvas-compatible Typeface matching the Compose font selection. */
     fun getTypeface(context: Context, bold: Boolean = true): Typeface {
         val resId = when (this) {
             SYSTEM -> null

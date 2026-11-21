@@ -28,8 +28,8 @@
     <string name="history">History</string>
     <string name="stats">Stats</string>
     <string name="mood_and_genres">Mood and Genres</string>
-    <string name="quick_picks">Quick picks</string>
-    <string name="quick_picks_empty">Listen to songs to generate your quick picks</string>
+    <string name="quick_picks">Quick finds</string>
+    <string name="quick_picks_empty">Listen to songs to generate your quick finds</string>
     <string name="new_release_albums">New releases</string>
     <string name="forgotten_favorites">Forgotten favorites</string>
     <string name="similar_to">Similar to</string>
@@ -408,7 +408,7 @@
     <string name="proxy_type">Proxy type</string>
     <string name="proxy_url">Proxy URL</string>
     <string name="default_lib_chips">Change default library chip</string>
-    <string name="set_quick_picks">Set quick picks</string>
+    <string name="set_quick_picks">Set quick finds</string>
     <string name="last_song_listened">Based on last song listened</string>
     <string name="restart_to_take_effect">Restart to take effect</string>
     <string name="open_supported_links">Open supported link by default</string>
@@ -529,8 +529,8 @@
     <string name="version_label">Version %1$s</string>
     <string name="made_by">Made by</string>
     <string name="features">Features</string>
-    <string name="feature_streaming_title">High-quality streaming</string>
-    <string name="feature_streaming_desc">Millions of songs, powered by YouTube Music</string>
+    <string name="feature_streaming_title">YouTube Music streaming</string>
+    <string name="feature_streaming_desc">Browse and play music from YouTube Music.</string>
     <string name="feature_downloads_title">Offline downloads</string>
     <string name="feature_downloads_desc">Save songs and playlists for offline listening</string>
     <string name="feature_lyrics_title">Synced lyrics</string>
@@ -538,19 +538,19 @@
     <string name="feature_equalizer_title">Built-in equalizer</string>
     <string name="feature_equalizer_desc">Fine-tune your sound with audio effects and presets</string>
     <string name="feature_recognition_title">Music recognition</string>
-    <string name="feature_recognition_desc">Identify any song playing around you</string>
-    <string name="feature_import_title">Playlist import &amp; sync</string>
-    <string name="feature_import_desc">Bring in playlists from Spotify or YouTube and keep them in sync</string>
+    <string name="feature_recognition_desc">Identify music around you and revisit recent matches.</string>
+    <string name="feature_import_title">Playlist import</string>
+    <string name="feature_import_desc">Import supported playlists from Spotify or YouTube.</string>
     <string name="feature_themes_title">Customizable themes</string>
     <string name="feature_themes_desc">Colors, fonts, and player styles to match your taste</string>
-    <string name="feature_updates_title">Automatic updates</string>
+    <string name="feature_updates_title">App update checks</string>
     <string name="feature_player_styles_title">Multiple player styles</string>
     <string name="feature_player_styles_desc">Switch between Classic, Spotify, Apple, and more player looks</string>
     <string name="feature_navbar_title">Customizable navigation bar</string>
-    <string name="feature_navbar_desc">Resize the nav bar to fit your preference</string>
+    <string name="feature_navbar_desc">Customize navigation appearance and sizing.</string>
     <string name="feature_backup_title">Backup &amp; restore</string>
     <string name="feature_backup_desc">Keep your library safe and move it between devices</string>
-    <string name="feature_updates_desc">Get new features and fixes as soon as they\'re out</string>
+    <string name="feature_updates_desc">View release notes and download available app updates.</string>
     <string name="developer_role">Developer &amp; Designer</string>
     <string name="developer">Developer</string>
     <string name="developer_bio">Building SMusic in my spare time — one bug fix and one late night at a time. Thanks for using the app!</string>
@@ -964,7 +964,7 @@
     <string name="home_header_style">Home Header Style</string>
     <string name="home_header_style_smusic">Morning Aura</string>
     <string name="home_header_style_apple_listen">Apple Listen</string>
-    <string name="home_header_style_none">None — Quick Picks Only</string>
+    <string name="home_header_style_none">None · Quick finds</string>
 
     <!-- Voice assistant -->
     <string name="voice_permission_required">Permission required</string>
@@ -1297,8 +1297,8 @@
     <string name="ui_delete_notification">Delete notification</string>
     <string name="ui_update_now">Update now</string>
     <string name="ui_smusic_v_is_ready_to_download">SMusic v%1$s is ready to download.</string>
-    <string name="ui_adjust_quick_picks_width_and_height">Adjust Quick Picks width and height</string>
-    <string name="ui_quick_picks_size">Quick Picks Size</string>
+    <string name="ui_adjust_quick_picks_width_and_height">Adjust Quick finds width and height</string>
+    <string name="ui_quick_picks_size">Quick finds size</string>
     <string name="ui_height_dp">Height: %1$sdp</string>
     <string name="ui_width_dp">Width: %1$sdp</string>
     <string name="ui_open_download_in_browser">Open download in browser</string>
@@ -1356,7 +1356,7 @@
     <string name="ui_disable">Disable</string>
     <string name="ui_enable">Enable</string>
     <string name="ui_displays_an_animated_glow_amp_live">Displays an animated glow &amp; live speech sheet at the bottom of your phone when SMusic listens in the background.</string>
-    <string name="ui_smusic_voice_aura_hud">✨ SMusic Voice Aura HUD</string>
+    <string name="ui_smusic_voice_aura_hud">SMusic Voice Aura HUD</string>
     <string name="ui_grant">Grant</string>
     <string name="ui_permissions_amp_enhancements">Permissions &amp; Enhancements</string>
     <string name="ui_shared_a_link_not_a_video">Shared a link, not a video/audio file:</string>
@@ -1537,4 +1537,56 @@
     <string name="ai_insight_unknown_artist">Unknown artist</string>
     <string name="ai_insight_permission_needed">Allow notifications to receive listening insights.</string>
     <string name="ai_insight_requested">Listening insight requested</string>
+<string name="sleep_timer_active">Timer active</string>
+<string name="cancel_sleep_timer">Stop timer</string>
+<string name="search_settings_label">Find a setting</string>
+<string name="pulse_profile_heading">Your taste profile</string>
+<string name="pulse_profile_loading">Reading your listening history…</string>
+<string name="pulse_profile_empty">With listening history enabled, Pulse learns from the music you play.</string>
+<string name="pulse_play_action">Play Pulse</string>
+<string name="pulse_browse_action">Explore music</string>
+<string name="pulse_discovery_familiar">Familiar favourites</string>
+<string name="pulse_discovery_balanced">Balanced discovery</string>
+<string name="pulse_discovery_adventurous">More discovery</string>
+<string name="pulse_discovery_automatic">Automatic discovery</string>
+<plurals name="pulse_profile_listens">
+        <item quantity="one">Based on %d listen</item>
+        <item quantity="other">Based on %d listens</item>
+    </plurals>
+    <string name="category_ai_title">AI features</string>
+    <string name="category_voice_title">Voice assistant</string>
+    <string name="category_player_title">Player &amp; audio</string>
+    <string name="category_auto_description">Car playback</string>
+    <string name="category_voice_description">Hands-free playback · Beta</string>
+    <string name="category_appearance_description">Themes &amp; layouts</string>
+    <string name="category_player_description">Playback &amp; effects</string>
+    <string name="category_lyrics_description">Colours &amp; providers</string>
+    <string name="category_storage_description">Downloads &amp; cache</string>
+    <string name="category_backup_description">Save &amp; restore data</string>
+    <string name="category_about_description">App information</string>
+    <string name="category_artists_description">Your artists</string>
+    <string name="category_stats_description">Your listening trends</string>
+    <string name="category_account_description">YouTube &amp; Discord</string>
+    <string name="category_content_description">Language &amp; region</string>
+    <string name="category_privacy_description">History &amp; security</string>
+    <string name="category_liked_description">Your favourites</string>
+    <string name="speed_dial">Speed dial</string>
+    <string name="about_local_title">Your music library</string>
+    <string name="about_local_desc">Browse songs, albums, artists, playlists, and local music.</string>
+    <string name="about_pulse_title">Pulse recommendations</string>
+    <string name="about_pulse_desc">Discover recommendations shaped by your listening, likes, and skips.</string>
+    <string name="about_stats_title">Listening stats</string>
+    <string name="about_stats_desc">Explore your most-played songs, artists, albums, and listening time.</string>
+    <string name="about_share_title">Lyrics sharing</string>
+    <string name="about_share_desc">Share selected lyrics as cards, stories, or videos.</string>
+    <string name="about_timer_title">Sleep timer</string>
+    <string name="about_timer_desc">Stop playback after a duration, the current song, or a chosen number of tracks.</string>
+    <string name="about_speed_desc">Pin songs, artists, albums, and playlists for quick access.</string>
+    <string name="about_home_title">Home layouts</string>
+    <string name="about_home_desc">Choose a preset, rearrange sections, and preview your Home layout.</string>
+    <string name="update_notification_open">View update</string>
+    <string name="update_notification_open_description">Read the release notes and download the latest update.</string>
+    <string name="pulse_more_like_this">More like this</string>
+
+
 </resources>

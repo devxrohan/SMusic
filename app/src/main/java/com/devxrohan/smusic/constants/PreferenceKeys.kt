@@ -8,12 +8,15 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 
+val CustomizationProfilesKey = stringPreferencesKey("customizationProfilesV1")
+
 val DarkModeKey = stringPreferencesKey("darkMode")
 
 val UserNameKey = stringPreferencesKey("user_name")
 
 val SlimNavBarKey = booleanPreferencesKey("slimNavBar")
 val ShowGalaxySliderKey = booleanPreferencesKey("showGalaxySlider")
+
 val GridItemsSizeKey = stringPreferencesKey("gridItemSize")
 val SliderStyleKey = stringPreferencesKey("sliderStyle")
 val PlayerScreenStyleKey = stringPreferencesKey("playerScreenStyle")
@@ -161,7 +164,7 @@ val PlaylistSortDescendingKey = booleanPreferencesKey("playlistSortDescending")
 val ArtistSongSortTypeKey = stringPreferencesKey("artistSongSortType")
 val ArtistSongSortDescendingKey = booleanPreferencesKey("artistSongSortDescending")
 val MixSortTypeKey = stringPreferencesKey("mixSortType")
-val MixSortDescendingKey = booleanPreferencesKey("albumSortDescending")
+val MixSortDescendingKey = booleanPreferencesKey("mixSortDescending")
 
 val SongFilterKey = stringPreferencesKey("songFilter")
 val ArtistFilterKey = stringPreferencesKey("artistFilter")
@@ -419,10 +422,7 @@ val GuestProfilePhotoPathKey = stringPreferencesKey("guest_profile_photo_path")
 val UseLoginForBrowse = booleanPreferencesKey("useLoginForBrowse")
 
 
-// --- Discord account / Rich Presence integration ---
-// DiscordTokenKey stores the user's Discord account token, used only to open an authenticated
-// Gateway WebSocket connection for Rich Presence (there is no separate "login screen" OAuth flow
-// in the reference implementation beyond entering/validating this token).
+// Use the stored Discord account token only for the authenticated Rich Presence Gateway session.
 val DiscordTokenKey = stringPreferencesKey("discordToken")
 val DiscordInfoDismissedKey = booleanPreferencesKey("discordInfoDismissed")
 val DiscordUsernameKey = stringPreferencesKey("discordUsername")
@@ -625,3 +625,38 @@ val DjWowDepthKey = floatPreferencesKey("dj_wow_depth")
 val DjVinylNoiseLevelKey = floatPreferencesKey("dj_vinyl_noise_level")
 val DjPumpDepthKey = floatPreferencesKey("dj_pump_depth")
 val DjBassShelfGainKey = floatPreferencesKey("dj_bass_shelf_gain")
+
+val MiniPlayerProgressKey = booleanPreferencesKey("miniPlayerProgress")
+val MiniPlayerSwipeKey = booleanPreferencesKey("miniPlayerSwipe")
+
+val HomeQuickPicksVisibleKey = booleanPreferencesKey("homeQuickPicksVisible")
+val HomeKeepListeningVisibleKey = booleanPreferencesKey("homeKeepListeningVisible")
+val HomeYoutubePicksVisibleKey = booleanPreferencesKey("homeYoutubePicksVisible")
+
+val HomeRecommendationsVisibleKey = booleanPreferencesKey("homeRecommendationsVisible")
+val HomeDiscoverVisibleKey = booleanPreferencesKey("homeDiscoverVisible")
+val HomeAccountShelvesVisibleKey = booleanPreferencesKey("homeAccountShelvesVisible")
+val HomeForgottenFavoritesVisibleKey = booleanPreferencesKey("homeForgottenFavoritesVisible")
+
+val LyricsAlignmentKey = stringPreferencesKey("lyricsAlignment")
+
+/** Positive values delay lyric highlights; negative values show them earlier. */
+val LyricsOffsetMsKey = floatPreferencesKey("lyricsOffsetMs")
+
+val RecognitionHistoryKey = stringPreferencesKey("recognitionHistoryV1")
+
+
+val HomeVisibleItemsKey = stringPreferencesKey("homeVisibleItems")
+
+val HomeSectionPriorityKey = stringPreferencesKey("homeSectionPriority")
+
+val PauseRecognitionHistoryKey = booleanPreferencesKey("pauseRecognitionHistory")
+val MiniPlayerProgressPositionKey = stringPreferencesKey("miniPlayerProgressPosition")
+val LyricsColorStyleKey = stringPreferencesKey("lyricsColorStyle")
+val LyricsColorPrimaryKey = stringPreferencesKey("lyricsColorPrimary")
+val LyricsColorSecondaryKey = stringPreferencesKey("lyricsColorSecondary")
+
+val ProfileBeatMotionKey = booleanPreferencesKey("profileBeatMotion")
+
+val HomeSpeedDialVisibleKey = booleanPreferencesKey("homeSpeedDialVisible")
+val AppTextScaleKey = floatPreferencesKey("appTextScale")

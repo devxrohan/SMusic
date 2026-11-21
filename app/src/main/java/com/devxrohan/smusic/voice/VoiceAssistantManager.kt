@@ -16,23 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import timber.log.Timber
 
-/**
- * Hands-free voice engine for SMusic.
- *
- * Works the way a normal assistant does: while the voice service is enabled it keeps ONE speech
- * recognizer cycling in the background (screen off, earbuds, app in background - no "Speak" tap needed).
- *
- *  - No raw AudioRecord loop and no noise-triggered start/stop. That loop used to fight the recognizer
- *    for the microphone, clipped the first words ("smusic ...") and re-triggered itself non-stop, which
- *    was the cause of the hangs and battery drain.
- *  - Prefers the on-device recognizer (cheap, no network round trip per cycle).
- *  - Adaptive back-off: while nobody is talking the pause between cycles grows, so idle cost stays low;
- *    it snaps back to instant the moment speech is heard.
- *  - Only real commands run. Random speech / music lyrics are ignored instead of being treated as a
- *    song search. In "wake word" mode a command must start with "SMusic" / "Hey SMusic".
- *  - The recognizer's start/stop beeps are muted only for a few hundred ms around each cycle, never
- *    for the whole session, so notification sounds keep working.
- */
+/** Owns the speech-recognition session and coordinates command execution with listening state. */
 class VoiceAssistantManager(
     private val context: Context,
     private val onWakeWordHeard: ((String) -> Unit)? = null,

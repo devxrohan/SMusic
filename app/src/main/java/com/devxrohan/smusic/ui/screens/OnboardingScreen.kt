@@ -125,12 +125,7 @@ import kotlin.math.min
 import kotlin.math.sin
 import androidx.compose.ui.res.stringResource
 
-/**
- * First-run "Configure" screen: one soft floating card over slowly drifting
- * colour blooms, a few quick setup tiles (look, theme, permissions) and a
- * single arrow to continue. Everything is optional: the arrow always works,
- * permissions can also be granted later when a feature needs them.
- */
+/** Present first-run appearance and permission choices before entering the app. */
 @Composable
 fun OnboardingScreen(
     onFinished: () -> Unit,
@@ -148,14 +143,7 @@ fun OnboardingScreen(
         )
         return
     }
-    // HorizontalPager (the same, heavily-tested Compose component every major
-    // onboarding flow uses) replaces a hand-rolled detectHorizontalDragGestures
-    // detector here. That custom detector shared the screen with the step
-    // buttons' own clickable handlers and could lose a touch-event race on
-    // some devices/firmware (reported stuck-on-first-step on a Samsung Galaxy
-    // S20 5G) — the swipe never registered and even the "Get started" button
-    // stopped responding. HorizontalPager's gesture handling is first-party
-    // and specifically built to coexist correctly with content inside it.
+    // Use native pager gestures for bounded, predictable onboarding transitions.
     val pagerState = rememberPagerState(
         initialPage = currentStep.coerceIn(0, 3),
         pageCount = { 4 },
@@ -185,12 +173,7 @@ fun OnboardingScreen(
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collect { onStepChange(it) }
     }
-    // currentStep (set by the Next/Back buttons via updateStep, and restored
-    // from saved progress on first composition) is the only thing that moves
-    // the pager now — see userScrollEnabled = false below. With no free-swipe
-    // gesture left to contend with, this single sync is enough on its own:
-    // there is nothing else that can change pagerState.currentPage for it to
-    // race against.
+    // Drive the onboarding pager from saved step state; disable independent swipe navigation.
     LaunchedEffect(currentStep) {
         val target = currentStep.coerceIn(0, 3)
         if (pagerState.settledPage != target) {
@@ -212,12 +195,7 @@ fun OnboardingScreen(
     var notificationsGranted by remember { mutableStateOf(notificationsAllowed()) }
     var audioGranted by remember { mutableStateOf(isGranted(audioPermission)) }
     var notificationAskedOnce by remember { mutableStateOf(false) }
-    // Songs stopping mid-playback on some phones is almost always this: the
-    // standard Android "ignore battery optimizations" permission was never
-    // requested up front (it used to live only inside Voice Assistant
-    // settings, which most people never open), so Doze/App Standby — or an
-    // OEM's own battery manager — eventually suspends the playback service.
-    // Asking here, during onboarding, is what fixes that for new installs.
+    // Offer battery-optimization exemption during setup to reduce device-specific playback interruption.
     var batteryUnrestricted by remember {
         mutableStateOf(com.devxrohan.smusic.utils.OemBackgroundHelper.isIgnoringBatteryOptimizations(context))
     }
@@ -277,11 +255,7 @@ fun OnboardingScreen(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                // With zero spacing, the previous page's content touches the
-                // next page's content with no visual gap for the entire swipe,
-                // which is what made the two steps look stuck/glued together
-                // mid-swipe instead of reading as two separate screens sliding
-                // past each other.
+                // Separate onboarding pages so adjacent content does not touch during transitions.
                 pageSpacing = 20.dp,
                 // The Next/Back buttons are the only way to move between steps.
                 // Keeping pager swipes disabled avoids competing gesture handlers.
@@ -291,11 +265,7 @@ fun OnboardingScreen(
                         Modifier
                             .fillMaxWidth()
                             .fillMaxHeight()
-                            // Per-page scale + fade driven by how far this page sits from the
-                            // settled page (0 = settled, ±1 = fully off to a side). This is what
-                            // makes the swipe itself feel animated instead of just "a page moved
-                            // across the screen": the outgoing page shrinks and dims while the
-                            // incoming one grows and brightens as it slides in.
+                            // Scale and fade onboarding pages using their offset from the settled page.
                             .graphicsLayer {
                                 val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
                                 val closeness = 1f - abs(pageOffset).coerceIn(0f, 1f)
@@ -518,19 +488,8 @@ private fun GuestProfileSetupScreen(onBack: () -> Unit, onFinished: () -> Unit) 
     ) {
         Text("Guest profile", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = colors.onBackground)
 
-        // The photo + name fields live in their own scrollable, weighted
-        // area between the title and the Continue button. When the keyboard
-        // opens and shrinks the space this area has, it's this area that
-        // shrinks and (if needed) scrolls — the Continue button below it is
-        // a separate sibling, so it never gets squeezed into/over the name
-        // field; it just settles in place right above the keyboard.
-        //
-        // Plain top-down scroll on purpose, not a centered Box: a scroll
-        // container that tries to vertically centre content taller than
-        // itself ends up pinning that content's top above the scroll's own
-        // top edge — with no way to scroll further up to reach it, that
-        // top part (the photo, here) is permanently cut off on any screen
-        // short enough for this area to actually need scrolling.
+        // Constrain the scrollable profile form between the heading and action so IME insets cannot
+        // obscure fields.
         Column(
             Modifier
                 .weight(1f)

@@ -48,10 +48,11 @@ val GridMenuItemHeight = 108.dp
 fun GridMenu(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
+    columns: GridCells = GridCells.Adaptive(minSize = 120.dp),
     content: LazyGridScope.() -> Unit,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 120.dp),
+        columns = columns,
         modifier = modifier,
         contentPadding = contentPadding,
         content = content
@@ -90,12 +91,16 @@ fun LazyGridScope.GridMenuItem(
     onClick: () -> Unit,
 ) {
     item {
+        val interaction = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
         Column(
             modifier = modifier
+                .pressFeedback(interaction, enabled)
                 .clip(RoundedCornerShape(16.dp))
                 .height(GridMenuItemHeight)
                 .clickable(
                     enabled = enabled,
+                    interactionSource = interaction,
+                    indication = androidx.compose.material3.ripple(),
                     onClick = onClick
                 )
                 .alpha(if (enabled) 1f else 0.5f)

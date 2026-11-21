@@ -48,10 +48,7 @@ fun SettingsPage(
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     items: @Composable () -> Unit,
 ) {
-    // Keep settings pages inside a real Scaffold so their content is laid out
-    // below the app bar and above the global player/navigation area. The old
-    // implementation applied the global insets directly to the scrolling
-    // Column, which could consume the whole viewport on the affected pages.
+    // Use Scaffold insets to keep settings content clear of the app bar, navigation and mini player.
     androidx.compose.material3.Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
@@ -67,14 +64,7 @@ fun SettingsPage(
             )
         },
     ) { innerPadding ->
-        // A settings row (a toggle, a short label and value) was designed to be
-        // read and tapped at phone width. Letting it stretch edge-to-edge on a
-        // tablet, a car head unit, or a TV just blows every row up to a huge,
-        // hard-to-scan size with a tiny icon lost on one side. Capping the
-        // content at a sensible reading width and centering it keeps every
-        // settings row (and its icon/toggle) a consistent, comfortable size on
-        // any screen; on a phone the cap is never reached, so nothing changes
-        // there at all.
+        // Constrain settings content to a readable width while preserving phone-sized touch targets.
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier

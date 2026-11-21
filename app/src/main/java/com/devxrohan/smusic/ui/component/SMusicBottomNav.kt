@@ -27,11 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.devxrohan.smusic.constants.NavBarStyle
 
-/**
- * The actual bug fixed here: this was referenced everywhere (this file,
- * MainActivity's item-mapping) but never had a real definition anywhere
- * in the project — a genuine "used but never declared" gap.
- */
+/** Defines the navigation styles shared by the navigation host and preference mapping. */
 data class CurvedBottomNavigationItem(
     val iconActive: Int,
     val iconInactive: Int,
@@ -39,12 +35,7 @@ data class CurvedBottomNavigationItem(
     val title: String = ""
 )
 
-/**
- * SMusic-style bottom nav — pill-shaped container with soft primary-tinted
- * pill behind the selected item. Selected = filled icon + label + tinted bg.
- * Unselected = outlined icon, muted color, no label. Floats above content on
- * an elevated rounded-rectangle surface so it visually separates from scroll.
- */
+/** Render the SMusic navigation container with a tinted selected item and outlined inactive icons. */
 @Composable
 fun SMusicBottomNav(
     items: List<CurvedBottomNavigationItem>,
@@ -55,10 +46,7 @@ fun SMusicBottomNav(
     showLabels: Boolean = true,
     style: NavBarStyle = NavBarStyle.FLOATING
 ) {
-    // The incoming modifier may occupy the full bottom-navigation host area.
-    // Keep this positioning layer non-clickable: a clickable fillMaxSize Box
-    // intercepts every touch on every screen, blocking scrolling and controls.
-    // Touches are consumed only by the actual visible nav surface below.
+    // Keep the full-size navigation positioning layer non-clickable to avoid intercepting screen touches.
     Box(
         modifier = modifier,
         contentAlignment = Alignment.BottomCenter

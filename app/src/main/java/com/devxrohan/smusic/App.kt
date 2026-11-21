@@ -134,20 +134,12 @@ class App : android.app.Application(), ImageLoaderFactory {
             override fun onActivityDestroyed(activity: android.app.Activity) {}
         })
 
-        // Clean up any leftover downloaded-update APK — by the time the app
-        // is running again, either the install succeeded (new version now
-        // running) or the user cancelled, so the file has served its
-        // purpose either way and shouldn't be left sitting in storage.
+        // Remove stale downloaded update APKs after installation or cancellation.
         runCatching {
             getExternalFilesDir("updates")?.listFiles()?.forEach { it.delete() }
         }
 
-        // Was runBlocking { ... } here — that blocks the calling thread
-        // (the main thread, since Application.onCreate() always runs on
-        // it) until the cache read + decryption finishes, which is exactly
-        // what held the system's cold-start icon on screen for so long.
-        // isReady lets MainActivity's splash screen keep itself up for
-        // this same amount of time instead, without blocking anything.
+        // Load startup preferences asynchronously to avoid blocking Application.onCreate.
         GlobalScope.launch(Dispatchers.IO) {
             runCatching { dataStore.initializeCache() }
             isReady.value = true
@@ -300,15 +292,7 @@ class App : android.app.Application(), ImageLoaderFactory {
                 .distinctUntilChanged()
                 .collect { dataSyncId ->
                     YouTube.dataSyncId = dataSyncId?.let {
-                        /*
-                         * Workaround to avoid breaking older installations that have a dataSyncId
-                         * that contains "||" in it.
-                         * If the dataSyncId ends with "||" and contains only one id, then keep the
-                         * id before the "||".
-                         * If the dataSyncId contains "||" and is not at the end, then keep the
-                         * second id.
-                         * This is needed to keep using the same account as before.
-                         */
+                        /** Normalize legacy dataSyncId suffixes before initializing the account session. */
                         it.takeIf { !it.contains("||") }
                             ?: it.takeIf { it.endsWith("||") }?.substringBefore("||")
                             ?: it.substringAfter("||")

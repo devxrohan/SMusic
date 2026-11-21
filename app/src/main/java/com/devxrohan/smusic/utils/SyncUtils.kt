@@ -170,11 +170,7 @@ class SyncUtils @Inject constructor(
                     .reversed()
                 val dbPlaylists = database.playlistsByNameAsc().first()
 
-                // Playlist ids come back without a "VL" prefix from the
-                // library fetch, but some import paths store browseId WITH
-                // that prefix — normalize both sides so a playlist created
-                // either way still matches its existing DB entry instead of
-                // silently creating a duplicate on every sync.
+                // Normalize playlist IDs on both sides so optional VL prefixes cannot cause duplicate imports.
                 fun normalizeBrowseId(id: String?) = id?.removePrefix("VL")
 
                 val remoteIds = playlistList.map(PlaylistItem::id).toSet()

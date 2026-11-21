@@ -159,10 +159,8 @@ fun BottomSheet(
                             IntOffset(0, shift - moved)
                         }
                         .fillMaxWidth()
-                        // Never let the collapsed tap target extend above the visible peek strip.
-                        // QueuePeekHeight is 64dp while MiniPlayerHeight is 80dp; using 80dp here
-                        // created an invisible 16dp hit area on gesture-navigation devices, so a
-                        // tap near the Classic seekbar/lyrics gap could expand the queue by mistake.
+                        // Restrict collapsed hit targets to the visible peek strip so they cannot intercept
+                        // content above it.
                         .height(com.devxrohan.smusic.constants.MiniPlayerHeight.coerceAtMost(state.collapsedBound))
                         .pointerInput(state) {
                             detectTapGestures(onTap = { state.expandSoft() })
@@ -191,10 +189,7 @@ class BottomSheetState(
 
     val value by animatable.asState()
 
-    // The anchor most recently requested via expand/collapse/dismiss, updated
-    // synchronously the instant one of those is called — unlike isExpanded/
-    // isCollapsed/isDismissed below, which only flip once the animatable's
-    // value has actually settled there a little later.
+    // Track requested sheet anchors synchronously; settled-state flags update after animation completes.
     var targetAnchor by mutableIntStateOf(initialAnchor)
         private set
 
@@ -377,16 +372,7 @@ fun rememberBottomSheetState(
     val animatable = remember {
         Animatable(0.dp, Dp.VectorConverter)
     }
-    // dismissedBound/expandedBound/collapsedBound can legitimately recompute
-    // more than once after first composition — e.g. while system-bar insets
-    // are still settling, which on some devices/OEM skins doesn't happen on
-    // the very first frame. previousAnchor only ever changes in response to
-    // an actual expand/collapse/dismiss call, so re-animating to it every
-    // time a bound merely recomputes had nothing to do with those bound
-    // changes — it just replayed the last jump-to-anchor animation on top of
-    // (and could cancel) an expandSoft() the user had just triggered, e.g. by
-    // tapping the queue icon, making the sheet appear to never open on
-    // devices where a bound happened to recompute right around then.
+    // Reconcile changing layout anchors without resetting the active sheet state.
     var hasPositioned by remember { mutableStateOf(false) }
 
     return remember(dismissedBound, expandedBound, collapsedBound, coroutineScope) {

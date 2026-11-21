@@ -36,17 +36,7 @@ class MenuState(
     var isVisible by mutableStateOf(isVisible)
     var content by mutableStateOf(content)
 
-    // Every menu the app ever shows (SongMenu, PlayerMenu, AlbumMenu, the
-    // "Add to playlist" picker inside them, etc.) is rendered by calling
-    // state.content(this) at the one call site in BottomSheetMenu below.
-    // Compose remembers state (remember{}, coroutine scopes...) by that
-    // call site's position, not by which lambda happens to be plugged into
-    // it — so without something to tell two different show() calls apart,
-    // a brand new menu can silently inherit remembered state left over from
-    // whichever menu was shown here before it (e.g. a stale cached song id
-    // from a previous "Add to playlist" flow leaking into the next one).
-    // Bumping this on every show() and keying on it in BottomSheetMenu
-    // forces a clean slate each time.
+    // Key content by menu generation to prevent remembered state leaking between unrelated menus.
     var generation by mutableIntStateOf(0)
         private set
 

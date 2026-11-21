@@ -71,6 +71,8 @@ fun ArtistMenu(
 
     HorizontalDivider()
 
+    val spotifyRemoval = com.devxrohan.smusic.spotify.rememberSpotifyRemoval("artist", artist.id, artist.title, onDismiss)
+
     GridMenu(
         columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
         contentPadding =
@@ -81,6 +83,8 @@ fun ArtistMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
+        if (spotifyRemoval.visible) GridMenuItem(icon = R.drawable.delete, title = R.string.delete, onClick = spotifyRemoval.show)
+
 
         GridMenuItem(icon = R.drawable.radio, title = R.string.start_radio) {
             coroutineScope.launch {

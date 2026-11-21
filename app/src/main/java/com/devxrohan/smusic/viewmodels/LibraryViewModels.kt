@@ -139,6 +139,7 @@ constructor(
     @ApplicationContext context: Context,
     database: MusicDatabase,
     private val syncUtils: SyncUtils,
+    private val spotifyBridge: com.devxrohan.smusic.spotify.SpotifyLibraryBridge,
 ) : ViewModel() {
     val allArtists =
         context.dataStore.data
@@ -151,7 +152,12 @@ constructor(
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     fun sync() {
-        viewModelScope.launch(Dispatchers.IO) { syncUtils.syncArtistsSubscriptions() }
+        viewModelScope.launch(Dispatchers.IO) {
+            syncUtils.syncArtistsSubscriptions()
+            try { spotifyBridge.syncLibrary() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { reportException(error) }
+        }
     }
 
     init {
@@ -183,6 +189,7 @@ constructor(
     @ApplicationContext context: Context,
     database: MusicDatabase,
     private val syncUtils: SyncUtils,
+    private val spotifyBridge: com.devxrohan.smusic.spotify.SpotifyLibraryBridge,
 ) : ViewModel() {
     val allAlbums =
         context.dataStore.data
@@ -201,7 +208,12 @@ constructor(
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     fun sync() {
-        viewModelScope.launch(Dispatchers.IO) { syncUtils.syncLikedAlbums() }
+        viewModelScope.launch(Dispatchers.IO) {
+            syncUtils.syncLikedAlbums()
+            try { spotifyBridge.syncLibrary() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { reportException(error) }
+        }
     }
 
     init {

@@ -275,6 +275,8 @@ fun AlbumMenu(
 
     HorizontalDivider()
 
+    val spotifyRemoval = com.devxrohan.smusic.spotify.rememberSpotifyRemoval("album", album.id, album.title, onDismiss)
+
     GridMenu(
         contentPadding =
             PaddingValues(
@@ -284,6 +286,8 @@ fun AlbumMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
+        if (spotifyRemoval.visible) GridMenuItem(icon = R.drawable.delete, title = R.string.delete, onClick = spotifyRemoval.show)
+
 
         GridMenuItem(
             icon = R.drawable.playlist_play,

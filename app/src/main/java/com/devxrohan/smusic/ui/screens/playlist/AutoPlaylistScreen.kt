@@ -2,6 +2,8 @@
 
 package com.devxrohan.smusic.ui.screens.playlist
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -137,6 +139,11 @@ fun AutoPlaylistScreen(
         if (viewModel.playlist == "liked") stringResource(R.string.liked) else stringResource(R.string.offline)
 
     val songs by viewModel.likedSongs.collectAsState(null)
+    val likeSource by viewModel.selectedLikeSource.collectAsState()
+    val availableLikeSources by viewModel.availableLikeSources.collectAsState()
+    val spotifySyncing by viewModel.spotifySyncing.collectAsState()
+    val spotifyError by viewModel.spotifyError.collectAsState()
+
     val mutableSongs =
         remember {
             mutableStateListOf<Song>()
@@ -440,8 +447,18 @@ fun AutoPlaylistScreen(
                 state = state,
                 contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
             ) {
+                if (viewModel.playlist == "liked") item(key = "like_sources") {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(vertical = 8.dp)) {
+                        if (spotifySyncing) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                        spotifyError?.let { error -> Text(error); TextButton(onClick = { viewModel.syncSpotifyLikes() }) { Text("Retry Spotify sync") } }
+                    }
+                }
                 if (songs != null) {
                     if (songs!!.isEmpty()) {
+                        if (viewModel.playlist == "liked") item {
+                            PlaylistSortControls(sortType, sortDescending, onSortTypeChange, onSortDescendingChange,
+                                likeSource, { viewModel.likeSource.value = it }, availableLikeSources)
+                        }
                         item {
                             EmptyPlaceholder(
                                 icon = R.drawable.music_note,
@@ -635,26 +652,9 @@ fun AutoPlaylistScreen(
                         }
 
                         item {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(start = 16.dp),
-                            ) {
-                                SortHeader(
-                                    sortType = sortType,
-                                    sortDescending = sortDescending,
-                                    onSortTypeChange = onSortTypeChange,
-                                    onSortDescendingChange = onSortDescendingChange,
-                                    sortTypeText = { sortType ->
-                                        when (sortType) {
-                                            SongSortType.CREATE_DATE -> R.string.sort_by_create_date
-                                            SongSortType.NAME -> R.string.sort_by_name
-                                            SongSortType.ARTIST -> R.string.sort_by_artist
-                                            SongSortType.PLAY_TIME -> R.string.sort_by_play_time
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
+                            PlaylistSortControls(sortType, sortDescending, onSortTypeChange, onSortDescendingChange,
+                                if (viewModel.playlist == "liked") likeSource else null,
+                                { viewModel.likeSource.value = it }, availableLikeSources)
                         }
                     }
 

@@ -8,6 +8,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.ui.Alignment
 import com.devxrohan.smusic.ui.component.themeGlow
 import androidx.compose.ui.Modifier
@@ -31,6 +33,8 @@ private data class LibraryCategoryItem(
 /** Library destinations use the same compact category grid as Settings. */
 @Composable
 fun LibraryScreen(navController: NavController) {
+    val entry by navController.currentBackStackEntryAsState()
+    val libraryActive = entry?.destination?.route == com.devxrohan.smusic.ui.screens.Screens.Library.route
     val items = listOf(
         LibraryCategoryItem(
             title = stringResource(R.string.liked_songs),
@@ -99,6 +103,7 @@ fun LibraryScreen(navController: NavController) {
             modifier = Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            com.devxrohan.smusic.ui.component.LibrarySyncCard(onAccountClick = { navController.navigate("settings/account") }, active = libraryActive)
             CategoryCardGrid(items) { item ->
                 CategoryCard(
                     title = item.title,

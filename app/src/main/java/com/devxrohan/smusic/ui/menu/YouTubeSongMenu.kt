@@ -75,6 +75,7 @@ import com.devxrohan.smusic.ui.component.ListDialog
 import com.devxrohan.smusic.ui.component.ListItem
 import com.devxrohan.smusic.utils.joinByBullet
 import com.devxrohan.smusic.utils.makeTimeString
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
@@ -221,14 +222,12 @@ fun YouTubeSongMenu(
         trailingContent = {
             IconButton(
                 onClick = {
-                    database.transaction {
-                        librarySong.let { librarySong ->
-                            if (librarySong == null) {
-                                insert(song.toMediaMetadata(), SongEntity::toggleLike)
-                            } else {
-                                update(librarySong.song.toggleLike())
-                            }
-                        }
+                    val likedNow = librarySong?.song?.liked != true
+                    coroutineScope.launch(Dispatchers.IO) {
+                        if (librarySong == null) database.insert(song.toMediaMetadata())
+                        val stored = database.song(song.id).first()?.song ?: return@launch
+                        if (stored.liked != likedNow) database.update(stored.toggleLike())
+                        database.song(song.id).first()?.let { playerConnection.service.pulseEngine.onFavorite(it, likedNow) }
                     }
                 },
             ) {
@@ -247,6 +246,8 @@ fun YouTubeSongMenu(
 
     HorizontalDivider()
 
+    val spotifyRemoval = com.devxrohan.smusic.spotify.rememberSpotifyRemoval("track", song.id, song.title, onDismiss)
+
     GridMenu(
         contentPadding =
             PaddingValues(
@@ -256,6 +257,8 @@ fun YouTubeSongMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
+        if (spotifyRemoval.visible) GridMenuItem(icon = R.drawable.delete, title = R.string.delete, onClick = spotifyRemoval.show)
+
         GridMenuItem(
             icon = R.drawable.radio,
             title = R.string.start_radio,

@@ -304,7 +304,7 @@ fun HistoryScreen(
                             title = section.title,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.background)
+                                .background(MaterialTheme.colorScheme.surface)
                         )
                     }
 

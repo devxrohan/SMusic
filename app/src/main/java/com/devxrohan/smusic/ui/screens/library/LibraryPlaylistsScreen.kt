@@ -102,6 +102,10 @@ fun LibraryPlaylistsScreen(
     allowSyncing: Boolean = true,
 
     ) {
+    val spotifyViewModel: com.devxrohan.smusic.spotify.SpotifyLibraryViewModel = hiltViewModel()
+    val spotifyPlaylists by spotifyViewModel.playlists.collectAsState()
+    val spotifyRefreshing by spotifyViewModel.isRefreshing.collectAsState()
+    val showSpotify by rememberPreference(com.devxrohan.smusic.spotify.ShowSpotifyPlaylistsKey, false)
     val menuState = LocalMenuState.current
     LocalHapticFeedback.current
 
@@ -183,7 +187,25 @@ fun LibraryPlaylistsScreen(
         Triple("Import from YouTube", R.drawable.youtube_logo, "import_yt"),
         Triple(stringResource(R.string.import_from_spotify), R.drawable.spotify, "import_spotify"),
     )
-    val summary = pluralStringResource(R.plurals.n_playlist, playlists.size, playlists.size)
+    val visiblePlaylists = remember(playlists, spotifyPlaylists, showSpotify, sortType, sortDescending) {
+        val local = playlists.filterNot { it.id.startsWith("SP:") }
+        val connected = if (showSpotify) spotifyPlaylists.map { remote ->
+            val saved = playlists.firstOrNull { it.id == "SP:${remote.id}" }
+            Playlist(
+                playlist = saved?.playlist?.copy(name = remote.name, remoteSongCount = remote.tracks?.total)
+                    ?: PlaylistEntity(id = "SP:${remote.id}", name = remote.name, remoteSongCount = remote.tracks?.total),
+                songCount = saved?.songCount ?: 0,
+                thumbnails = remote.images.firstOrNull()?.url?.let(::listOf).orEmpty(),
+            )
+        } else emptyList()
+        val merged = local + connected
+        when (sortType) {
+            PlaylistSortType.NAME -> merged.sortedBy { it.title.lowercase() }.let { if (sortDescending) it.reversed() else it }
+            PlaylistSortType.SONG_COUNT -> merged.sortedBy { it.playlist.remoteSongCount ?: it.songCount }.let { if (sortDescending) it.reversed() else it }
+            PlaylistSortType.LAST_UPDATED -> merged.sortedBy { it.playlist.lastUpdateTime }.let { if (sortDescending) it.reversed() else it }
+        }
+    }
+    val summary = pluralStringResource(R.plurals.n_playlist, visiblePlaylists.size, visiblePlaylists.size)
     val pullRefreshState = rememberPullToRefreshState()
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -192,8 +214,9 @@ fun LibraryPlaylistsScreen(
             .fillMaxSize()
             .pullToRefresh(
                 state = pullRefreshState,
-                isRefreshing = isRefreshing,
+                isRefreshing = isRefreshing || spotifyRefreshing,
                 onRefresh = {
+                    if (showSpotify) spotifyViewModel.refreshPlaylists()
                     if (ytmSync && allowSyncing && useYouTubeAccount) {
                         isRefreshing = true
                         coroutineScope.launch {
@@ -259,7 +282,7 @@ fun LibraryPlaylistsScreen(
             }
 
             items(
-                items = playlists,
+                items = visiblePlaylists,
                 key = { it.id },
                 contentType = { CONTENT_TYPE_PLAYLIST },
             ) { playlist ->
@@ -276,7 +299,7 @@ fun LibraryPlaylistsScreen(
         }
 
         PullToRefreshDefaults.Indicator(
-            isRefreshing = isRefreshing,
+            isRefreshing = isRefreshing || spotifyRefreshing,
             state = pullRefreshState,
             modifier = Modifier
                 .align(Alignment.TopCenter)

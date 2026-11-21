@@ -33,12 +33,16 @@ constructor(
     @ApplicationContext context: Context,
     database: MusicDatabase,
     savedStateHandle: SavedStateHandle,
+    spotifyLibrary: com.devxrohan.smusic.spotify.SpotifyLibraryRepository,
 ) : ViewModel() {
     val playlistId = savedStateHandle.get<String>("playlistId")!!
-    val playlist =
-        database
-            .playlist(playlistId)
-            .stateIn(viewModelScope, SharingStarted.Lazily, null)
+    val spotifyImport = com.devxrohan.smusic.spotify.SpotifyPlaylistMaterializer(viewModelScope, database, spotifyLibrary)
+    val playlist = combine(database.playlist(playlistId), spotifyLibrary.playlists, spotifyImport.state) { saved, remote, loading ->
+        if (playlistId.startsWith("SP:")) {
+            val cover = loading.coverUrl ?: remote.firstOrNull { "SP:${it.id}" == playlistId }?.images?.firstOrNull()?.url
+            if (cover != null) saved?.copy(thumbnails = listOf(cover)) else saved
+        } else saved
+    }.stateIn(viewModelScope, SharingStarted.Lazily, null)
     val playlistSongs: StateFlow<List<PlaylistSong>> =
         combine(
             database.playlistSongs(playlistId),
@@ -71,7 +75,10 @@ constructor(
             }.reversed(sortDescending && sortType != PlaylistSongSortType.CUSTOM)
         }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+
     init {
+        if (playlistId.startsWith("SP:")) spotifyImport.load(playlistId)
+
         viewModelScope.launch {
             val sortedSongs =
                 playlistSongs.first().sortedWith(compareBy({ it.map.position }, { it.map.id }))

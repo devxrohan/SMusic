@@ -28,6 +28,7 @@ internal fun ExpressivePreset(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    shape: androidx.compose.ui.graphics.Shape = CircleShape,
 ) {
     val scheme = MaterialTheme.colorScheme
     ToggleButton(
@@ -35,7 +36,7 @@ internal fun ExpressivePreset(
         onCheckedChange = { onClick() },
         enabled = enabled,
         modifier = modifier.heightIn(min = 48.dp).semantics { role = Role.RadioButton; this.selected = selected },
-        shapes = appToggleShapes(ToggleButtonDefaults.shapes(shape = CircleShape, pressedShape = MaterialTheme.shapes.large, checkedShape = CircleShape)),
+        shapes = appToggleShapes(ToggleButtonDefaults.shapes(shape = shape, pressedShape = MaterialTheme.shapes.large, checkedShape = shape)),
         elevation = null,
         border = if (selected) null else BorderStroke(1.dp, scheme.outlineVariant),
         colors = ToggleButtonDefaults.toggleButtonColors(

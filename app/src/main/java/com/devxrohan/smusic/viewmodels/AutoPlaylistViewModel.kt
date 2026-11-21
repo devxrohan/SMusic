@@ -20,6 +20,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -35,12 +37,27 @@ import javax.inject.Inject
 class AutoPlaylistViewModel
 @Inject
 constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
     database: MusicDatabase,
     downloadUtil: DownloadUtil,
     savedStateHandle: SavedStateHandle,
     private val syncUtils: SyncUtils,
+    private val spotifyBridge: com.devxrohan.smusic.spotify.SpotifyLibraryBridge,
 ) : ViewModel() {
+    val likeSource = MutableStateFlow("all")
+    val availableLikeSources = combine(context.dataStore.data,
+        com.devxrohan.smusic.spotify.SpotifyCredentialStore.get(context).data) { preferences, credentials ->
+        com.devxrohan.smusic.spotify.SpotifySyncPolicy.availableLikeSources(
+            !credentials[com.devxrohan.smusic.spotify.SpotifySpDcKey].isNullOrBlank(),
+            "SAPISID" in com.devxrohan.smusic.innertube.utils.parseCookieString(preferences[com.devxrohan.smusic.constants.InnerTubeCookieKey].orEmpty()))
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, setOf("all", "smusic"))
+    val selectedLikeSource = combine(likeSource, availableLikeSources) { selected, available ->
+        com.devxrohan.smusic.spotify.SpotifySyncPolicy.activeLikeSource(selected, available)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, "all")
+
+    val spotifyError = MutableStateFlow<String?>(null)
+    val spotifySyncing = MutableStateFlow(false)
+
     val playlist = savedStateHandle.get<String>("playlist")!!
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -53,7 +70,21 @@ constructor(
             .distinctUntilChanged()
             .flatMapLatest { (sortType, descending) ->
                 when (playlist) {
-                    "liked" -> database.likedSongs(sortType, descending)
+                    "liked" -> combine(database.likedSongs(sortType, descending), database.allSongs(), spotifyBridge.links, context.dataStore.data, selectedLikeSource) { liked, all, links, preferences, source ->
+                        val spotifyIds = if (preferences[com.devxrohan.smusic.spotify.ShowSpotifyPlaylistsKey] == true)
+                            links.filterKeys { it.startsWith("track:") }.values.toSet() else emptySet()
+                        val youtubeIds = preferences[com.devxrohan.smusic.utils.RemoteSeenLikedSongsKey].orEmpty().lineSequence().filter { it.isNotBlank() }.toSet()
+                        val smusicIds = preferences[com.devxrohan.smusic.spotify.SMusicLikedIdsKey].orEmpty()
+                        val ids = com.devxrohan.smusic.spotify.SpotifySyncPolicy.likedIds(liked.map { it.id }.toSet(), spotifyIds, youtubeIds, source, smusicIds)
+                        val filtered = (liked + all.filter { it.id in ids }).distinctBy { it.id }.filter { it.id in ids }
+                        val sorted = when (sortType) {
+                            SongSortType.CREATE_DATE -> filtered.sortedBy { it.song.likedDate ?: it.song.inLibrary ?: java.time.LocalDateTime.MIN }
+                            SongSortType.NAME -> filtered.sortedBy { it.title.lowercase() }
+                            SongSortType.ARTIST -> filtered.sortedBy { song -> song.artists.joinToString { it.name }.lowercase() }
+                            SongSortType.PLAY_TIME -> filtered.sortedBy { it.song.totalPlayTime }
+                        }
+                        sorted.reversed(descending)
+                    }
                     "downloaded" -> downloadUtil.downloads.flatMapLatest { downloads ->
                         database.allSongs()
                             .flowOn(Dispatchers.IO)
@@ -82,7 +113,32 @@ constructor(
                 }
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    init {
+        viewModelScope.launch {
+            availableLikeSources.collect { available ->
+                if (likeSource.value !in available) likeSource.value = "all"
+            }
+        }
+        if (playlist == "liked") syncSpotifyLikes(false)
+    }
+
+    fun syncSpotifyLikes(force: Boolean = true) {
+        if (spotifySyncing.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (com.devxrohan.smusic.spotify.SpotifyCredentialStore.get(context).data.first()[com.devxrohan.smusic.spotify.SpotifySpDcKey].isNullOrBlank()) {
+                spotifyError.value = null
+                return@launch
+            }
+            spotifySyncing.value = true
+            try { spotifyBridge.syncLikes(force); spotifyError.value = null }
+            catch (error: kotlinx.coroutines.CancellationException) { throw error }
+            catch (error: Exception) { spotifyError.value = "Spotify likes could not be synced. Try again." }
+            finally { spotifySyncing.value = false }
+        }
+    }
+
     fun syncLikedSongs() {
+        syncSpotifyLikes()
         viewModelScope.launch(Dispatchers.IO) { syncUtils.syncLikedSongs() }
     }
 }

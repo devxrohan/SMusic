@@ -168,6 +168,7 @@ fun LocalPlaylistScreen(
 
     val playlist by viewModel.playlist.collectAsState()
     val songs by viewModel.playlistSongs.collectAsState()
+    val spotifyImport by viewModel.spotifyImport.state.collectAsState()
     val mutableSongs = remember { mutableStateListOf<PlaylistSong>() }
     val playlistLength = remember(songs) {
         songs.fastSumBy { it.song.song.duration }
@@ -328,6 +329,9 @@ fun LocalPlaylistScreen(
         )
     }
 
+    val spotifyRemoval = com.devxrohan.smusic.spotify.rememberSpotifyRemoval(
+        "playlist", viewModel.playlistId, playlist?.title.orEmpty(), onDismiss = { navController.popBackStack() },
+    )
     var showDeletePlaylistDialog by remember { mutableStateOf(false) }
     if (showDeletePlaylistDialog) {
         DefaultDialog(
@@ -605,6 +609,18 @@ fun LocalPlaylistScreen(
             state = lazyListState,
             contentPadding = LocalPlayerAwareWindowInsets.current.union(WindowInsets.ime).asPaddingValues(),
         ) {
+            if (spotifyImport.loading || spotifyImport.error != null) item(key = "spotify_loading") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = systemBarsTopPadding + AppBarHeight)) {
+                    if (spotifyImport.loading) {
+                        androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Loading songs ${spotifyImport.completed}/${spotifyImport.total}", modifier = Modifier.padding(vertical = 8.dp))
+                    }
+                    spotifyImport.error?.let { message ->
+                        Text(message)
+                        TextButton(onClick = { viewModel.spotifyImport.load(viewModel.playlistId) }) { Text("Try again") }
+                    }
+                }
+            }
             playlist?.let { playlist ->
                 if (playlist.songCount == 0 && playlist.playlist.remoteSongCount == 0) {
                     item {
@@ -756,7 +772,7 @@ fun LocalPlaylistScreen(
                                 ) {
                                     if (editable) {
                                         Surface(
-                                            onClick = { showDeletePlaylistDialog = true },
+                                            onClick = { if (spotifyRemoval.visible) spotifyRemoval.show() else showDeletePlaylistDialog = true },
                                             shape = CircleShape,
                                             color = MaterialTheme.colorScheme.surfaceVariant,
                                             modifier = Modifier.size(48.dp)
@@ -1051,7 +1067,9 @@ fun LocalPlaylistScreen(
                     ) {
                         val currentItem by rememberUpdatedState(song)
 
+                        val playlistTrackRemoval = com.devxrohan.smusic.spotify.rememberSpotifyPlaylistTrackRemoval(currentItem, currentItem.song.title, onDismiss = {})
                         fun deleteFromPlaylist() {
+                            if (playlistTrackRemoval.visible) { playlistTrackRemoval.show(); return }
                             val map = currentItem.map
                             val browseId = playlist?.playlist?.browseId
                             coroutineScope.launch(Dispatchers.IO) {
@@ -1084,6 +1102,7 @@ fun LocalPlaylistScreen(
                             ) {
                                 processedDismiss = true
                                 deleteFromPlaylist()
+                                if (playlistTrackRemoval.visible) dismissBoxState.reset()
                             }
                             if (dv == SwipeToDismissBoxValue.Settled) {
                                 processedDismiss = false
@@ -1186,7 +1205,9 @@ fun LocalPlaylistScreen(
                     ) {
                         val currentItem by rememberUpdatedState(songWrapper.item)
 
+                        val playlistTrackRemoval = com.devxrohan.smusic.spotify.rememberSpotifyPlaylistTrackRemoval(currentItem, currentItem.song.title, onDismiss = {})
                         fun deleteFromPlaylist() {
+                            if (playlistTrackRemoval.visible) { playlistTrackRemoval.show(); return }
                             val map = currentItem.map
                             coroutineScope.launch(Dispatchers.IO) {
                                 database.transaction {
@@ -1212,6 +1233,7 @@ fun LocalPlaylistScreen(
                             ) {
                                 processedDismiss2 = true
                                 deleteFromPlaylist()
+                                if (playlistTrackRemoval.visible) dismissBoxState.reset()
                             }
                             if (dv == SwipeToDismissBoxValue.Settled) {
                                 processedDismiss2 = false

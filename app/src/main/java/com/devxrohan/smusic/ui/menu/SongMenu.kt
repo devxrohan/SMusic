@@ -406,6 +406,9 @@ fun SongMenu(
     }
 
 
+    val spotifyRemoval = com.devxrohan.smusic.spotify.rememberSpotifyRemoval("track", song.id, song.title, onDismiss)
+    val playlistTrackRemoval = com.devxrohan.smusic.spotify.rememberSpotifyPlaylistTrackRemoval(playlistSong, song.title, onDismiss)
+
     LazyColumn(
         contentPadding = PaddingValues(
             start = 8.dp,
@@ -414,6 +417,12 @@ fun SongMenu(
             bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
         ),
     ) {
+        if (spotifyRemoval.visible) item {
+            ListItem(headlineContent = { Text("Remove from Spotify sync") },
+                leadingContent = { Icon(painterResource(R.drawable.delete), null) },
+                modifier = Modifier.clickable(onClick = spotifyRemoval.show))
+        }
+
         item {
             com.devxrohan.smusic.ui.component.SpeedDialSongPin(song.id, onDismiss = onDismiss)
         }
@@ -500,6 +509,7 @@ fun SongMenu(
                         )
                     },
                     modifier = Modifier.clickable {
+                        if (playlistTrackRemoval.visible) { playlistTrackRemoval.show(); return@clickable }
                         database.transaction {
                             coroutineScope.launch {
                                 playlistBrowseId?.let { playlistId ->

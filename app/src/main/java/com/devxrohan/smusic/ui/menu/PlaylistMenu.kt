@@ -71,6 +71,7 @@ fun PlaylistMenu(
     downloadPlaylist: Boolean? = false,
     songList: List<Song>? = emptyList(),
 ) {
+    val spotifyRemoval = com.devxrohan.smusic.spotify.rememberSpotifyRemoval("playlist", playlist.id, playlist.title, onDismiss)
     val context = LocalContext.current
     val database = LocalDatabase.current
     val downloadUtil = LocalDownloadUtil.current
@@ -404,7 +405,7 @@ fun PlaylistMenu(
                 icon = R.drawable.delete,
                 title = R.string.delete,
             ) {
-                showDeletePlaylistDialog = true
+                if (spotifyRemoval.visible) spotifyRemoval.show() else showDeletePlaylistDialog = true
             }
         }
 

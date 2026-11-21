@@ -48,6 +48,7 @@ import com.devxrohan.smusic.ui.component.DownloadGridMenu
 import com.devxrohan.smusic.ui.component.GridMenu
 import com.devxrohan.smusic.ui.component.PulseFeedbackGridItems
 import com.devxrohan.smusic.ui.component.GridMenuItem
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
@@ -248,13 +249,13 @@ fun SelectionSongMenu(
                 songSelection.all {
                     it.song.liked
                 }
-            onDismiss()
-            database.query {
+            coroutineScope.launch(Dispatchers.IO) {
                 songSelection.forEach { song ->
-                    if ((!allLiked && !song.song.liked) || allLiked) {
-                        update(song.song.toggleLike())
-                    }
+                    if ((!allLiked && !song.song.liked) || allLiked) database.update(song.song.toggleLike())
                 }
+                com.devxrohan.smusic.utils.recordSMusicLikes(context, songSelection.map { it.id }.toSet(), !allLiked)
+                playerConnection.service.pulseEngine.refreshLibraryTaste()
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onDismiss() }
             }
         }
 
@@ -466,16 +467,14 @@ fun SelectionMediaMetadataMenu(
             icon = if (allLiked) R.drawable.favorite else R.drawable.favorite_border,
             title = R.string.like_all,
         ) {
-            database.query {
-                if (allLiked) {
-                    songSelection.forEach { song ->
-                        update(song.toSongEntity().toggleLike())
-                    }
-                } else {
-                    songSelection.filter { !it.liked }.forEach { song ->
-                        update(song.toSongEntity().toggleLike())
-                    }
+            coroutineScope.launch(Dispatchers.IO) {
+                songSelection.forEach { song ->
+                    database.insert(song)
+                    val stored = database.song(song.id).first()?.song ?: return@forEach
+                    if (stored.liked == allLiked) database.update(stored.toggleLike())
                 }
+                com.devxrohan.smusic.utils.recordSMusicLikes(context, songSelection.map { it.id }.toSet(), !allLiked)
+                playerConnection.service.pulseEngine.refreshLibraryTaste()
             }
         }
 

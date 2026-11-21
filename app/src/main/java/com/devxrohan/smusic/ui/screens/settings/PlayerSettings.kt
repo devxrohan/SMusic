@@ -505,6 +505,12 @@ fun PlayerSettings(
                     onCheckedChange = onPersistentQueueChange
                 )},
 
+                { val (avoidRepeats, changeAvoidRepeats) = rememberPreference(AvoidQueueRepeatsKey, true)
+                    SwitchPreference(title = { Text("Avoid queue repeats") },
+                        description = "Keep automatically added songs from repeating in the current queue. Manual replay and Repeat mode stay available.",
+                        icon = { Icon(painterResource(R.drawable.queue_music), null) },
+                        checked = avoidRepeats, onCheckedChange = changeAvoidRepeats)
+                },
                 {SwitchPreference(
                     title = { Text(stringResource(R.string.auto_load_more)) },
                     description = stringResource(R.string.auto_load_more_desc),

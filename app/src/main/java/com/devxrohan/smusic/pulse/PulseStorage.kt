@@ -32,6 +32,8 @@ object PulseStorage {
         put("backfillVersion", s.backfillVersion)
         put("totalPlays", s.totalPlays)
         put("appetite", s.discoveryAppetite)
+        put("artistVariety", s.artistVariety)
+        put("recentCooldownHours", s.recentCooldownHours)
         s.discoveryPreference?.let { put("discoveryPreference", it) }
         put("rotDecay", s.lastRotationDecay)
         put("sessSong", s.sessionLastSong ?: JSONObject.NULL)
@@ -95,6 +97,8 @@ object PulseStorage {
         s.backfillVersion = o.optInt("backfillVersion", 0)
         s.totalPlays = o.optInt("totalPlays", 0)
         s.discoveryAppetite = o.optDouble("appetite", PulseParams.DISCOVERY_NEUTRAL)
+        s.artistVariety = o.optDouble("artistVariety", 0.5).takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.5
+        s.recentCooldownHours = o.optDouble("recentCooldownHours", 6.0).takeIf { it.isFinite() }?.coerceIn(0.0, 48.0) ?: 6.0
         s.discoveryPreference = if (o.has("discoveryPreference")) o.optDouble("discoveryPreference").takeIf { it.isFinite() && it in 0.1..0.7 } else null
         s.lastRotationDecay = o.optLong("rotDecay", 0L)
         s.sessionLastSong = o.optString("sessSong", "").ifEmpty { null }

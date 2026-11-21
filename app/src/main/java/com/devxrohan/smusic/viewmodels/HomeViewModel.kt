@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -65,8 +66,8 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     init {
         viewModelScope.launch {
-            // Only an explicit tuning change refreshes providers; ordinary exposure/live-learning events do not.
-            pulseEngine.tuningRevision.drop(1).collect { refresh() }
+            // Tuning reuses fetched candidates; it must not trigger another provider refresh.
+            pulseEngine.tuningRevision.drop(1).collectLatest { rerankCachedRecommendations() }
         }
     }
     val isRefreshing = MutableStateFlow(false)
@@ -243,7 +244,7 @@ class HomeViewModel @Inject constructor(
             .filter { it.album.thumbnailUrl != null && providerMatches(it.id, isJio) }
             .shuffled(homeRandom).take(5)
         val originalKeepListening: List<LocalItem> = (keepSongs + keepArtists + keepAlbums).shuffled(homeRandom)
-        val newKeepListening: List<LocalItem> = if (!isGuest) originalKeepListening else attempt {
+        val newKeepListening: List<LocalItem> = attempt {
             val songPool = database.mostPlayedSongs(0L, limit = 160, offset = 0).first().filter { providerMatches(it.id, isJio) }
             val artistPool = database.mostPlayedArtists(0L, limit = 50, offset = 0).first()
                 .filter { it.artist.isYouTubeArtist && it.artist.thumbnailUrl != null && providerMatches(it.id, isJio) }
@@ -338,7 +339,7 @@ class HomeViewModel @Inject constructor(
                 sections.filterNot { quickPicksTitle.containsMatchIn(it.title) }.mapNotNull { section ->
                     val distinctItems = section.items.distinctBy(::canonicalKey)
                     if (distinctItems.isEmpty()) null
-                    else if (!isGuest || section.isList) section.copy(items = distinctItems) // account order stays intact
+                    else if (section.isList) section.copy(items = distinctItems)
                     else {
                         // Guest: Pulse is primary. Rank the shelf by the user's taste, then rotate so each refresh differs.
                         val ranked = attempt { pulseEngine.rankSimilar(distinctItems, mutableSetOf(), limit = distinctItems.size) }
@@ -362,7 +363,8 @@ class HomeViewModel @Inject constructor(
                     // Signed-in YouTube's own Quick picks is a dedicated row, never duplicated in the feed.
                     val qp = findQuickPicksSection(sections)
                     if (qp != null) {
-                        realQuickPicks = qp.items.filterIsInstance<SongItem>().distinctBy { it.id }.take(24)
+                        val picks = qp.items.filterIsInstance<SongItem>().distinctBy { it.id }.take(24)
+                        realQuickPicks = pulseEngine.rankForRadio(picks, { it.id }, { it.artists.mapNotNull { artist -> artist.id } })
                         sections = sections.filterNot { it === qp }
                     }
                 } else if (actualQuickPicks != null) {
@@ -507,7 +509,7 @@ class HomeViewModel @Inject constructor(
                     if (album.artists.orEmpty().any { it.id in favouriteIds }) 0
                     else if (album.artists.orEmpty().any { it.id in artistIds }) 1 else 2
                 }
-                val rankedReleases = if (isGuest) attempt { pulseEngine.rankNewReleases(sortedReleases) }.getOrDefault(sortedReleases) else sortedReleases
+                val rankedReleases = attempt { pulseEngine.rankNewReleases(sortedReleases) }.getOrDefault(sortedReleases)
                 publish { explorePage.value = explore.copy(newReleaseAlbums = rankedReleases) }
             }
 
@@ -618,6 +620,27 @@ class HomeViewModel @Inject constructor(
     }
 
     /** Pull-to-refresh: rebuilds every row (SMusic, Pulse and YouTube). The spinner stops at the first paint. */
+    private suspend fun rerankCachedRecommendations() = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val epoch = sessionEpoch
+        val cycle = refreshCycle
+        val picks = youtubeQuickPicks.value
+        val feed = homePage.value
+        val similar = similarRecommendations.value
+        val shelves = pulseYtShelves.value
+        val rankedPicks = pulseEngine.rankForRadio(picks, { it.id }, { it.artists.mapNotNull { artist -> artist.id } })
+        val rankedFeed = feed?.copy(sections = feed.sections.map { section ->
+            if (section.isList) section else section.copy(items = pulseEngine.rankSimilar(section.items, mutableSetOf(), section.items.size))
+        })
+        val rankedSimilar = similar?.map { it.copy(items = pulseEngine.rankSimilar(it.items, mutableSetOf(), it.items.size)) }
+        val rankedShelves = shelves.map { it.copy(items = pulseEngine.rankSimilar(it.items, mutableSetOf(), it.items.size)) }
+        if (epoch == sessionEpoch && cycle == refreshCycle) {
+            youtubeQuickPicks.value = rankedPicks
+            homePage.value = rankedFeed
+            similarRecommendations.value = rankedSimilar
+            pulseYtShelves.value = rankedShelves
+        }
+    }
+
     fun refreshArtworkTheme() {
         viewModelScope.launch {
             context.dataStore.edit { prefs ->

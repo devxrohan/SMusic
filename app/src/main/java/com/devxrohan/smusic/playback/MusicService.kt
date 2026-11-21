@@ -343,6 +343,8 @@ class MusicService :
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var loudnessEnhancerSessionId: Int = C.AUDIO_SESSION_ID_UNSET
     private var queuePageLoadInProgress = false
+    private val queueHeardIds = linkedSetOf<String>()
+    private val queueHeardRecordings = linkedSetOf<String>()
     private var queueLoadGeneration = 0L
     private var queueLoadJob: kotlinx.coroutines.Job? = null
     private val playbackSessionStore by lazy { PlaybackSessionStore(filesDir) }
@@ -905,31 +907,36 @@ class MusicService :
         playWhenReady: Boolean = true,
         onLoaded: (() -> Unit)? = null,
     ) {
+        val radioSeed = (queue as? YouTubeQueue)?.radioSeed
+        val effectiveQueue = if (radioSeed != null)
+            com.devxrohan.smusic.playback.queues.PulseRadioQueue(radioSeed, pulseEngine, database, dataStore) else queue
         queueLoadJob?.cancel()
         val loadGeneration = ++queueLoadGeneration
+        queueHeardIds.clear()
+        queueHeardRecordings.clear()
         queuePageLoadInProgress = false
         if (!scope.isActive) scope = CoroutineScope(Dispatchers.Main) + Job()
-        currentQueue = queue
+        currentQueue = effectiveQueue
         queueTitle = null
         val isPermanentShuffle = dataStore.get(PermanentShuffleKey, false)
         player.shuffleModeEnabled = isPermanentShuffle
-        if (queue.preloadItem != null) {
-            player.setMediaItem(queue.preloadItem!!.toMediaItem())
+        if (effectiveQueue.preloadItem != null) {
+            player.setMediaItem(effectiveQueue.preloadItem!!.toMediaItem())
             player.prepare()
             player.playWhenReady = playWhenReady
         }
         queueLoadJob = scope.launch(SilentHandler) {
             val initialStatus =
                 withContext(Dispatchers.IO) {
-                    queue.getInitialStatus().filterExplicit(dataStore.get(HideExplicitKey, false))
+                    effectiveQueue.getInitialStatus().filterExplicit(dataStore.get(HideExplicitKey, false))
                 }
-            if (loadGeneration != queueLoadGeneration || currentQueue !== queue) return@launch
-            if (queue.preloadItem != null && player.playbackState == STATE_IDLE) return@launch
+            if (loadGeneration != queueLoadGeneration || currentQueue !== effectiveQueue) return@launch
+            if (effectiveQueue.preloadItem != null && player.playbackState == STATE_IDLE) return@launch
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
             }
             if (initialStatus.items.isEmpty()) return@launch
-            if (queue.preloadItem != null) {
+            if (effectiveQueue.preloadItem != null) {
                 player.addMediaItems(
                     0,
                     initialStatus.items.subList(0, initialStatus.mediaItemIndex)
@@ -958,7 +965,7 @@ class MusicService :
             if (isPermanentShuffle) {
                 refreshShuffleOrderIfNeeded()
             }
-            if (loadGeneration == queueLoadGeneration && currentQueue === queue) onLoaded?.invoke()
+            if (loadGeneration == queueLoadGeneration && currentQueue === effectiveQueue) onLoaded?.invoke()
         }
     }
 
@@ -976,19 +983,22 @@ class MusicService :
             player.removeMediaItems(player.currentMediaItemIndex + 1, player.mediaItemCount)
         }
 
+        val generation = ++queueLoadGeneration
+        queuePageLoadInProgress = false
+        queueLoadJob?.cancel()
+        queueHeardIds.clear()
+        queueHeardRecordings.clear()
+        queueHeardIds.add(currentMediaMetadata.id)
+        val radioQueue = com.devxrohan.smusic.playback.queues.PulseRadioQueue(currentMediaMetadata, pulseEngine, database, dataStore)
+        currentQueue = radioQueue
         scope.launch(SilentHandler) {
-            val radioQueue = YouTubeQueue(
-                endpoint = WatchEndpoint(videoId = currentMediaMetadata.id)
-            )
             val initialStatus = radioQueue.getInitialStatus()
-
-            if (initialStatus.title != null) {
-                queueTitle = initialStatus.title
-            }
-
-            // Agregar canciones de radio después de la canción actual
-            player.addMediaItems(initialStatus.items.drop(1))
-            currentQueue = radioQueue
+            if (generation != queueLoadGeneration || currentQueue !== radioQueue) return@launch
+            if (initialStatus.title != null) queueTitle = initialStatus.title
+            val occupied = if (dataStore.get(com.devxrohan.smusic.constants.AvoidQueueRepeatsKey, true)) queueHeardIds else emptySet()
+            val continuation = com.devxrohan.smusic.playback.queues.QueueContinuationPolicy.unseen(
+                initialStatus.items.filter { it.mediaId != currentMediaMetadata.id }, occupied) { it.mediaId }
+            player.addMediaItems(continuation)
         }
     }
 
@@ -1015,14 +1025,14 @@ class MusicService :
                                 val mixItems = it.items.map { song -> song.toMediaItem() }
                                 automixItems.value = mixItems
                                 // Pulse AutoMix: reorder by taste/session continuity; falls back to the original list.
+                                val seedMetadata = player.currentMediaItem?.metadata
                                 scope.launch(Dispatchers.IO) {
                                     val ranked = pulseEngine.rankForRadio(
                                         items = mixItems,
                                         idOf = { mi -> mi.mediaId },
                                         artistIdsOf = { mi -> mi.metadata?.artists?.mapNotNull { a -> a.id }.orEmpty() },
-                                        seedId = player.currentMediaItem?.mediaId,
-                                        seedArtistIds = player.currentMediaItem?.metadata?.artists
-                                            ?.mapNotNull { a -> a.id }.orEmpty(),
+                                        seedId = seedMetadata?.id,
+                                        seedArtistIds = seedMetadata?.artists?.mapNotNull { a -> a.id }.orEmpty(),
                                     )
                                     if (ranked !== mixItems) automixItems.value = ranked
                                 }
@@ -1739,6 +1749,16 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        mediaItem?.mediaId?.takeIf { it.isNotBlank() }?.let {
+            queueHeardIds.add(it)
+            if (queueHeardIds.size > 2048) queueHeardIds.remove(queueHeardIds.first())
+        }
+        mediaItem?.metadata?.let { track ->
+            com.devxrohan.smusic.playback.queues.QueueContinuationPolicy.recordingKey(track.title, track.artists.map { it.name })?.let { key ->
+                queueHeardRecordings.add(key)
+                if (queueHeardRecordings.size > 2048) queueHeardRecordings.remove(queueHeardRecordings.first())
+            }
+        }
         lastPlaybackSpeed = -1.0f // forzar actualización de canción
 
         setupLoudnessEnhancer()
@@ -1782,12 +1802,26 @@ class MusicService :
             val pageGeneration = queueLoadGeneration
             scope.launch(SilentHandler) {
                 try {
-                    val mediaItems = pageQueue.nextPage()
-                        .filterExplicit(dataStore.get(HideExplicitKey, false))
-                        .distinctBy { it.mediaId }
-                    if (pageGeneration == queueLoadGeneration && currentQueue === pageQueue && mediaItems.isNotEmpty() && player.playbackState != STATE_IDLE) {
-                        player.addMediaItems(mediaItems)
-                        refreshShuffleOrderIfNeeded()
+                    repeat(3) {
+                        val page = pageQueue.nextPage().filterExplicit(dataStore.get(HideExplicitKey, false))
+                        if (pageGeneration != queueLoadGeneration || currentQueue !== pageQueue || player.playbackState == STATE_IDLE) return@launch
+                        val occupied = if (dataStore.get(com.devxrohan.smusic.constants.AvoidQueueRepeatsKey, true))
+                            queueHeardIds + (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
+                            else emptySet()
+                        fun recording(item: MediaItem): String? = item.metadata?.let { track ->
+                            com.devxrohan.smusic.playback.queues.QueueContinuationPolicy.recordingKey(track.title, track.artists.map { it.name })
+                        }
+                        val occupiedRecordings = if (dataStore.get(com.devxrohan.smusic.constants.AvoidQueueRepeatsKey, true))
+                            queueHeardRecordings + (0 until player.mediaItemCount).mapNotNull { recording(player.getMediaItemAt(it)) }
+                            else emptySet()
+                        val mediaItems = com.devxrohan.smusic.playback.queues.QueueContinuationPolicy.unseen(
+                            page, occupied, occupiedRecordings, ::recording) { it.mediaId }
+                        if (mediaItems.isNotEmpty()) {
+                            player.addMediaItems(mediaItems)
+                            refreshShuffleOrderIfNeeded()
+                            return@launch
+                        }
+                        if (!pageQueue.hasNextPage()) return@launch
                     }
                 } finally {
                     if (pageGeneration == queueLoadGeneration) queuePageLoadInProgress = false

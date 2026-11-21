@@ -116,7 +116,9 @@ internal object PulseRanker {
         }
         if (c.kind == PulseKind.SONG && st != null && surfaceFatigue(w) && st.lastPlayed > 0L) {
             val ageHours = ((now - st.lastPlayed).coerceAtLeast(0L) / 3_600_000.0)
-            penalty += 0.32 * kotlin.math.exp(-ageHours / 3.0)
+            if (state.recentCooldownHours > 0.0) {
+                penalty += 0.50 * kotlin.math.exp(-ageHours / (state.recentCooldownHours / 2.0).coerceAtLeast(0.25))
+            }
             val completionRate = st.completions.toDouble() / st.plays.coerceAtLeast(1)
             songAff += 0.15 * completionRate.coerceIn(0.0, 1.0)
         }
@@ -215,7 +217,25 @@ internal object PulseRanker {
         val composed = if (surface == PulseSurface.RADIO && emb.vec.isNotEmpty())
             composeRadio(order, sims, scores, state.recommendationAppetite())
         else compose(order, novel, adjacent, target)
-        return spread(composed, inputs, if (surface == PulseSurface.RADIO) 1 else PulseParams.MAX_CONSECUTIVE_ARTIST)
+        val spread = spread(composed, inputs, if (surface == PulseSurface.RADIO) 1 else PulseParams.MAX_CONSECUTIVE_ARTIST)
+        return if (surface != PulseSurface.KEEP_LISTENING)
+            diversify(spread, inputs, state.artistVariety) else spread
+    }
+
+    /** Rerank a short look-ahead window so collaborator credits cannot bypass artist spacing. */
+    internal fun diversify(order: List<Int>, inputs: List<PulseCandidate>, variety: Double): List<Int> {
+        val strength = variety.coerceIn(0.0, 1.0)
+        if (strength == 0.0) return order
+        val pending = order.toMutableList()
+        val result = ArrayList<Int>(order.size)
+        while (pending.isNotEmpty()) {
+            val recent = result.takeLast(4).flatMap { inputs[it].artistIds }.groupingBy { it }.eachCount()
+            val position = pending.indices.take(8).minBy { index ->
+                index + strength * 6.0 * inputs[pending[index]].artistIds.sumOf { recent[it] ?: 0 }
+            }
+            result += pending.removeAt(position)
+        }
+        return result
     }
 
     /** Sequence radio by seed proximity, mixing near and stretch choices while deferring unrelated tracks. */

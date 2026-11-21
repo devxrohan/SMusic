@@ -1,5 +1,6 @@
 package com.devxrohan.smusic.pulse
 
+import androidx.datastore.preferences.core.edit
 import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.get
 import com.devxrohan.smusic.constants.AccountModeKey
@@ -55,6 +56,8 @@ data class PulseSummary(
     /** Stable smart-mix names generated from actual listening evidence. */
     val smartMixes: List<String> = emptyList(),
     val discoveryMode: String = "AUTO",
+    val artistVariety: Double = 0.5,
+    val recentCooldownHours: Double = 6.0,
 )
 
 /** Learns from playback and history, persists taste signals and ranks supported recommendation rows. */
@@ -72,14 +75,6 @@ class PulseEngine @Inject constructor(
     /** Pulse always LEARNS (one profile, guest or account). What it is allowed to reorder depends on [accountPrimary]. */
     @Suppress("RedundantSuspendModifier")
     private suspend fun guestModeActive(): Boolean = true
-
-    /** Preserve connected-account feed and radio order; Pulse ranks only its own shelves. */
-    suspend fun accountPrimary(): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val cookie = context.dataStore.data.first()[com.devxrohan.smusic.constants.InnerTubeCookieKey].orEmpty()
-            cookie.isNotBlank() && "SAPISID" in com.devxrohan.smusic.innertube.utils.parseCookieString(cookie)
-        }.getOrDefault(false)
-    }
 
     private suspend fun ensureLoaded(): PulseState {
         state?.let { return it }
@@ -107,6 +102,25 @@ class PulseEngine @Inject constructor(
         tuningRevision.value = tuningRevision.value + 1
     }
 
+    suspend fun setRecommendationTuning(variety: Double, cooldownHours: Double) = mutex.withLock {
+        require(variety.isFinite() && cooldownHours.isFinite())
+        val loaded = ensureLoaded()
+        val previous = loaded.artistVariety to loaded.recentCooldownHours
+        loaded.artistVariety = variety.coerceIn(0.0, 1.0)
+        loaded.recentCooldownHours = cooldownHours.coerceIn(0.0, 48.0)
+        try { withContext(Dispatchers.IO) { persist(loaded) } }
+        catch (failure: Exception) {
+            loaded.artistVariety = previous.first; loaded.recentCooldownHours = previous.second
+            throw failure
+        }
+        tuningRevision.value++
+    }
+
+    suspend fun hasConnectedYouTubeAccount(): Boolean {
+        val cookie = context.dataStore.data.first()[InnerTubeCookieKey].orEmpty()
+        return "SAPISID" in parseCookieString(cookie)
+    }
+
     /** Whether queue-level Pulse Similar Content expansion is enabled by the user. */
     fun similarContentEnabled(): Boolean = context.dataStore.get(com.devxrohan.smusic.constants.SimilarContent, true)
 
@@ -121,8 +135,15 @@ class PulseEngine @Inject constructor(
             a.liked = true
             a.score = maxOf(a.score, PulseParams.LIKE_SCORE_FLOOR)
         }
-        // Do not scan remote-only data here; only local Room likes are explicit user intent.
-        database.allSongs().first().filter { it.song.liked }.forEach { song ->
+        val preferences = context.dataStore.data.first()
+        val spotifyIds = if (preferences[com.devxrohan.smusic.spotify.ShowSpotifyPlaylistsKey] == true)
+            com.devxrohan.smusic.spotify.SpotifyLibraryBridge.decodeLinks(preferences[com.devxrohan.smusic.spotify.SpotifyImportedLinksKey])
+                .filterKeys { it.startsWith("track:") }.values.toSet() else emptySet()
+        val explicitIds = preferences[com.devxrohan.smusic.spotify.SMusicLikedIdsKey].orEmpty()
+        val liked = database.allSongs().first().filter { it.song.liked || it.id in spotifyIds || it.id in explicitIds }
+        val likedIds = liked.map { it.id }.toSet()
+        s.songs.forEach { (id, stats) -> stats.liked = id in likedIds }
+        liked.forEach { song ->
             val st = s.songs.getOrPut(song.id) { SongStats() }
             st.title = song.title
             st.artistIds = song.artists.map { it.id }
@@ -148,6 +169,13 @@ class PulseEngine @Inject constructor(
         }
     }
 
+    suspend fun refreshLibraryTaste() = safe(Unit) {
+        mutex.withLock {
+            val current = ensureLoaded()
+            withContext(Dispatchers.IO) { syncPersistentSignals(current); persist(current) }
+        }
+    }
+
     // ---------- Backfill ----------
 
     /** Idempotent + versioned: learns from existing history once, never repeats unless BACKFILL_VERSION is bumped. */
@@ -166,6 +194,8 @@ class PulseEngine @Inject constructor(
                 s.positiveFeedback.values.flatMap { it.artistIds }.distinct().forEach { id ->
                     s.artists[id]?.let { fresh.artists[id] = ArtistAffinity(name = it.name) }
                 }
+                fresh.artistVariety = s.artistVariety
+                fresh.recentCooldownHours = s.recentCooldownHours
                 fresh.discoveryPreference = s.discoveryPreference
                 fresh.discoveryAppetite = s.discoveryAppetite
             }
@@ -242,6 +272,7 @@ class PulseEngine @Inject constructor(
     }
 
     suspend fun onFavorite(song: Song, liked: Boolean) = safe(Unit) {
+        com.devxrohan.smusic.utils.recordSMusicLikes(context, setOf(song.id), liked)
         if (!guestModeActive()) return@safe
         mutex.withLock {
             val s = ensureLoaded()
@@ -310,6 +341,8 @@ class PulseEngine @Inject constructor(
                 stage = s.stage(),
                 totalPlays = s.totalPlays,
                 discoveryAppetite = s.recommendationAppetite(),
+                artistVariety = s.artistVariety,
+                recentCooldownHours = s.recentCooldownHours,
                 discoveryMode = when (s.discoveryPreference) { null -> "AUTO"; 0.15 -> "FAMILIAR"; 0.35 -> "BALANCED"; else -> "ADVENTUROUS" },
                 topArtists = s.topArtists(8).filter { s.artists[it.first]?.name?.isNotBlank() == true && !s.isHidden(it.first, System.currentTimeMillis()) }
                     .map { insight(it.first, it.second) },
@@ -630,12 +663,10 @@ class PulseEngine @Inject constructor(
         seedArtistIds: List<String> = emptyList(),
     ): List<T> = safe(items) {
         if (!guestModeActive()) return@safe items
-        // Account connected: the queue/AutoMix stays exactly as YouTube's account radio returned it.
-        if (accountPrimary()) return@safe items
         mutex.withLock {
             val s = ensureLoaded()
             val now = System.currentTimeMillis()
-            if (s.effectiveShare() <= 0.0 || items.size < 3) return@withLock items.filter { item -> idOf(item) == seedId || (artistIdsOf(item).none { s.isHidden(it, now) } && s.notForMeSongs[idOf(item)]?.let { now - it < PulseParams.NOT_FOR_ME_MS } != true) }
+            if (items.size < 3) return@withLock items.filter { item -> idOf(item) == seedId || (artistIdsOf(item).none { s.isHidden(it, now) } && s.notForMeSongs[idOf(item)]?.let { now - it < PulseParams.NOT_FOR_ME_MS } != true) }
             val body = items.filter { idOf(it) != seedId }.distinctBy { idOf(it) }
             val cands = body.map { PulseCandidate(idOf(it), PulseKind.SONG, artistIdsOf(it)) }
             val scored = PulseRanker.relevanceScores(s, cands, PulseSurface.RADIO, now, seedArtistIds).mapIndexed { index, value -> index to value }
@@ -645,7 +676,7 @@ class PulseEngine @Inject constructor(
             val ranked = PulseRanker.rank(s, filteredCands, PulseSurface.RADIO, now, lastSongId = seedId, seedArtistIds = seedArtistIds).map { filteredBody[it] }
             val head = items.filter { idOf(it) == seedId }.take(1)
             val out = head + ranked
-            if (out.size < 2) items else out
+            out
         }
     }
 

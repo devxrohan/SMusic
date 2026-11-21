@@ -149,6 +149,7 @@ fun PulseScreen(navController: NavController, viewModel: PulseViewModel = hiltVi
                             }
                             Icon(painterResource(R.drawable.expand_more), "Change discovery balance")
                         }
+                        PulseTuningControls(s.artistVariety, s.recentCooldownHours, !busy, viewModel::setRecommendationTuning)
                     }
                 }
                 if (blocked.isNotEmpty()) item {

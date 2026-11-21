@@ -134,6 +134,8 @@ class PulseState {
     val downloadedSongs: MutableSet<String> = HashSet()
 
     /** Optional user choice; automatic learning keeps its own value underneath. */
+    var artistVariety: Double = 0.5
+    var recentCooldownHours: Double = 6.0
     var discoveryPreference: Double? = null
     fun recommendationAppetite(): Double = discoveryPreference ?: discoveryAppetite
     var discoveryAppetite: Double = PulseParams.DISCOVERY_NEUTRAL

@@ -27,20 +27,18 @@ class PulseRadioQueue(
     private val expandedIds = linkedSetOf(seed.id)
     private val expansionSeeds = ArrayDeque<String>()
     private val queriedSeeds = mutableSetOf<String>()
+    private var authenticated = false
     private var expansionRounds = 0
     private val maxExpansionRounds = 12
     override val preloadItem: MediaMetadata? = seed
 
-    /** Resolved once per queue: with a YouTube account connected the queue is pure YouTube (no Pulse extras). */
-    private var accountPrimary: Boolean? = null
-    private suspend fun isAccountPrimary(): Boolean =
-        accountPrimary ?: pulse.accountPrimary().also { accountPrimary = it }
-
     private fun similarContentEnabled(): Boolean = settings?.get(SimilarContent, true) ?: pulse.similarContentEnabled()
 
     override suspend fun getInitialStatus(): Queue.Status {
-        val status = inner.getInitialStatus()
-        if (isAccountPrimary()) return inner.expandConnectedAccountQueue(status, targetSize = 50)
+        authenticated = pulse.hasConnectedYouTubeAccount()
+        val raw = inner.getInitialStatus()
+        val status = if (raw.items.any { it.mediaId == seed.id }) raw
+            else raw.copy(items = listOf(seed.toMediaItem()) + raw.items, mediaItemIndex = 0)
         status.items.forEach { expandedIds.add(it.mediaId) }
         if (similarContentEnabled()) {
             status.items.asSequence()
@@ -58,9 +56,8 @@ class PulseRadioQueue(
         (similarContentEnabled() && expansionRounds < maxExpansionRounds && expansionSeeds.isNotEmpty())
 
     override suspend fun nextPage(): List<MediaItem> {
-        if (accountPrimary == true) return if (inner.hasNextPage()) inner.nextPage() else emptyList()
         val provider = if (inner.hasNextPage()) {
-            runCatching { inner.nextPage() }.getOrDefault(emptyList())
+            runCatching { inner.nextPage() }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else emptyList() }
         } else emptyList()
         provider.forEach { expandedIds.add(it.mediaId) }
         if (provider.isNotEmpty()) {
@@ -83,11 +80,12 @@ class PulseRadioQueue(
             // One/two seed-specific expansions per queue page keep network use bounded while
             // providing a real continuation after the provider's short initial page.
             repeat(2) {
+                if (expansionRounds >= maxExpansionRounds) return@repeat
                 val nextSeed = if (expansionSeeds.isEmpty()) return@repeat else expansionSeeds.removeFirst()
                 if (!queriedSeeds.add(nextSeed)) return@repeat
                 expansionRounds++
                 val endpoint = YouTube.next(WatchEndpoint(videoId = nextSeed)).getOrNull()?.relatedEndpoint
-                val related = endpoint?.let { YouTube.related(it).getOrNull()?.songs.orEmpty() }.orEmpty()
+                val related = endpoint?.let { YouTube.related(it, authenticated = authenticated).getOrNull()?.songs.orEmpty() }.orEmpty()
                 related.take(20).map { it.toMediaItem() }.forEach { item ->
                     if (expandedIds.add(item.mediaId)) {
                         candidatePool.add(item)
@@ -108,5 +106,5 @@ class PulseRadioQueue(
         if (ranked === candidatePool && keepOrderIfNoSeed) {
             candidatePool.distinctBy { it.mediaId }
         } else ranked
-    }.getOrDefault(items)
+    }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else items }
 }

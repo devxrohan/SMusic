@@ -87,6 +87,7 @@ class PulseViewModel @Inject constructor(private val pulseEngine: PulseEngine, p
         }
     }
     fun unblock(artistId: String) = update { pulseEngine.setArtistBlocked(artistId, false) }
+    fun setRecommendationTuning(variety: Double, cooldownHours: Double) = update { pulseEngine.setRecommendationTuning(variety, cooldownHours) }
     fun setDiscoveryMode(mode: String) = update { pulseEngine.setDiscoveryMode(mode) }
     fun rebuild() = update { pulseEngine.rebuildFromHistory() }
 }

@@ -59,7 +59,7 @@ fun ArtistListItem(
         AsyncImage(
             placeholder = painterResource(R.drawable.person),
             error = painterResource(R.drawable.person),
-            model = artist.artist.thumbnailUrl,
+            model = browseArtworkUrl(artist.artist.thumbnailUrl),
             contentDescription = null,
             modifier =
                 Modifier
@@ -99,7 +99,7 @@ fun ArtistGridItem(
         AsyncImage(
             placeholder = painterResource(R.drawable.person),
             error = painterResource(R.drawable.person),
-            model = artist.artist.thumbnailUrl,
+            model = browseArtworkUrl(artist.artist.thumbnailUrl),
             contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
@@ -122,7 +122,7 @@ fun ArtistSmallGridItem(
         AsyncImage(
             placeholder = painterResource(R.drawable.person),
             error = painterResource(R.drawable.person),
-            model = artist.artist.thumbnailUrl,
+            model = browseArtworkUrl(artist.artist.thumbnailUrl),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
         )
@@ -157,7 +157,7 @@ fun LocalArtistsGrid(
             AsyncImage(
                 placeholder = painterResource(R.drawable.person),
                 error = painterResource(R.drawable.person),
-                model = thumbnailUrl,
+                model = browseArtworkUrl(thumbnailUrl),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
             )

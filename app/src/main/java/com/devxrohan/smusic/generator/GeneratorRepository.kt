@@ -169,7 +169,7 @@ class GeneratorRepository @Inject constructor(
         val artistItem = search?.items?.firstOrNull() as? com.devxrohan.smusic.innertube.models.ArtistItem
             ?: throw IllegalStateException("Artist \"$artistQuery\" not found.")
 
-        val page = runCatching { YouTube.artist(artistItem.id).getOrNull() }.getOrNull()
+        val page = runCatching { com.devxrohan.smusic.utils.MusicPageRequests.artist(artistItem.id).getOrNull() }.getOrNull()
         val pool = mutableListOf<MediaMetadata>()
 
         // 1. Artist's own top songs

@@ -184,7 +184,7 @@ fun YouTubeListItem(
                 AsyncImage(
                     placeholder = painterResource(R.drawable.music_note),
                     error = painterResource(R.drawable.music_note),
-                    model = item.thumbnail,
+                    model = browseArtworkUrl(item.thumbnail),
                     contentDescription = null,
                     modifier =
                         Modifier
@@ -232,7 +232,7 @@ fun YouTubeSmallGridItem(
         AsyncImage(
             placeholder = painterResource(R.drawable.music_note),
             error = painterResource(R.drawable.music_note),
-            model = item.thumbnail,
+            model = browseArtworkUrl(item.thumbnail),
             contentDescription = null,
             modifier =
                 Modifier

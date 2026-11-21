@@ -20,6 +20,7 @@ import javax.inject.Inject
 class ArtistViewModel @Inject constructor(
     database: MusicDatabase,
     savedStateHandle: SavedStateHandle,
+    private val artworkRepository: com.devxrohan.smusic.utils.ArtistArtworkRepository,
 ) : ViewModel() {
     val artistId = savedStateHandle.get<String>("artistId")!!
     var artistPage by mutableStateOf<ArtistPage?>(null)
@@ -36,10 +37,14 @@ class ArtistViewModel @Inject constructor(
 
     private fun fetchArtistsFromYTM() {
         viewModelScope.launch {
-            YouTube.artist(artistId)
+            com.devxrohan.smusic.utils.MusicPageRequests.artist(artistId)
                 .onSuccess {
                     artistPage = it
                     loadFailed = false
+                    // The online header and Pulse should use the same persisted artwork.
+                    try { artworkRepository.cache(it) }
+                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (failure: Exception) { reportException(failure) }
                 }.onFailure {
                     loadFailed = true
                     reportException(it)

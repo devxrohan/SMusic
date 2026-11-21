@@ -8,10 +8,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 
-/**
- * Thin view onto [ExplorePrefetcher]. The data is loaded by the process when the app opens (see
- * App.onCreate), so the Explore screen usually finds the list and the pictures already waiting.
- */
+/** Expose shared Explore sections and request artwork only for visible cards. */
 @HiltViewModel
 class MoodAndGenresViewModel
 @Inject

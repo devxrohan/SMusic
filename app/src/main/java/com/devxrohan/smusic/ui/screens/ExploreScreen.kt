@@ -68,6 +68,19 @@ fun ExploreScreen(
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     viewModel: MoodAndGenresViewModel = hiltViewModel(),
 ) {
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(owner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> ExplorePrefetcher.setVisible(true)
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> ExplorePrefetcher.setVisible(false)
+                else -> Unit
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        ExplorePrefetcher.setVisible(owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))
+        onDispose { owner.lifecycle.removeObserver(observer); ExplorePrefetcher.setVisible(false) }
+    }
     val configuration = LocalConfiguration.current
     val columns = if (configuration.orientation == ORIENTATION_LANDSCAPE) 3 else 2
     val sections by viewModel.moodAndGenres.collectAsState()
@@ -153,11 +166,7 @@ fun ExploreScreen(
     }
 }
 
-/**
- * Loading skeleton with the exact geometry of the real Explore grid (same columns, card shape,
- * aspect ratio, padding), so nothing jumps when the data arrives. It is a single soft pulse applied
- * in the layer phase - no library shimmer, no offscreen blend pass, no recomposition per frame.
- */
+/** Match skeleton geometry to the Explore grid and use one shared loading pulse. */
 @Composable
 private fun ExploreSkeleton(columns: Int) {
     val transition = rememberInfiniteTransition(label = "exploreSkeleton")

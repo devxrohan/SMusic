@@ -5,7 +5,8 @@ package com.devxrohan.smusic.utils
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.drawable.BitmapDrawable
+import androidx.core.graphics.drawable.toBitmapOrNull
+import kotlinx.coroutines.CancellationException
 import android.net.Uri
 import androidx.media3.common.util.BitmapLoader
 import coil.imageLoader
@@ -19,20 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
 import java.util.concurrent.ExecutionException
 
-/**
- * Loads the bitmap used for the lock-screen / notification media player.
- *
- * This runs in the background, often right after the screen locks, which is
- * exactly when a device's network connection is least reliable — Doze mode,
- * a per-app data saver rule, or an OEM battery manager can all briefly cut a
- * background app's network access. A single failed fetch here used to mean
- * no cover art for the rest of that playback session; there was no retry.
- * This now retries a couple of times with a short backoff, which is usually
- * enough to ride out a momentary network hiccup, and explicitly turns the
- * cache on so a thumbnail already shown in the app's own UI (very likely,
- * since the same song's artwork was just on screen to start playback) is
- * reused instantly instead of being re-fetched over the network at all.
- */
+/** Loads cached media artwork with bounded retries and propagates coroutine cancellation. */
 class CoilBitmapLoader(
     private val context: Context,
     private val scope: CoroutineScope,
@@ -54,18 +42,18 @@ class CoilBitmapLoader(
                         context.imageLoader.execute(
                             ImageRequest
                                 .Builder(context)
-                                .data(uri)
+                                .data(cachedArtworkUrl(uri.toString()))
+                                .size(512)
                                 .allowHardware(false)
-                                // The song's own thumbnail was almost certainly already
-                                // loaded (and cached) to draw the player UI moments ago —
-                                // always allow reusing that instead of hitting the network
-                                // again just for the notification.
+                                // Reuse the UI artwork cache when loading media-notification thumbnails.
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .build(),
                         )
                     if (result is ErrorResult) throw result.throwable
-                    (result.drawable as BitmapDrawable).bitmap
+                    result.drawable?.toBitmapOrNull() ?: error("Artwork has no bitmap")
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     lastError = e
                     null

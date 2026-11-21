@@ -95,7 +95,7 @@ fun PlaylistListItem(
                 AsyncImage(
                     placeholder = painterResource(R.drawable.music_note),
                     error = painterResource(R.drawable.music_note),
-                    model = playlist.thumbnails[0],
+                    model = browseArtworkUrl(playlist.thumbnails[0]),
                     contentDescription = null,
                     modifier =
                         Modifier
@@ -119,7 +119,7 @@ fun PlaylistListItem(
                         AsyncImage(
                             placeholder = painterResource(R.drawable.music_note),
                             error = painterResource(R.drawable.music_note),
-                            model = playlist.thumbnails.getOrNull(index),
+                            model = browseArtworkUrl(playlist.thumbnails.getOrNull(index)),
                             contentDescription = null,
                             modifier =
                                 Modifier
@@ -216,7 +216,7 @@ fun PlaylistGridItem(
                     AsyncImage(
                         placeholder = painterResource(R.drawable.music_note),
                         error = painterResource(R.drawable.music_note),
-                        model = playlist.thumbnails[0],
+                        model = browseArtworkUrl(playlist.thumbnails[0]),
                         contentDescription = null,
                         modifier =
                             Modifier
@@ -240,7 +240,7 @@ fun PlaylistGridItem(
                             AsyncImage(
                                 placeholder = painterResource(R.drawable.music_note),
                                 error = painterResource(R.drawable.music_note),
-                                model = playlist.thumbnails.getOrNull(index),
+                                model = browseArtworkUrl(playlist.thumbnails.getOrNull(index)),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier =

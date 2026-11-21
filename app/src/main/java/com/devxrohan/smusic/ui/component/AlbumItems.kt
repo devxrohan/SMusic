@@ -284,7 +284,7 @@ fun AlbumGridItem(
         AsyncImage(
             placeholder = painterResource(R.drawable.music_note),
             error = painterResource(R.drawable.music_note),
-            model = album.album.thumbnailUrl,
+            model = browseArtworkUrl(album.album.thumbnailUrl),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
         )
@@ -374,7 +374,7 @@ fun AlbumSmallGridItem(
             AsyncImage(
                 placeholder = painterResource(R.drawable.music_note),
                 error = painterResource(R.drawable.music_note),
-                model = song.song.thumbnailUrl,
+                model = browseArtworkUrl(song.song.thumbnailUrl),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -433,7 +433,7 @@ fun LocalAlbumsGrid(
         AsyncImage(
             placeholder = painterResource(R.drawable.music_note),
             error = painterResource(R.drawable.music_note),
-            model = thumbnailUrl,
+            model = browseArtworkUrl(thumbnailUrl),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
         )

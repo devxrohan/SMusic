@@ -151,7 +151,7 @@ fun SongListItem(
                     }
                 }
                 AsyncImage(
-                    model = song.song.thumbnailUrl,
+                    model = browseArtworkUrl(song.song.thumbnailUrl),
                     contentDescription = null,
                     placeholder = painterResource(R.drawable.music_note),
                     error = painterResource(R.drawable.music_note),
@@ -243,7 +243,7 @@ fun SongGridItem(
         AsyncImage(
             placeholder = painterResource(R.drawable.music_note),
             error = painterResource(R.drawable.music_note),
-            model = song.song.thumbnailUrl,
+            model = browseArtworkUrl(song.song.thumbnailUrl),
             contentDescription = null,
             modifier =
                 Modifier
@@ -320,7 +320,7 @@ fun SongSmallGridItem(
         AsyncImage(
             placeholder = painterResource(R.drawable.music_note),
             error = painterResource(R.drawable.music_note),
-            model = song.song.thumbnailUrl,
+            model = browseArtworkUrl(song.song.thumbnailUrl),
             contentDescription = null,
             modifier =
                 Modifier
@@ -420,7 +420,7 @@ fun MediaMetadataListItem(
             AsyncImage(
                 placeholder = painterResource(R.drawable.music_note),
                 error = painterResource(R.drawable.music_note),
-                model = mediaMetadata.thumbnailUrl,
+                model = browseArtworkUrl(mediaMetadata.thumbnailUrl),
                 contentDescription = null,
                 modifier =
                     Modifier
@@ -472,7 +472,7 @@ fun LocalSongsGrid(
             AsyncImage(
                 placeholder = painterResource(R.drawable.music_note),
                 error = painterResource(R.drawable.music_note),
-                model = thumbnailUrl,
+                model = browseArtworkUrl(thumbnailUrl),
                 contentDescription = null,
                 modifier = Modifier.fillMaxWidth(),
             )

@@ -36,8 +36,7 @@ constructor(
         viewModelScope.launch {
             loadError.value = null
             val album = database.album(albumId).first()
-            YouTube
-                .album(albumId)
+            com.devxrohan.smusic.utils.MusicPageRequests.album(albumId)
                 .onSuccess {
                     playlistId.value = it.album.playlistId
                     otherVersions.value = it.otherVersions

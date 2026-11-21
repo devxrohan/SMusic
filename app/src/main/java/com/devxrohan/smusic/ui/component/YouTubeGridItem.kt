@@ -163,7 +163,7 @@ fun YouTubeGridItem(
             AsyncImage(
                 placeholder = painterResource(R.drawable.music_note),
                 error = painterResource(R.drawable.music_note),
-                model = item.thumbnail,
+                model = browseArtworkUrl(item.thumbnail),
                 contentDescription = null,
                 modifier =
                     Modifier
@@ -314,7 +314,7 @@ fun YouTubeGridItem(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = LocalHomeTextColor.current ?: MaterialTheme.colorScheme.secondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

@@ -1,9 +1,6 @@
 package com.devxrohan.smusic.utils
 
 import android.content.Context
-import coil.imageLoader
-import coil.request.CachePolicy
-import coil.request.ImageRequest
 import com.devxrohan.smusic.innertube.YouTube
 import com.devxrohan.smusic.innertube.models.BrowseEndpoint
 import com.devxrohan.smusic.innertube.pages.MoodAndGenres
@@ -15,23 +12,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Explore data, owned by the process (not by a screen), so it starts loading the moment the app
- * opens instead of when the user first reaches the Explore tab.
- *
- *  1. App start: read the disk cache (instant) -> refresh the list only if older than 6h.
- *  2. Artwork URLs: every card that has no URL yet is queued. Cards that are on screen jump the
- *     queue ([prioritize]); everything else is fetched in the background.
- *  3. As soon as a URL is known, the (small) image itself is downloaded into Coil's disk cache,
- *     so by the time the user opens Explore the pictures are already on the device.
- *
- * Every URL is persisted, so each artwork is looked up only once, ever.
- */
+/** Cached section metadata is shared by the process; artwork is resolved for visible cards only. */
 object ExplorePrefetcher {
     /** null = loading with nothing to show (skeleton); empty = failed with nothing to show. */
     val sections = MutableStateFlow<List<MoodAndGenres>?>(null)
@@ -41,11 +30,13 @@ object ExplorePrefetcher {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
+    private val identityGate = Mutex()
+    private var identityWaited = false
     private val urgent = ArrayDeque<MoodAndGenres.Item>() // on screen right now
-    private val background = ArrayDeque<MoodAndGenres.Item>() // everything else
     private val queued = HashSet<String>()
     private val fresh = ConcurrentHashMap<String, String>()
-    private val preloaded = ConcurrentHashMap.newKeySet<String>()
+    private val failedLookups = ConcurrentHashMap<String, Long>()
+    @Volatile private var visible = false
 
     private lateinit var appContext: Context
     private lateinit var cacheFile: File
@@ -70,7 +61,13 @@ object ExplorePrefetcher {
         scope.launch { load(force = false) }
     }
 
+    fun setVisible(value: Boolean) {
+        visible = value
+        if (value) pump()
+    }
+
     fun retry() {
+        failedLookups.clear()
         sections.value = null
         scope.launch { load(force = true) }
     }
@@ -82,11 +79,10 @@ object ExplorePrefetcher {
             items.forEach { item ->
                 val key = keyOf(item.endpoint)
                 if (key in known || fresh.containsKey(key)) return@forEach
-                // Already waiting in the background queue? Pull it forward.
-                if (!queued.add(key)) {
-                    // Already queued: only act if it is still waiting in the background queue.
-                    if (!background.remove(item)) return@forEach
-                }
+                if (!item.thumbnailUrl.isNullOrBlank()) return@forEach
+                val lastFailure = failedLookups[key]
+                if (lastFailure != null && android.os.SystemClock.elapsedRealtime() - lastFailure < 60_000) return@forEach
+                if (!queued.add(key)) return@forEach
                 urgent.addLast(item)
             }
         }
@@ -98,9 +94,6 @@ object ExplorePrefetcher {
         if (cache != null) {
             artwork.value = cache.artwork
             sections.value = cache.sections
-            // Pictures that were cached as URLs but never downloaded (e.g. app was killed) get fetched now.
-            cache.artwork.values.forEach { preloadImage(it) }
-            queueMissing(cache.sections)
         }
 
         val upToDate = cache != null && System.currentTimeMillis() - cache.savedAt < LIST_TTL_MS
@@ -111,83 +104,60 @@ object ExplorePrefetcher {
         if (fetched != null) {
             sections.value = fetched
             writeCache()
-            queueMissing(fetched)
         } else if (sections.value == null) {
             // Nothing cached and the request failed: stop the skeleton, the UI offers a retry.
             sections.value = emptyList()
         }
     }
 
-    /**
-     * visitorData is filled in asynchronously at startup; a request sent before it exists can be
-     * answered differently. Give it a short moment instead of racing it.
-     */
+    /** visitorData is filled in asynchronously at startup; a request sent before it exists can be
+     * answered differently. Give it a short moment instead of racing it. */
     private suspend fun awaitNetworkIdentity() {
-        withTimeoutOrNull(2_500) {
-            while (YouTube.visitorData == null) delay(50)
+        if (YouTube.visitorData != null) return
+        identityGate.withLock {
+            if (!identityWaited) {
+                withTimeoutOrNull(2_500) { while (YouTube.visitorData == null) delay(50) }
+                identityWaited = true
+            }
         }
     }
 
     // ---------- artwork ----------
 
-    private fun queueMissing(list: List<MoodAndGenres>) {
-        val known = artwork.value
-        synchronized(lock) {
-            list.asSequence()
-                .flatMap { it.items.asSequence() }
-                .forEach { item ->
-                    val key = keyOf(item.endpoint)
-                    if (key !in known && queued.add(key)) background.addLast(item)
-                }
-        }
-        pump()
-    }
-
     private fun pump() {
         synchronized(lock) {
-            if (activeWorkers >= MAX_WORKERS || (urgent.isEmpty() && background.isEmpty())) return
+            if (!visible || activeWorkers >= MAX_WORKERS || urgent.isEmpty()) return
             activeWorkers++
         }
         scope.launch {
             try {
                 while (true) {
-                    // Visible cards first (newest first), then the rest in order.
-                    val item = synchronized(lock) { urgent.removeLastOrNull() ?: background.removeFirstOrNull() }
-                        ?: break
-                    awaitNetworkIdentity()
-                    val url = YouTube.moodGenreArtwork(item.endpoint.browseId, item.endpoint.params).getOrNull()
-                    if (!url.isNullOrBlank()) {
-                        fresh[keyOf(item.endpoint)] = url
-                        preloadImage(url)
-                        scheduleFlush()
-                    }
+                    if (!visible) break
+                    val item = synchronized(lock) { urgent.removeFirstOrNull() } ?: break
+                    val key = keyOf(item.endpoint)
+                    try {
+                        awaitNetworkIdentity()
+                        val url = YouTube.moodGenreArtwork(item.endpoint.browseId, item.endpoint.params).getOrNull()
+                        if (!url.isNullOrBlank()) {
+                            fresh[key] = url
+                            scheduleFlush()
+                        } else failedLookups[key] = android.os.SystemClock.elapsedRealtime()
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { failedLookups[key] = android.os.SystemClock.elapsedRealtime() }
+                    finally { synchronized(lock) { queued.remove(key) } }
                     delay(PAUSE_MS)
                 }
             } finally {
                 synchronized(lock) { activeWorkers-- }
                 // Nothing left: make sure the last URLs reach the UI and the disk.
-                if (synchronized(lock) { urgent.isEmpty() && background.isEmpty() && activeWorkers == 0 }) {
+                if (synchronized(lock) { urgent.isEmpty() && activeWorkers == 0 }) {
                     publishFresh()
                     writeCache()
                 }
+                if (visible) pump()
             }
         }
         pump() // start the next worker if there is more work
-    }
-
-    /** Download the small card image into Coil's disk cache; no bitmap is kept in memory. */
-    private fun preloadImage(url: String) {
-        if (!::appContext.isInitialized) return
-        val small = cardImageUrl(url)
-        if (!preloaded.add(small)) return
-        val loader = appContext.imageLoader
-        if (loader.diskCache == null) return // image cache disabled in settings: nothing to warm
-        loader.enqueue(
-            ImageRequest.Builder(appContext)
-                .data(small)
-                .memoryCachePolicy(CachePolicy.DISABLED)
-                .build(),
-        )
     }
 
     private fun scheduleFlush() {

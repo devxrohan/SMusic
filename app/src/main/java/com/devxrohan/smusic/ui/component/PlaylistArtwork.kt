@@ -75,7 +75,7 @@ internal fun PlaylistThumbnail(
         1 -> AsyncImage(
             placeholder = painterResource(R.drawable.music_note),
             error = painterResource(R.drawable.music_note),
-            model = thumbnails[0],
+            model = browseArtworkUrl(thumbnails[0]),
             contentDescription = null,
             modifier = Modifier
                 .size(size)
@@ -97,7 +97,7 @@ internal fun PlaylistThumbnail(
                 AsyncImage(
                     placeholder = painterResource(R.drawable.music_note),
                     error = painterResource(R.drawable.music_note),
-                    model = thumbnails.getOrNull(index),
+                    model = browseArtworkUrl(thumbnails.getOrNull(index)),
                     contentDescription = null,
                     modifier = Modifier
                         .align(alignment)

@@ -87,6 +87,7 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
     var discordUsername by rememberPreference(DiscordUsernameKey, "")
     var discordName by rememberPreference(DiscordNameKey, "")
     var discordRpcEnabled by rememberPreference(EnableDiscordRPCKey, false)
+    var youtubeLibrarySync by rememberPreference(com.devxrohan.smusic.constants.YtmSyncKey, true)
     val isYouTubeLoggedIn = remember(innerTubeCookie) {
         innerTubeCookie.isNotBlank() && "SAPISID" in parseCookieString(innerTubeCookie)
     }
@@ -152,6 +153,15 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
                     )
                 },
                 {
+                    com.devxrohan.smusic.ui.component.SwitchPreference(title = { Text("Sync YouTube Music library") },
+                        description = "Import likes, playlists, albums and followed artists.", checked = youtubeLibrarySync,
+                        icon = { Icon(painterResource(R.drawable.youtube), null, Modifier.size(28.dp), tint = androidx.compose.ui.graphics.Color.Unspecified) },
+                        onCheckedChange = { youtubeLibrarySync = it }, isEnabled = isYouTubeLoggedIn)
+                },
+                {
+                    com.devxrohan.smusic.ui.component.AccountWriteBackPreference("YouTube Music", com.devxrohan.smusic.constants.YouTubeWriteBackKey, enabled = isYouTubeLoggedIn)
+                },
+                {
                     PreferenceEntry(
                         title = { Text(stringResource(R.string.ui_copy_your_cookie)) },
                         description = stringResource(R.string.ui_copy_the_saved_youtube_music_session),
@@ -189,6 +199,7 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
                 },
             ),
         )
+        com.devxrohan.smusic.spotify.SpotifyAccountPreferences(navController)
         SettingsGeneralCategory(
             title = stringResource(R.string.discord),
             items = listOf(

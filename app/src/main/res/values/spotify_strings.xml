@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="spotify_connect">Connect Spotify</string>
+    <string name="spotify_available_count">%1$d playlists available</string>
+    <string name="spotify_connected_as">Connected as %1$s</string>
+    <string name="spotify_not_connected">Spotify is not connected</string>
+    <string name="spotify_login_title">Spotify login</string>
+    <string name="spotify_loading_library">Loading Spotify library</string>
+    <string name="spotify_no_sources">No Spotify playlists found</string>
+    <string name="spotify_account">Spotify account</string>
+    <string name="spotify_playlists">Spotify Playlist</string>
+    <string name="spotify_waiting_for_login">Waiting for Spotify login</string>
+    <string name="spotify_show_playlist">Sync Spotify library</string>
+    <string name="spotify_show_playlist_desc">Sync playlists, liked songs, saved artists and albums.</string>
+    <string name="spotify_reload_playlist">Reload Playlist</string>
+    <string name="spotify_reload_playlist_desc">Refresh Spotify playlists from your account.</string>
+    <string name="spotify_no_tracks">No Spotify tracks found.</string>
+</resources>

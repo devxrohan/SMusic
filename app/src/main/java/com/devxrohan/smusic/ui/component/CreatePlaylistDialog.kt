@@ -41,7 +41,8 @@ fun CreatePlaylistDialog(
     val database = LocalDatabase.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var syncedPlaylist by remember { mutableStateOf(false) }
+    val accountWrites by com.devxrohan.smusic.utils.rememberPreference(com.devxrohan.smusic.constants.YouTubeWriteBackKey, false)
+    var syncedPlaylist by remember(accountWrites) { mutableStateOf(accountWrites) }
     TextFieldDialog(
         icon = { Icon(painter = painterResource(R.drawable.add), contentDescription = null) },
         title = { Text(text = stringResource(R.string.create_playlist)) },
@@ -51,7 +52,7 @@ fun CreatePlaylistDialog(
             coroutineScope.launch(Dispatchers.IO) {
                 if (syncedPlaylist && !isYouTubeAccountWriteBackAllowed()) {
                     withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        Toast.makeText(context, "Connect a YouTube account and switch to YouTube mode to sync this playlist.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Enable Send changes to YouTube Music in Account settings to sync this playlist.", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }
@@ -98,6 +99,7 @@ fun CreatePlaylistDialog(
                     ) {
                         Switch(
                             checked = syncedPlaylist,
+                            enabled = accountWrites,
                             onCheckedChange = {
                                 syncedPlaylist = !syncedPlaylist
                             },

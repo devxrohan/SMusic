@@ -317,6 +317,15 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/account") {
         com.devxrohan.smusic.ui.screens.settings.AccountSettings(navController, scrollBehavior)
     }
+    composable("settings/spotify/login") { entry ->
+        val parent = androidx.compose.runtime.remember(entry) {
+            navController.getBackStackEntry("settings/account")
+        }
+        com.devxrohan.smusic.spotify.SpotifyLoginScreen(
+            navController,
+            androidx.hilt.navigation.compose.hiltViewModel<com.devxrohan.smusic.spotify.SpotifyAccountViewModel>(parent),
+        )
+    }
     composable("account") {
         com.devxrohan.smusic.ui.screens.AccountScreen(navController, scrollBehavior)
     }

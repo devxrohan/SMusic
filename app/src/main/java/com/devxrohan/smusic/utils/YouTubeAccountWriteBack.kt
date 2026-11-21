@@ -10,7 +10,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import timber.log.Timber
 
-/** Write to the YouTube account whenever one is connected. */
+/** Remote writes require both a live account session and explicit user consent. */
 suspend fun isYouTubeAccountWriteBackAllowed(): Boolean = runCatching {
     // DataStore is authoritative. In particular, a stale in-memory cookie must
     // never re-authenticate a request after the user disconnects/signs out.
@@ -32,13 +32,14 @@ suspend fun isYouTubeAccountWriteBackAllowed(): Boolean = runCatching {
         // Keep the guest visitorData intact; only clear the account-bound sync ID.
         YouTube.dataSyncId = null
     }
-    authenticated
+    authenticated && store.getSuspend(com.devxrohan.smusic.constants.YouTubeWriteBackKey, false) == true && AccountWriteConsent.isApproved(App.instance, false)
 }.getOrDefault(false)
 
 /** A small bounded retry for transient write failures; never reports success without server success. */
 suspend fun writeBackWithRetry(operation: suspend () -> Result<*>): Boolean {
     if (!isYouTubeAccountWriteBackAllowed()) return false
     repeat(2) { attempt ->
+        if (!isYouTubeAccountWriteBackAllowed()) return false
         val result: Result<*> = try {
             operation()
         } catch (cancelled: CancellationException) {

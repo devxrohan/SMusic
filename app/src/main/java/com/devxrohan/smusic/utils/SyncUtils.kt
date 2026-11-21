@@ -34,7 +34,9 @@ class SyncUtils @Inject constructor(
 ) {
     private suspend fun withAccountSync(block: suspend () -> Unit) {
         AccountSyncGate.mutex.withLock {
-            val cookie = context.dataStore.data.first()[InnerTubeCookieKey].orEmpty()
+            val preferences = context.dataStore.data.first()
+            if (preferences[com.devxrohan.smusic.constants.YtmSyncKey] == false) return@withLock
+            val cookie = preferences[InnerTubeCookieKey].orEmpty()
             if ("SAPISID" !in parseCookieString(cookie)) return@withLock
             block()
         }

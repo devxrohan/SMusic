@@ -54,6 +54,7 @@ suspend fun signOutYouTubeAccount(context: Context) {
 
     // Persist the session removal; the in-memory session is already anonymous above.
     context.dataStore.edit { prefs ->
+        prefs[com.devxrohan.smusic.constants.YouTubeWriteBackKey] = false
         prefs.remove(InnerTubeCookieKey)
         // The visitorData saved at login is tied to the account session. Dropping it makes App.kt create a
         // fresh anonymous one, so guest requests start clean instead of reusing the account's identity.

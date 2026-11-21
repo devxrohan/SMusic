@@ -188,6 +188,8 @@ fun YouTubePlaylistMenu(
             }
         }
     )
+    val speedDialPin = com.devxrohan.smusic.ui.component.rememberSpeedDialCollectionPin("online_playlist/${playlist.id}", playlist.title, playlist.thumbnail, onDismiss = onDismiss)
+
     HorizontalDivider()
 
     var downloadState by remember {
@@ -369,6 +371,7 @@ fun YouTubePlaylistMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
+
         playlist.playEndpoint?.let {
             GridMenuItem(
                 icon = R.drawable.play,
@@ -441,12 +444,8 @@ fun YouTubePlaylistMenu(
             }
             onDismiss()
         }
-        //GridMenuItem(
-        //icon = R.drawable.playlist_import,
-        //title = R.string.import_playlist
-        //) {
-        //showImportPlaylistDialog = true
-        //}
+        // GridMenuItem( icon = R.drawable.playlist_import, title = R.string.import_playlist ) {
+        // showImportPlaylistDialog = true }
         GridMenuItem(
             icon = R.drawable.playlist_add,
             title = R.string.add_to_playlist,
@@ -532,5 +531,8 @@ fun YouTubePlaylistMenu(
                 selectAction()
             }
         }
+        GridMenuItem(icon = { com.devxrohan.smusic.ui.component.SpeedDialPinIcon(speedDialPin.pinned, speedDialPin.error != null) },
+            title = R.string.speed_dial, enabled = !speedDialPin.busy, subtitle = speedDialPin.error,
+            onClick = speedDialPin.toggle)
     }
 }

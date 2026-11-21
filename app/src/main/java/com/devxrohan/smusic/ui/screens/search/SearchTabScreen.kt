@@ -28,13 +28,7 @@ import androidx.navigation.NavController
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.viewmodels.OnlineSearchSuggestionViewModel
 
-/**
- * The Search tab's actual entry point — this was missing entirely
- * (NavigationBuilder referenced a "SpotifySearchScreen" that had no
- * definition anywhere in the project). Rebuilt using the app's own
- * existing pieces: a plain search field here, with OnlineSearchScreen
- * — which already exists and handles suggestions/history — as the body.
- */
+/** Search-tab entry point using the shared header and navigation behavior. */
 @Composable
 fun SearchTabScreen(
     navController: NavController,

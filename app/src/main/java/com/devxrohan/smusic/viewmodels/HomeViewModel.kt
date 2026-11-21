@@ -36,6 +36,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
@@ -62,6 +63,12 @@ class HomeViewModel @Inject constructor(
     private val downloadUtil: DownloadUtil,
     private val syncUtils: com.devxrohan.smusic.utils.SyncUtils,
 ) : ViewModel() {
+    init {
+        viewModelScope.launch {
+            // Only an explicit tuning change refreshes providers; ordinary exposure/live-learning events do not.
+            pulseEngine.tuningRevision.drop(1).collect { refresh() }
+        }
+    }
     val isRefreshing = MutableStateFlow(false)
     // Render the Home skeleton immediately while the first local/provider data is prepared.
     val isLoading = MutableStateFlow(true)
@@ -98,11 +105,7 @@ class HomeViewModel @Inject constructor(
     private var refreshJob: Job? = null
     private var accountLoadJob: Job? = null
 
-    /**
-     * Bumped every time the account session changes (sign in / sign out). Every publish checks it, so
-     * a request that was started for the previous account can never write its feed back after the
-     * session changed (that was the "account feed stays after sign-out until restart" glitch).
-     */
+    /** Reject feed results whose account-session generation changed while the request was in flight. */
     @Volatile private var sessionEpoch = 0
     @Volatile private var refreshCycle = 0
 
@@ -139,18 +142,7 @@ class HomeViewModel @Inject constructor(
         return lists.firstOrNull { quickPicksTitle.containsMatchIn(it.title) }
     }
 
-    /**
-     * Rebuilds EVERY row of Home in the current mode.
-     *
-     *  - Signed in: YouTube is primary. Every feed row, the real Quick picks shelf, similar rows and the
-     *    Pulse rows come from authenticated (account) YouTube requests; Pulse only ranks its own rows and
-     *    never reorders YouTube's feed or queue.
-     *  - Guest: requests are anonymous and Pulse is primary - it shapes rows from the user's own taste.
-     *
-     * progressive = true  : first load / account switch - every row appears as soon as it is ready.
-     * progressive = false : pull-to-refresh - rows are prepared off-screen and swapped in together at the
-     *                       first paint (first page of the feed + local rows), then slower rows fill in.
-     */
+    /** Refreshes Home for the current account mode while keeping authenticated source ordering intact. */
     private suspend fun loadAll(progressive: Boolean, onFirstPaint: (() -> Unit)? = null) = coroutineScope {
         val epoch = sessionEpoch
         val session = readSession()
@@ -583,7 +575,7 @@ class HomeViewModel @Inject constructor(
                 gate.withPermit {
                     withTimeoutOrNull(5_000) {
                         val items = mutableListOf<YTItem>()
-                        YouTube.artist(artist.id).onSuccess { page ->
+                        com.devxrohan.smusic.utils.MusicPageRequests.artist(artist.id).onSuccess { page ->
                             page.sections.forEach { section ->
                                 items += section.items.filter { it is SongItem || it is AlbumItem || it is ArtistItem }
                                     .filterNot { item ->
@@ -626,6 +618,15 @@ class HomeViewModel @Inject constructor(
     }
 
     /** Pull-to-refresh: rebuilds every row (SMusic, Pulse and YouTube). The spinner stops at the first paint. */
+    fun refreshArtworkTheme() {
+        viewModelScope.launch {
+            context.dataStore.edit { prefs ->
+                val key = com.devxrohan.smusic.ui.component.ArtworkThemeRefreshKey
+                prefs[key] = (prefs[key] ?: 0) + 1
+            }
+        }
+    }
+
     fun refresh() {
         if (isRefreshing.value) return
         refreshJob?.cancel()

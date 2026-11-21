@@ -2,101 +2,77 @@ package com.devxrohan.smusic.ui.screens.library
 
 import com.devxrohan.smusic.ui.utils.bottomSafeArea
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import com.devxrohan.smusic.ui.component.themeGlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.devxrohan.smusic.ui.component.CategoryCard
+import com.devxrohan.smusic.ui.component.CategoryCardGrid
+import com.devxrohan.smusic.ui.component.CategoryBadgeShape
 import androidx.navigation.NavController
 import com.devxrohan.smusic.LocalPlayerAwareWindowInsets
 import com.devxrohan.smusic.R
-import com.devxrohan.smusic.constants.InnerTubeCookieKey
-import com.devxrohan.smusic.innertube.utils.parseCookieString
-import com.devxrohan.smusic.utils.rememberPreference
 import androidx.compose.ui.res.stringResource
 
 private data class LibraryCategoryItem(
     val title: String,
     val subtitle: String,
     val iconRes: Int,
-    val iconBg: Color,
     val route: String
 )
 
-/**
- * SMusic-style Library — 2-column grid of tinted icon cards,
- * matching SMusic's LibraryScreen layout exactly.
- */
+/** Library destinations use the same compact category grid as Settings. */
 @Composable
 fun LibraryScreen(navController: NavController) {
-    val (innerTubeCookie) = rememberPreference(InnerTubeCookieKey, "")
-    val isLoggedIn = remember(innerTubeCookie) { "SAPISID" in parseCookieString(innerTubeCookie) }
     val items = listOf(
         LibraryCategoryItem(
             title = stringResource(R.string.liked_songs),
-            subtitle = stringResource(R.string.ui_your_favorites),
+            subtitle = stringResource(R.string.category_liked_description),
             iconRes = R.drawable.favorite,
-            iconBg = Color(0xFF633B48),
             route = "auto_playlist/liked"
         ),
         LibraryCategoryItem(
             title = stringResource(R.string.playlists),
             subtitle = stringResource(R.string.ui_your_collections),
             iconRes = R.drawable.queue_music,
-            iconBg = Color(0xFF324F34),
             route = "library/playlists"
         ),
         LibraryCategoryItem(
             title = stringResource(R.string.history),
             subtitle = stringResource(R.string.ui_recently_played),
             iconRes = R.drawable.history,
-            iconBg = Color(0xFF4A3000),
             route = "history"
         ),
         LibraryCategoryItem(
             title = stringResource(R.string.ui_downloads),
             subtitle = stringResource(R.string.ui_available_offline),
             iconRes = R.drawable.offline,
-            iconBg = Color(0xFF1A4A5C),
             route = "auto_playlist/downloaded"
         ),
         LibraryCategoryItem(
             title = stringResource(R.string.ui_local_music),
             subtitle = stringResource(R.string.ui_on_this_phone),
             iconRes = R.drawable.library_music,
-            iconBg = Color(0xFF5C3A1A),
             route = "local_songs"
         ),
         LibraryCategoryItem(
             title = stringResource(R.string.artists),
-            subtitle = stringResource(R.string.ui_subscribed_artists),
+            subtitle = stringResource(R.string.category_artists_description),
             iconRes = R.drawable.artist,
-            iconBg = Color(0xFF493A63),
             route = "library/artists"
         )
     ).let { libraryItems ->
         libraryItems + LibraryCategoryItem(
             title = stringResource(R.string.ui_listening_stats),
-            subtitle = stringResource(R.string.ui_your_music_insights),
-            iconRes = R.drawable.graphic_eq,
-            iconBg = Color(0xFF5C3A66),
+            subtitle = stringResource(R.string.category_stats_description),
+            iconRes = R.drawable.settings_statistics_rounded,
             route = "stats"
         )
     }
@@ -104,7 +80,7 @@ fun LibraryScreen(navController: NavController) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(MaterialTheme.colorScheme.background).themeGlow()
             // Bottom safe area is added inside the scrolling column below, so the cards scroll
             // behind the bottom bar instead of being cut off above an empty strip.
             .windowInsetsPadding(
@@ -119,91 +95,26 @@ fun LibraryScreen(navController: NavController) {
                 .padding(top = 12.dp)
         )
 
-        BoxWithConstraints(modifier = Modifier.padding(horizontal = 16.dp)) {
-            val gap = 14.dp
-            val cardSize = (maxWidth - gap) / 2
-
-            Column(
-                verticalArrangement = Arrangement.spacedBy(gap),
-                modifier = Modifier.verticalScroll(rememberScrollState())
-            ) {
-                items.chunked(2).forEach { rowItems ->
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(gap),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        rowItems.forEach { item ->
-                            SMusicLibraryCard(
-                                item = item,
-                                size = cardSize,
-                                onClick = { navController.navigate(item.route) }
-                            )
-                        }
-                        // Fill empty slot in last odd row
-                        if (rowItems.size == 1) {
-                            Spacer(modifier = Modifier.size(cardSize))
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp + bottomSafeArea()))
-            }
-        }
-    }
-}
-
-@Composable
-private fun SMusicLibraryCard(
-    item: LibraryCategoryItem,
-    size: Dp,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .size(size)
-            .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp), clip = false)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Tinted icon box
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(item.iconBg),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(item.iconRes),
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(26.dp)
-            )
-        }
-
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = item.subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 2.dp)
-            )
+            CategoryCardGrid(items) { item ->
+                CategoryCard(
+                    title = item.title,
+                    subtitle = item.subtitle,
+                    icon = item.iconRes,
+                    onClick = { navController.navigate(item.route) },
+                    badgeShape = when (item.route) {
+                        "library/playlists", "local_songs" -> CategoryBadgeShape.CLOVER
+                        "history", "auto_playlist/downloaded" -> CategoryBadgeShape.SOFT_STAR
+                        "stats" -> CategoryBadgeShape.BLOOM
+                        else -> CategoryBadgeShape.FLOWER
+                    },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
+            Spacer(Modifier.height(16.dp + bottomSafeArea()))
         }
     }
 }
@@ -212,7 +123,7 @@ private fun SMusicLibraryCard(
 fun SMusicSectionHeader(title: String, modifier: Modifier = Modifier) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 12.dp)
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 12.dp).height(48.dp)
     ) {
         Text(
             text = title,

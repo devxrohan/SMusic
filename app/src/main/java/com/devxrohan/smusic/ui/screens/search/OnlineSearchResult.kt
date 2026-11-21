@@ -151,12 +151,7 @@ fun OnlineSearchResult(
 
     fun submitQueryText(text: String) {
         val newQuery = text.trim()
-        // Used to also bail out when newQuery == viewModel.query, to skip a
-        // "redundant" re-navigation. In practice that silently ate every
-        // Enter-press, suggestion tap and history tap whose text matched the
-        // query already loaded here — with no feedback, so it looked like
-        // search had simply stopped working until the text was edited into
-        // something different. An explicit search action should always run.
+        // Allow repeated query submissions so Enter, suggestions and history taps always navigate.
         if (newQuery.isEmpty()) return
         keyboardController?.hide()
         isFieldFocused = false

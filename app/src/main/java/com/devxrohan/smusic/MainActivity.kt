@@ -257,10 +257,8 @@ class MainActivity : ComponentActivity() {
         playerConnection = null
     }
 
-    /**
-     * A push message the system showed itself (app was in the background) opens the app with its data as
-     * intent extras. Save it to the notification bell so it isn't lost.
-     */
+    /** A push message the system showed itself (app was in the background) opens the app with its data
+     * as intent extras. Save it to the notification bell so it isn't lost. */
     private fun savePushMessageFromTrayTap(intent: Intent?) {
         if (intent == null || !intent.hasExtra("google.message_id")) return
         val message = intent.getStringExtra("message") ?: intent.getStringExtra("body") ?: return
@@ -390,14 +388,17 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(useDarkTheme) {
                 setSystemBarAppearance(useDarkTheme)
             }
-            // SMusic's own fixed brand color, always — no more deriving
-            // it from either the device wallpaper (dynamic color) or
-            // whatever song's album art happens to be playing. One
-            // consistent theme, matching what SMusic actually looks like.
-            val themeColor = DefaultThemeColor
             val themePresetId by rememberPreference(
                 com.devxrohan.smusic.constants.ThemePresetKey,
                 defaultValue = com.devxrohan.smusic.ui.theme.ThemePresets.SMUSIC_DEFAULT.id
+            )
+            val currentArtwork by playerConnection?.mediaMetadata?.collectAsState()
+                ?: remember { mutableStateOf<com.devxrohan.smusic.models.MediaMetadata?>(null) }
+            val themeRefresh by rememberPreference(com.devxrohan.smusic.ui.component.ArtworkThemeRefreshKey, 0)
+            val themeColor = com.devxrohan.smusic.ui.theme.rememberArtworkTheme(
+                currentArtwork?.thumbnailUrl,
+                themePresetId == com.devxrohan.smusic.ui.theme.ThemePresets.SMUSIC_DEFAULT.id,
+                themeRefresh,
             )
             SMusicTheme(
                 darkTheme = useDarkTheme,
@@ -405,16 +406,14 @@ class MainActivity : ComponentActivity() {
                 appFont = appFont,
                 themeColor = themeColor,
                 themePresetId = themePresetId,
+                artworkPaletteAvailable = currentArtwork != null,
             ) {
 
                 val backdrop = rememberBackdrop()
 
                 val updateViewModel: com.devxrohan.smusic.update.UpdateViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 
-                // Check for updates when the app UI actually becomes available.
-                // Do not depend on the background Worker for the foreground popup.
-                // A small delayed second attempt covers cold-start races (network/
-                // DataStore/Compose initialization) without touching the download path.
+                // Check updates when the UI is ready; retry once after cold-start initialization.
                 androidx.compose.runtime.LaunchedEffect(Unit) {
                     // App open: always a real check (force), so the popup appears right away.
                     updateViewModel.checkSilently(force = true)
@@ -436,10 +435,8 @@ class MainActivity : ComponentActivity() {
                                 // visible — cold start, or coming back from
                                 // background (throttled inside the manager).
                                 runCheck()
-                                // Still-pending update whose notification was swiped: show it again,
-                                // but only for a real "app open": a fresh start of the app, or coming
-                                // back after being away for a while. Screen off/on, a permission
-                                // dialog or the system Settings must NOT bring the notification back.
+                                // Repost dismissed update notifications only on a fresh launch or return after an
+                                // absence.
                                 val now = System.currentTimeMillis()
                                 val coldStart = !updateNotifyColdStartHandled
                                 val awayLong = updateNotifyLastStopAt > 0L &&
@@ -452,15 +449,7 @@ class MainActivity : ComponentActivity() {
                                     updateNotifyColdStartHandled = true
                                     com.devxrohan.smusic.update.AppNotificationManager.notifyPendingUpdateOnAppOpen(this@MainActivity)
                                 }
-                                // While the app stays in the foreground (the
-                                // person is actively using it), keep polling
-                                // every couple of minutes so a message pushed
-                                // *during* that session still shows up in the
-                                // notification tray promptly, not only on the
-                                // next app-open. Cancelled the instant the app
-                                // is backgrounded — see ON_PAUSE below — so
-                                // this never runs, and never costs battery,
-                                // while the app isn't actually on-screen.
+                                // Poll announcements only while the activity is in the foreground.
                                 foregroundPollJob?.cancel()
                                 foregroundPollJob = lifecycleOwner.lifecycleScope.launch {
                                     while (true) {
@@ -494,10 +483,7 @@ class MainActivity : ComponentActivity() {
                 )
                 var onboardingShouldShow by remember { mutableStateOf<Boolean?>(null) }
 
-                // Decide only once per app data lifetime. This is important when a
-                // new user updates SMusic before finishing onboarding: the install
-                // timestamps change after an update, but the onboarding decision
-                // must remain pending until the user finishes it.
+                // Persist the onboarding decision once; package update timestamps must not change it.
                 androidx.compose.runtime.LaunchedEffect(isFreshInstall) {
                     var shouldShow = false
                     this@MainActivity.dataStore.edit { preferences ->
@@ -519,11 +505,7 @@ class MainActivity : ComponentActivity() {
                     onboardingShouldShow = false
                 }
 
-                // The updater is allowed to prepare its state while onboarding is
-                // visible, but its popup must NEVER cover the onboarding UI. Once
-                // onboarding is finished (or skipped for an existing install),
-                // immediately perform a fresh foreground check and then expose the
-                // already-prepared update dialog.
+                // Defer update dialogs until onboarding finishes, while allowing release metadata to load.
                 androidx.compose.runtime.LaunchedEffect(onboardingCompleted) {
                     // Fresh install: the popup waits for onboarding, then shows immediately.
                     if (onboardingCompleted) {
@@ -630,7 +612,7 @@ class MainActivity : ComponentActivity() {
                             }
                             val previousTopLevelRoute = rememberSaveable { mutableStateOf(Screens.Home.route) }
 
-                            val navigationItems = remember { 
+                            val navigationItems = remember {
                                 listOf(Screens.Home, Screens.Search, Screens.Library, Screens.Settings)
                             }
                             fun topLevelRouteIndex(route: String?): Int {
@@ -716,16 +698,8 @@ class MainActivity : ComponentActivity() {
                                 com.devxrohan.smusic.constants.NavBarStyleKey,
                                 defaultValue = NavBarStyle.FLOATING
                             )
-                            // Reserve the real navigation footprint for the mini player in both modes.
-                            // Floating nav is still a bottom overlay, so the mini player must sit above it.
-                            // Docked nav is exactly 72dp above the system navigation area.
-                            // Docked navigation owns a fixed 72dp visual surface.
-                            // Reserve only the part above the system navigation area here;
-                            // individual screens must not invent their own Docked gap.
-                            // Floating bar geometry: 6dp lift + 8dp outer padding + the pill row (70dp with labels,
-                            // 56dp for the slim bar), scaled around its centre by the user's size setting. The
-                            // mini player carries its own 8dp bottom padding, so it rests right above the bar
-                            // instead of floating ~30dp over it like the old fixed 110dp reservation did.
+                            // Reserve navigation and system insets separately so the mini-player clears
+                            // either navigation style.
                             val floatingBarRowHeight = if (hideBottomNavigation) 56.dp else 70.dp
                             val navBarReservedHeight = if (navBarStyle == NavBarStyle.WITHOUT_FLOATING) {
                                 64.dp
@@ -733,10 +707,7 @@ class MainActivity : ComponentActivity() {
                                 14.dp + floatingBarRowHeight * ((1f + navBarScaleForInsets) / 2f)
                             }
 
-                            // This base visibility is independent of the mini-player state so
-                            // the player bottom-sheet bounds do not depend on a value declared later.
-                            // Navigation belongs only to the four primary destinations. Authentication,
-                            // settings sub-pages, and all detail screens must remain immersive in BOTH styles.
+                            // Keep base navigation visibility independent of mini-player state and sheet bounds.
                             val currentDestinationRoute = navBackStackEntry?.destination?.route
                             val isAuthScreen = currentDestinationRoute == "onboarding" ||
                                 currentDestinationRoute == "guest_profile_setup" ||
@@ -1081,6 +1052,7 @@ class MainActivity : ComponentActivity() {
                                             // The mini/full player sheet is available on every page except the
                                             // auth / login screens. It rests above the nav bar on the primary tabs
                                             // and at the very bottom everywhere else (see miniPlayerNavShift).
+                                            com.devxrohan.smusic.ui.theme.PlayerIdentityTheme(useDarkTheme, pureBlack) {
                                             if (miniPlayerAllowed) {
                                                 BottomSheetPlayer(
                                                     state = playerBottomSheetState,
@@ -1165,6 +1137,8 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             }
 
+                                            }
+
                                             val configuration = LocalConfiguration.current
                                             val isTabletLandscape = configuration.screenWidthDp >= 600 &&
                                                     configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -1196,17 +1170,8 @@ class MainActivity : ComponentActivity() {
                                                     com.devxrohan.smusic.constants.NavBarScaleKey,
                                                     defaultValue = 1.11f
                                                 )
-                                                // ═══════════════════════════════════════════════════════
-                                                // LIQUID GLASS NAV BAR — works on both dark & light themes
-                                                // Strategy:
-                                                //   • BLUR layer  — Android 12+ real blur, older = tinted fallback
-                                                //   • TINT layer  — semi-transparent surface tint (adapts to theme)
-                                                //   • HIGHLIGHT   — white-to-transparent vertical gradient (top sheen)
-                                                //   • BORDER      — dual-stroke: outer white shimmer + inner bright line
-                                                //   • SHADOW      — outer drop shadow for lift / separation
-                                                // The tint uses colorScheme.surface so it is warm-white in light
-                                                // mode and dark-grey in dark mode, making the bar always visible.
-                                                // ═══════════════════════════════════════════════════════
+                                                // Render navigation against a consistent backdrop in light and
+                                                // dark themes.
 
                                                 val surfaceColor = MaterialTheme.colorScheme.surface
                                                 val onSurfaceColor = MaterialTheme.colorScheme.onSurface

@@ -40,6 +40,7 @@ import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.db.entities.ArtistEntity
 import com.devxrohan.smusic.playback.queues.YouTubeQueue
+import com.devxrohan.smusic.ui.component.GridMenuItem
 import com.devxrohan.smusic.ui.component.YouTubeListItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,110 +62,36 @@ fun YouTubeArtistMenu(
         trailingContent = {},
     )
 
+
     HorizontalDivider()
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    // Row for "Start Radio", "Shuffle", and "Share" buttons with grid-like background
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    val speedDialPin = com.devxrohan.smusic.ui.component.rememberSpeedDialCollectionPin(
+        "artist/${artist.id}", artist.title, artist.thumbnail, onDismiss)
+    com.devxrohan.smusic.ui.component.GridMenu(
+        modifier = Modifier.fillMaxWidth().height(216.dp).padding(horizontal = 16.dp),
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
     ) {
-        // Start Radio button
-        artist.radioEndpoint?.let { watchEndpoint ->
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable {
-                        playerConnection.playQueue(YouTubeQueue(watchEndpoint))
-                        onDismiss()
-                    }
-                    .padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.radio),
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                )
-                Text(
-                    text = stringResource(R.string.start_radio),
-                    style = MaterialTheme.typography.labelMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .padding(top = 4.dp),
-                )
+        artist.radioEndpoint?.let { endpoint ->
+            GridMenuItem(icon = R.drawable.radio, title = R.string.start_radio) {
+                playerConnection.playQueue(YouTubeQueue(endpoint))
+                onDismiss()
             }
         }
-
-        // Shuffle button
-        artist.shuffleEndpoint?.let { watchEndpoint ->
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable {
-                        playerConnection.playQueue(YouTubeQueue(watchEndpoint))
-                        onDismiss()
-                    }
-                    .padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.shuffle),
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                )
-                Text(
-                    text = stringResource(R.string.shuffle),
-                    style = MaterialTheme.typography.labelMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .padding(top = 4.dp),
-                )
+        artist.shuffleEndpoint?.let { endpoint ->
+            GridMenuItem(icon = R.drawable.shuffle, title = R.string.shuffle) {
+                playerConnection.playQueue(YouTubeQueue(endpoint))
+                onDismiss()
             }
         }
-
-        // Share button
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp)
-                )
-                .clip(RoundedCornerShape(8.dp))
-                .clickable {
-                    onDismiss()
-                    android.widget.Toast.makeText(context, R.string.coming_soon, android.widget.Toast.LENGTH_SHORT).show()
-                }
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.share),
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-            )
-            Text(
-                text = stringResource(R.string.share),
-                style = MaterialTheme.typography.labelMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .padding(top = 4.dp),
-            )
+        GridMenuItem(icon = R.drawable.share, title = R.string.share) {
+            onDismiss()
+            android.widget.Toast.makeText(context, R.string.coming_soon, android.widget.Toast.LENGTH_SHORT).show()
         }
+        GridMenuItem(icon = { com.devxrohan.smusic.ui.component.SpeedDialPinIcon(speedDialPin.pinned, speedDialPin.error != null) },
+            title = R.string.speed_dial, enabled = !speedDialPin.busy, subtitle = speedDialPin.error,
+            onClick = speedDialPin.toggle)
     }
 
     LazyColumn(

@@ -29,6 +29,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import com.devxrohan.smusic.ui.component.themeGlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -56,6 +57,9 @@ import androidx.navigation.NavController
 import com.devxrohan.smusic.BuildConfig
 import com.devxrohan.smusic.LocalPlayerAwareWindowInsets
 import com.devxrohan.smusic.LocalPlayerConnection
+import com.devxrohan.smusic.ui.component.CategoryCard
+import com.devxrohan.smusic.ui.component.CategoryCardGrid
+import com.devxrohan.smusic.ui.component.CategoryBadgeShape
 import com.devxrohan.smusic.ui.component.CommunityTextLinks
 import com.devxrohan.smusic.ui.screens.library.SMusicSectionHeader
 import com.devxrohan.smusic.R
@@ -510,7 +514,7 @@ fun UpdateDownloadDialog(
                             Box(
                                 modifier = Modifier
                                     .size(56.dp)
-                                    .clip(CircleShape)
+                                    .clip(com.devxrohan.smusic.ui.component.rememberArtworkFlower())
                                     .background(MaterialTheme.colorScheme.primaryContainer),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -668,192 +672,133 @@ fun SettingsScreen(
         val title: String,
         val subtitle: String,
         val iconRes: Int,
-        val iconBg: androidx.compose.ui.graphics.Color,
         val route: String
     )
 
+    var settingsQuery by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    val searchTerms = mapOf(
+        "settings/appearance" to "home layout editor presets drag reorder theme fonts mini player navigation progress swipe",
+        "settings/lyrics" to "lyrics karaoke alignment sync offset size spacing colour color gradient providers",
+        "settings/player" to "audio playback equalizer sleep timer classic artwork",
+        "settings/privacy" to "pause recognition history clear listening search",
+        "settings/backup_restore" to "backup restore customization recovery",
+    )
     val cards = listOf(
         SettingsCard(
             title = stringResource(R.string.account),
-            subtitle = stringResource(R.string.ui_youtube_discord),
+            subtitle = stringResource(R.string.category_account_description),
             iconRes = R.drawable.account,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF1B5E20),
             route = "settings/account"
         ),
         SettingsCard(
-            title = stringResource(R.string.ai_integration),
+            title = stringResource(R.string.category_ai_title),
             subtitle = stringResource(R.string.ui_playlists_translation),
             iconRes = R.drawable.custom_ai_sparkle,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF4A148C),
             route = "settings/ai"
         ),
         SettingsCard(
             title = stringResource(R.string.android_auto),
-            subtitle = stringResource(R.string.ui_car_display_and_library_controls),
+            subtitle = stringResource(R.string.category_auto_description),
             iconRes = R.drawable.custom_android_auto,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF1A4A5C),
             route = "settings/android_auto"
         ),
         SettingsCard(
-            title = stringResource(R.string.voice_assistant),
-            subtitle = stringResource(R.string.ui_hands_free_playback_controls),
+            title = stringResource(R.string.category_voice_title),
+            subtitle = stringResource(R.string.category_voice_description),
             iconRes = R.drawable.mic,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF00695C),
             route = "settings/voice"
         ),
         SettingsCard(
             title = stringResource(R.string.appearance),
-            subtitle = stringResource(R.string.ui_theme_fonts_colors),
-            iconRes = R.drawable.palette,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF7D5260),
+            subtitle = stringResource(R.string.category_appearance_description),
+            iconRes = R.drawable.settings_appearance_rounded,
             route = "settings/appearance"
         ),
         SettingsCard(
-            title = stringResource(R.string.ui_player_amp_audio),
-            subtitle = stringResource(R.string.ui_playback_equalizer),
-            iconRes = R.drawable.play,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF324F34),
+            title = stringResource(R.string.category_player_title),
+            subtitle = stringResource(R.string.category_player_description),
+            iconRes = R.drawable.music_note,
             route = "settings/player"
         ),
         SettingsCard(
+            title = stringResource(R.string.lyrics),
+            subtitle = stringResource(R.string.category_lyrics_description),
+            iconRes = R.drawable.settings_lyrics_rounded,
+            route = "settings/lyrics"
+        ),
+        SettingsCard(
             title = stringResource(R.string.content),
-            subtitle = stringResource(R.string.ui_language_region),
+            subtitle = stringResource(R.string.category_content_description),
             iconRes = R.drawable.language,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF1A3A5C),
             route = "settings/content"
         ),
         SettingsCard(
             title = stringResource(R.string.storage),
-            subtitle = stringResource(R.string.ui_cache_amp_downloads),
+            subtitle = stringResource(R.string.category_storage_description),
             iconRes = R.drawable.custom_storage,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF3E4C63),
             route = "settings/storage"
         ),
         SettingsCard(
             title = stringResource(R.string.privacy),
-            subtitle = stringResource(R.string.ui_history_security),
+            subtitle = stringResource(R.string.category_privacy_description),
             iconRes = R.drawable.security,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF633B48),
             route = "settings/privacy"
         ),
         SettingsCard(
             title = stringResource(R.string.backup),
-            subtitle = stringResource(R.string.feature_backup_title),
+            subtitle = stringResource(R.string.category_backup_description),
             iconRes = R.drawable.custom_backup,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF4A3000),
             route = "settings/backup_restore"
         ),
         SettingsCard(
             title = stringResource(R.string.about),
-            subtitle = stringResource(R.string.ui_app_info_developer),
+            subtitle = stringResource(R.string.category_about_description),
             iconRes = R.drawable.info,
-            iconBg = androidx.compose.ui.graphics.Color(0xFF2E2E2E),
             route = com.devxrohan.smusic.ui.screens.settings.AboutRoute
         )
     )
 
+    val visibleCards = cards.filter { card ->
+        val haystack = "${card.title} ${card.subtitle} ${searchTerms[card.route].orEmpty()}"
+        settingsQuery.trim().split(Regex("\\s+")).all { haystack.contains(it, ignoreCase = true) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(MaterialTheme.colorScheme.background).themeGlow()
             // Bottom safe area is added inside the scrolling column below, so the cards scroll
             // behind the bottom bar instead of being cut off above an empty strip.
             .windowInsetsPadding(
                 LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal)
             )
     ) {
-        SMusicSectionHeader(
-            title = stringResource(R.string.settings),
-            modifier = Modifier
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(top = 12.dp)
-        )
-
-        BoxWithConstraints(modifier = Modifier.padding(horizontal = 16.dp)) {
-            val gap = 14.dp
-            val cardSize = (maxWidth - gap) / 2
-
-            Column(
-                verticalArrangement = Arrangement.spacedBy(gap),
-                modifier = Modifier.verticalScroll(rememberScrollState())
-            ) {
-                cards.chunked(2).forEach { rowItems ->
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(gap),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        rowItems.forEach { card ->
-                            Column(
-                                modifier = Modifier
-                                    .size(cardSize)
-                                    .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp), clip = false)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                    .clickable { navController.navigate(card.route) }
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.SpaceBetween,
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(52.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(card.iconBg),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        painter = painterResource(card.iconRes),
-                                        contentDescription = null,
-                                        tint = androidx.compose.ui.graphics.Color.White,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    if (card.title == "Voice Assistant") {
-                                        Text(
-                                            text = stringResource(R.string.ui_beta),
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
-                                                .padding(horizontal = 8.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                    Text(
-                                        text = card.title,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Text(
-                                        text = card.subtitle,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.padding(top = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-                        if (rowItems.size == 1) {
-                            Spacer(modifier = Modifier.size(cardSize))
-                        }
-                    }
-                }
-
-                // Version card
-                VersionCard(navController)
-
-                Spacer(modifier = Modifier.height(16.dp + bottomSafeArea()))
+        SettingsSearchHeader(settingsQuery, { settingsQuery = it })
+        if (visibleCards.isEmpty()) {
+            Text("No settings found", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
+        }
+        Column(
+            modifier = Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CategoryCardGrid(visibleCards) { card ->
+                CategoryCard(
+                    title = card.title,
+                    subtitle = card.subtitle,
+                    icon = card.iconRes,
+                    onClick = { navController.navigate(card.route) },
+                    badgeShape = when (card.route) {
+                        "settings/player", "settings/storage", "settings/account" -> CategoryBadgeShape.CLOVER
+                        "settings/lyrics", "settings/voice", "settings/privacy" -> CategoryBadgeShape.SOFT_STAR
+                        "settings/ai", "settings/backup_restore" -> CategoryBadgeShape.BLOOM
+                        else -> CategoryBadgeShape.FLOWER
+                    },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
             }
+            if (settingsQuery.isBlank()) VersionCard(navController)
+            Spacer(Modifier.height(16.dp + bottomSafeArea()))
         }
     }
 }

@@ -23,12 +23,16 @@ internal fun HomeSectionTitle(
     onClick: (() -> Unit)? = null,
     preserveTitle: Boolean = false,
 ) {
+    val textColor = com.devxrohan.smusic.ui.component.LocalHomeTextColor.current ?: com.devxrohan.smusic.ui.component.homeContentColor()
     val locale = LocalConfiguration.current.locales[0] ?: Locale.ROOT
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides textColor) {
     NavigationTitle(
         title = if (preserveTitle) title else homeHeadingCase(title, locale),
         label = label?.let { homeHeadingCase(it, locale) },
         modifier = modifier,
         thumbnail = thumbnail,
         onClick = onClick,
+        titleColor = textColor,
     )
+    }
 }

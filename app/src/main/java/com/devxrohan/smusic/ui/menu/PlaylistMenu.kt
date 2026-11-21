@@ -280,6 +280,8 @@ fun PlaylistMenu(
         },
     )
 
+    val speedDialPin = com.devxrohan.smusic.ui.component.rememberSpeedDialCollectionPin("local_playlist/${playlist.id}", playlist.playlist.name, playlist.thumbnails.firstOrNull(), onDismiss = onDismiss)
+
     HorizontalDivider()
 
     GridMenu(
@@ -291,6 +293,7 @@ fun PlaylistMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
+
         GridMenuItem(
             icon = R.drawable.play,
             title = R.string.play,
@@ -414,5 +417,8 @@ fun PlaylistMenu(
             android.widget.Toast.makeText(context, R.string.coming_soon, android.widget.Toast.LENGTH_SHORT).show()
         }
         }
+        GridMenuItem(icon = { com.devxrohan.smusic.ui.component.SpeedDialPinIcon(speedDialPin.pinned, speedDialPin.error != null) },
+            title = R.string.speed_dial, enabled = !speedDialPin.busy, subtitle = speedDialPin.error,
+            onClick = speedDialPin.toggle)
     }
 }

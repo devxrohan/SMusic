@@ -132,6 +132,10 @@ fun MiniPlayer(
     dockedBottomBleed: () -> Float = { 0f },
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
+    val showMiniProgress by rememberPreference(com.devxrohan.smusic.constants.MiniPlayerProgressKey, true)
+    val miniProgressPosition by rememberPreference(com.devxrohan.smusic.constants.MiniPlayerProgressPositionKey, "AUTO")
+    val miniSwipeEnabled by rememberPreference(com.devxrohan.smusic.constants.MiniPlayerSwipeKey, true)
+
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val playbackState by playerConnection.playbackState.collectAsState()
     val error by playerConnection.error.collectAsState()
@@ -296,19 +300,11 @@ fun MiniPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(miniPlayerBackgroundColor)
-                    // The only way to open the full player used to be dragging
-                    // the mini player upward — there was no tap-to-open at all.
-                    // That's a real gap even on touchscreens (most players let
-                    // you simply tap the mini player), and on a D-pad/remote-only
-                    // screen (TV, many car head units) it made the full player
-                    // completely unreachable, since a drag gesture can't be
-                    // performed without a touchscreen. A click (which a D-pad
-                    // "select" press also triggers) opens it directly; it
-                    // coexists fine with the drag/swipe gestures below since
-                    // Compose's own tap and drag detectors already cooperate.
+                    // Open the player on tap without intercepting inline playback controls.
                     .clickable { state.expandSoft() }
                     .bottomSheetDraggable(state)
-                    .pointerInput(Unit) {
+                    .pointerInput(miniSwipeEnabled) {
+                        if (!miniSwipeEnabled) return@pointerInput
                         detectHorizontalDragGestures(
                             onDragStart = {
                                 dragStartTime = System.currentTimeMillis()
@@ -368,11 +364,11 @@ fun MiniPlayer(
                         )
                     }
             ) {
-                if (duration > 0) {
+                if (showMiniProgress && duration > 0) {
                     val progressFraction = (position.toFloat() / duration).coerceIn(0f, 1f)
                     Box(
                         modifier = Modifier
-                            .align(Alignment.TopStart)
+                            .align(if (miniProgressPosition == "BOTTOM") Alignment.BottomStart else Alignment.TopStart)
                             .fillMaxWidth()
                             .height(3.dp)
                             .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
@@ -634,6 +630,10 @@ fun ModernMiniPlayer(
     modifier: Modifier = Modifier,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
+    val showMiniProgress by rememberPreference(com.devxrohan.smusic.constants.MiniPlayerProgressKey, true)
+    val miniProgressPosition by rememberPreference(com.devxrohan.smusic.constants.MiniPlayerProgressPositionKey, "AUTO")
+    val miniSwipeEnabled by rememberPreference(com.devxrohan.smusic.constants.MiniPlayerSwipeKey, true)
+
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val playbackState by playerConnection.playbackState.collectAsState()
     val error by playerConnection.error.collectAsState()
@@ -706,7 +706,8 @@ fun ModernMiniPlayer(
             .height(80.dp)
             .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .pointerInput(Unit) {
+            .pointerInput(miniSwipeEnabled) {
+                if (!miniSwipeEnabled) return@pointerInput
                 detectHorizontalDragGestures(
                     onDragStart = {
                         dragStartTime = System.currentTimeMillis()
@@ -773,11 +774,11 @@ fun ModernMiniPlayer(
                     }
                 )
         ) {
-            if (duration > 0) {
+            if (showMiniProgress && duration > 0) {
                 LinearProgressIndicator(
                     progress = { (position.toFloat() / duration).coerceIn(0f, 1f) },
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(if (miniProgressPosition == "TOP") Alignment.TopCenter else Alignment.BottomCenter)
                         .fillMaxWidth()
                         .height(2.dp),
                     color = MaterialTheme.colorScheme.primary,

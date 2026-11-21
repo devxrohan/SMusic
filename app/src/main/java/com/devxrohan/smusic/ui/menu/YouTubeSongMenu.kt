@@ -241,6 +241,10 @@ fun YouTubeSongMenu(
         },
     )
 
+    val speedDialPin = com.devxrohan.smusic.ui.component.rememberSpeedDialSongPin(song.id, onDismiss = onDismiss) {
+        database.transaction { insert(song.toMediaMetadata()) }
+    }
+
     HorizontalDivider()
 
     GridMenu(
@@ -379,5 +383,8 @@ fun YouTubeSongMenu(
             onDismiss()
             android.widget.Toast.makeText(context, R.string.coming_soon, android.widget.Toast.LENGTH_SHORT).show()
         }
+        GridMenuItem(icon = { com.devxrohan.smusic.ui.component.SpeedDialPinIcon(speedDialPin.pinned, speedDialPin.error != null) },
+            title = R.string.speed_dial, enabled = !speedDialPin.busy, subtitle = speedDialPin.error,
+            onClick = speedDialPin.toggle)
     }
 }

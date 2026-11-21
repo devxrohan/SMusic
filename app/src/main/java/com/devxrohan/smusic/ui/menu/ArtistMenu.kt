@@ -67,9 +67,12 @@ fun ArtistMenu(
         },
     )
 
+    val speedDialPin = com.devxrohan.smusic.ui.component.rememberSpeedDialCollectionPin("artist/${artist.id}", artist.title, artist.thumbnailUrl, onDismiss = onDismiss)
+
     HorizontalDivider()
 
     GridMenu(
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
         contentPadding =
             PaddingValues(
                 start = 8.dp,
@@ -78,6 +81,20 @@ fun ArtistMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
+
+        GridMenuItem(icon = R.drawable.radio, title = R.string.start_radio) {
+            coroutineScope.launch {
+                try {
+                    val page = com.devxrohan.smusic.utils.MusicPageRequests.artist(artist.id).getOrThrow()
+                    val endpoint = page.artist.radioEndpoint
+                    if (endpoint != null) {
+                        playerConnection.playQueue(com.devxrohan.smusic.playback.queues.YouTubeQueue(endpoint))
+                        onDismiss()
+                    } else android.widget.Toast.makeText(context, "Radio is unavailable for this artist", android.widget.Toast.LENGTH_SHORT).show()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { android.widget.Toast.makeText(context, "Could not start artist radio. Try again.", android.widget.Toast.LENGTH_SHORT).show() }
+            }
+        }
         if (artist.songCount > 0) {
             GridMenuItem(
                 icon = R.drawable.play,
@@ -132,5 +149,8 @@ fun ArtistMenu(
             android.widget.Toast.makeText(context, R.string.coming_soon, android.widget.Toast.LENGTH_SHORT).show()
         }
         }
+        GridMenuItem(icon = { com.devxrohan.smusic.ui.component.SpeedDialPinIcon(speedDialPin.pinned, speedDialPin.error != null) },
+            title = R.string.speed_dial, enabled = !speedDialPin.busy, subtitle = speedDialPin.error,
+            onClick = speedDialPin.toggle)
     }
 }

@@ -7,12 +7,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
-/**
- * Recent searches are LOCAL ONLY now (Room `search_history`). There is no guest/account split any more.
- *
- * This class only reads what the previous builds kept in SharedPreferences so that it can be merged into Room
- * once ([MIGRATED]); everything that belonged to a connected YouTube account is discarded.
- */
+/** Maintains compatibility with local Room search history without changing playback mode. */
 class SearchHistoryScopeStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("scoped_search_history", Context.MODE_PRIVATE)
 
@@ -52,10 +47,8 @@ class SearchHistoryScopeStore(context: Context) {
 
 private fun normalizeSearchQuery(query: String): String = query.trim().replace(Regex("\\s+"), " ").lowercase()
 
-/**
- * One-time, idempotent merge of the previous build's guest history into Room:
- * entries the user had deleted are removed from Room, entries only kept in the old store are added.
- */
+/** One-time, idempotent merge of the previous build's guest history into Room: entries the user had
+ * deleted are removed from Room, entries only kept in the old store are added. */
 suspend fun migrateSearchHistoryToLocalOnly(context: Context, database: MusicDatabase) {
     val store = SearchHistoryScopeStore(context)
     if (store.isMigrated()) return

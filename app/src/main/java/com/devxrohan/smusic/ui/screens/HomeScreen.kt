@@ -53,6 +53,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
+import com.devxrohan.smusic.ui.component.themeGlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -131,6 +132,7 @@ import androidx.compose.foundation.layout.PaddingValues
 fun HomeScreen(
     navController: NavController,
     viewModel: HomeViewModel = hiltViewModel(),
+    layoutOverride: Map<String, kotlinx.serialization.json.JsonElement>? = null,
 )
 {
     val menuState = LocalMenuState.current
@@ -141,30 +143,60 @@ fun HomeScreen(
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
-    val quickPicks by viewModel.quickPicks.collectAsState()
-    val youtubeQuickPicks by viewModel.youtubeQuickPicks.collectAsState()
-    val forgottenFavorites by viewModel.forgottenFavorites.collectAsState()
-    val keepListening by viewModel.keepListening.collectAsState()
+    val showSpeedDial by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeSpeedDialVisibleKey, true)
+    val homeSectionPriority by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeSectionPriorityKey, "PICKS_FIRST")
+    val homeVisibleItems by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeVisibleItemsKey, "DEFAULT")
+    val homeItemLimit = com.devxrohan.smusic.customization.HomeLayout.itemLimit(homeVisibleItems)
+    val quickPicksSource by viewModel.quickPicks.collectAsState()
+    val quickPicks = quickPicksSource?.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }
+    val youtubeQuickPicksSource by viewModel.youtubeQuickPicks.collectAsState()
+    val youtubeQuickPicks = youtubeQuickPicksSource.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }
+    val showHomeRecommendations by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeRecommendationsVisibleKey, true)
+    val showHomeDiscover by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeDiscoverVisibleKey, true)
+    val showHomeAccountShelves by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeAccountShelvesVisibleKey, true)
+    val showHomeForgottenFavorites by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeForgottenFavoritesVisibleKey, true)
+    val showSmusicPicks by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeQuickPicksVisibleKey, true)
+    val showKeepListening by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeKeepListeningVisibleKey, true)
+    val showYoutubePicks by rememberHomePreference(layoutOverride, com.devxrohan.smusic.constants.HomeYoutubePicksVisibleKey, true)
+
+    val forgottenFavoritesSource by viewModel.forgottenFavorites.collectAsState()
+    val forgottenFavorites = forgottenFavoritesSource?.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }
+    val keepListeningSource by viewModel.keepListening.collectAsState()
+    val keepListening = keepListeningSource?.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }
     val similarRecommendations by viewModel.similarRecommendations.collectAsState()
     val homePage by viewModel.homePage.collectAsState()
     val explorePage by viewModel.explorePage.collectAsState()
     val pulseShelves by viewModel.pulseShelves.collectAsState()
-    val pulseDiscover by viewModel.pulseDiscover.collectAsState()
+    val pulseDiscoverSource by viewModel.pulseDiscover.collectAsState()
+    val pulseDiscover = pulseDiscoverSource.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }
     val pulseYtShelves by viewModel.pulseYtShelves.collectAsState()
+
+    androidx.compose.runtime.SideEffect {
+        val catalog = com.devxrohan.smusic.customization.HomePreviewCatalog
+        catalog.sections = mapOf(
+            "quick" to quickPicksSource.orEmpty().take(24).map(catalog::local),
+            "recent" to keepListeningSource.orEmpty().take(24).map(catalog::local),
+            "youtube" to youtubeQuickPicksSource.take(24).map(catalog::online),
+            "recommendations" to (similarRecommendations.orEmpty().flatMap { it.items }.take(24).map(catalog::online) + pulseShelves.flatMap { it.items }.take(24).map(catalog::local)).distinctBy { it.id }.take(24),
+            "discover" to pulseDiscoverSource.take(24).map(catalog::online),
+            "account" to homePage?.sections.orEmpty().flatMap { it.items }.take(24).map(catalog::online),
+            "forgotten" to forgottenFavoritesSource.orEmpty().take(24).map(catalog::local),
+        )
+    }
 
     val (appFontKey, _) = rememberPreference(AppFontKey, defaultValue = AppFont.APPLE.key)
     val appFont = remember(appFontKey) { AppFont.fromKey(appFontKey) }
 
-    val (homeHeaderStyle, _) = rememberEnumPreference(
-        HomeHeaderStyleKey,
-        defaultValue = HomeHeaderStyle.NONE
-    )
+    val savedHeaderStyle by rememberEnumPreference(HomeHeaderStyleKey, HomeHeaderStyle.NONE)
+    val homeHeaderStyle = layoutOverride?.get(HomeHeaderStyleKey.name)?.let { value ->
+        HomeHeaderStyle.entries.firstOrNull { it.name == (value as? kotlinx.serialization.json.JsonPrimitive)?.content }
+    } ?: savedHeaderStyle
 
-    val (quickPicksCardWidth, _) = rememberPreference(
+    val quickPicksCardWidth by rememberHomePreference(layoutOverride,
         com.devxrohan.smusic.constants.QuickPicksCardWidthKey,
         defaultValue = 196f
     )
-    val (quickPicksCardHeight, _) = rememberPreference(
+    val quickPicksCardHeight by rememberHomePreference(layoutOverride,
         com.devxrohan.smusic.constants.QuickPicksCardHeightKey,
         defaultValue = 265f
     )
@@ -190,7 +222,7 @@ fun HomeScreen(
         backStackEntry?.savedStateHandle?.getStateFlow("scrollToTop", false)?.collectAsState()
 
     LaunchedEffect(scrollToTop?.value) {
-        if (scrollToTop?.value == true) {
+        if (layoutOverride == null && scrollToTop?.value == true) {
             lazylistState.animateScrollToItem(0)
             backStackEntry?.savedStateHandle?.set("scrollToTop", false)
         }
@@ -362,8 +394,15 @@ fun HomeScreen(
         forgottenFavoritesLazyGridState.scrollToItem(0)
     }
 
+    val homeTextColor = com.devxrohan.smusic.ui.component.homeContentColor()
+    val artworkScrim = Color.Black
+
     // Main container Box that holds everything (same pattern as ExploreScreen)
-    Box(modifier = Modifier.fillMaxSize()) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.devxrohan.smusic.ui.component.LocalHomeTextColor provides homeTextColor,
+        androidx.compose.material3.LocalContentColor provides homeTextColor,
+    ) {
+    Box(modifier = Modifier.fillMaxSize().themeGlow()) {
 
         // Content
         BoxWithConstraints(
@@ -372,7 +411,12 @@ fun HomeScreen(
                 .pullToRefresh(
                     state = pullRefreshState,
                     isRefreshing = isRefreshing,
-                    onRefresh = viewModel::refresh
+                    onRefresh = {
+                        if (layoutOverride == null) {
+                            viewModel.refresh()
+                            viewModel.refreshArtworkTheme()
+                        }
+                    }
                 ),
             contentAlignment = Alignment.TopStart
         ) {
@@ -398,12 +442,12 @@ fun HomeScreen(
             // FIXED: Added proper windowInsetsPadding to move content down
             LazyColumn(
                 state = lazylistState,
-                contentPadding = LocalPlayerAwareWindowInsets.current
+                contentPadding = if (layoutOverride != null) PaddingValues(bottom = 16.dp) else LocalPlayerAwareWindowInsets.current
                     .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
                     .asPaddingValues(),
                 modifier = Modifier
                     .windowInsetsPadding(
-                        WindowInsets.systemBars.only(WindowInsetsSides.Top)
+                        if (layoutOverride == null) WindowInsets.systemBars.only(WindowInsetsSides.Top) else WindowInsets(0, 0, 0, 0)
                     )
             )
             {
@@ -411,7 +455,8 @@ fun HomeScreen(
                 item {
                     ModernHomeTopBarInline(
                         navController = navController,
-                        homeHeaderStyle = homeHeaderStyle
+                        homeHeaderStyle = homeHeaderStyle,
+                        preview = layoutOverride != null,
                     )
                 }
 
@@ -433,21 +478,11 @@ fun HomeScreen(
                     }
                 }
 
-                if (quickPicks.orEmpty().isNotEmpty()) {
+                fun androidx.compose.foundation.lazy.LazyListScope.renderSmusicPicks() {
+                if (showSmusicPicks && quickPicks.orEmpty().isNotEmpty()) {
                     item {
                         val picks = quickPicks.orEmpty()
                         val distinctPicks = remember(picks) { picks.distinctBy { it.id } }
-                        if (homeHeaderStyle == HomeHeaderStyle.APPLE_LISTEN) {
-                            Text(
-                                text = stringResource(R.string.ui_listen_now),
-                                fontFamily = appFont.getFontFamily(),
-                                fontWeight = FontWeight.W800,
-                                fontSize = 34.sp,
-                                letterSpacing = (-0.8).sp,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                            )
-                        }
                         val extraLargeQuickPicks = homeHeaderStyle == HomeHeaderStyle.NONE
                         val quickPicksRowState = rememberLazyListState()
                         val cardWidth = if (extraLargeQuickPicks) quickPicksCardWidth.dp else 160.dp
@@ -566,7 +601,7 @@ fun HomeScreen(
                                                 colors = listOf(
                                                     Color.Transparent,
                                                     Color.Transparent,
-                                                    Color.Black.copy(alpha = 0.75f)
+                                                    artworkScrim.copy(alpha = 0.85f)
                                                 )
                                             )
                                         )
@@ -609,7 +644,7 @@ fun HomeScreen(
                                     Text(
                                         text = song!!.artists.joinToString { it.name },
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.7f),
+                                        color = Color.White.copy(alpha = 0.75f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -621,8 +656,9 @@ fun HomeScreen(
                         }
                     }
                 }
-
-                keepListening?.takeIf { it.isNotEmpty() }?.let { keepListening ->
+                }
+                fun androidx.compose.foundation.lazy.LazyListScope.renderKeepListening() {
+                keepListening?.takeIf { showKeepListening && it.isNotEmpty() }?.let { keepListening ->
                     item {
                         HomeSectionTitle(
                             title = stringResource(R.string.keep_listening),
@@ -649,10 +685,9 @@ fun HomeScreen(
                         }
                     }
                 }
-
-                // YouTube Music's own Quick Picks: separate from SMusic's, below Keep Listening,
-                // and only while a YouTube account is connected.
-                if (isYouTubeHome && youtubeQuickPicks.isNotEmpty()) {
+                }
+                fun androidx.compose.foundation.lazy.LazyListScope.renderYoutubePicks() {
+                if (showYoutubePicks && isYouTubeHome && youtubeQuickPicks.isNotEmpty()) {
                     item(key = "youtube_quick_picks_title") {
                         HomeSectionTitle(
                             title = stringResource(R.string.quick_picks),
@@ -671,12 +706,13 @@ fun HomeScreen(
                         }
                     }
                 }
-
+                }
+                fun androidx.compose.foundation.lazy.LazyListScope.renderRecommendations() {
                 // Keep the Home rhythm balanced by mode. Account mode starts with a Pulse-ranked shelf
                 // and alternates it with account-derived related shelves; guest mode keeps Similar To -> Pulse.
                 val similarRows = similarRecommendations.orEmpty()
                 val accountPulseCount = if (isYouTubeHome) pulseYtShelves.size else 0
-                val interleavedCount = maxOf(similarRows.size, pulseShelves.size, accountPulseCount)
+                val interleavedCount = if (showHomeRecommendations) maxOf(similarRows.size, pulseShelves.size, accountPulseCount) else 0
                 for (index in 0 until interleavedCount) {
                     if (isYouTubeHome && index < pulseYtShelves.size) {
                         val shelf = pulseYtShelves[index]
@@ -689,7 +725,7 @@ fun HomeScreen(
                                     contentPadding = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal).asPaddingValues(),
                                     modifier = Modifier.animateItem()
                                 ) {
-                                    items(shelf.items, key = { "pulse_yt_${shelf.id}_${it.id}" }) { ytGridItem(it, false) }
+                                    items(shelf.items.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }, key = { "pulse_yt_${shelf.id}_${it.id}" }) { ytGridItem(it, false) }
                                 }
                             }
                         }
@@ -736,7 +772,7 @@ fun HomeScreen(
                                     .asPaddingValues(),
                                 modifier = Modifier.animateItem()
                             ) {
-                                items(recommendation.items, key = { "similar_${index}_${it.id}" }) { item ->
+                                items(recommendation.items.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }, key = { "similar_${index}_${it.id}" }) { item ->
                                     ytGridItem(item, true)
                                 }
                             }
@@ -759,7 +795,7 @@ fun HomeScreen(
                                     .asPaddingValues(),
                                 modifier = Modifier.animateItem()
                             ) {
-                                items(shelf.items, key = { "pulse_${shelf.id}_${it.id}" }) {
+                                items(shelf.items.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }, key = { "pulse_${shelf.id}_${it.id}" }) {
                                     localGridItem(it)
                                 }
                             }
@@ -767,7 +803,10 @@ fun HomeScreen(
                     }
                 }
 
-                if (pulseDiscover.isNotEmpty()) {
+
+                }
+                fun androidx.compose.foundation.lazy.LazyListScope.renderDiscover() {
+                if (showHomeDiscover && pulseDiscover.isNotEmpty()) {
                     item(key = "pulse_discover") {
                         HomeSectionTitle(
                             title = stringResource(R.string.pulse_shelf_discover),
@@ -786,7 +825,10 @@ fun HomeScreen(
                     }
                 }
 
-                val accountSections = homePage?.sections.orEmpty()
+
+                }
+                fun androidx.compose.foundation.lazy.LazyListScope.renderAccountShelves() {
+                val accountSections = if (showHomeAccountShelves) homePage?.sections.orEmpty() else emptyList()
                 accountSections.forEach { it ->
                     item {
                         HomeSectionTitle(
@@ -821,12 +863,15 @@ fun HomeScreen(
                                 .asPaddingValues(),
                             modifier = Modifier.animateItem()
                         ) {
-                            items(it.items, key = { it.id }) { item -> ytGridItem(item, false) }
+                            items(it.items.let { items -> com.devxrohan.smusic.customization.HomeLayout.limitItems(items, homeVisibleItems) }, key = { it.id }) { item -> ytGridItem(item, false) }
                         }
                     }
                 }
 
-                forgottenFavorites?.takeIf { it.isNotEmpty() }?.let { forgottenFavorites ->
+
+                }
+                fun androidx.compose.foundation.lazy.LazyListScope.renderForgotten() {
+                forgottenFavorites?.takeIf { showHomeForgottenFavorites && it.isNotEmpty() }?.let { forgottenFavorites ->
                     item {
                         HomeSectionTitle(
                             title = stringResource(R.string.forgotten_favorites),
@@ -892,6 +937,20 @@ fun HomeScreen(
                         }
                     }
                 }
+                }
+                com.devxrohan.smusic.customization.HomeLayout.decode(homeSectionPriority).forEach { section ->
+                    when (section) {
+                        "quick" -> renderSmusicPicks()
+                        "speed_dial" -> if (showSpeedDial) item(key = "speed-dial") { com.devxrohan.smusic.ui.component.HomeSpeedDial(navController) }
+                        "recent" -> renderKeepListening()
+                        "youtube" -> renderYoutubePicks()
+                        "recommendations" -> renderRecommendations()
+                        "discover" -> renderDiscover()
+                        "account" -> renderAccountShelves()
+                        "forgotten" -> renderForgotten()
+                    }
+                }
+
             }
 
             PullToRefreshDefaults.LoadingIndicator(
@@ -905,4 +964,19 @@ fun HomeScreen(
             )
         }
     }
+    }
+}
+/** Draft values change only this renderer; previewing never mutates saved settings. */
+@Composable
+private fun <T> rememberHomePreference(overrides: Map<String, kotlinx.serialization.json.JsonElement>?, key: androidx.datastore.preferences.core.Preferences.Key<T>, defaultValue: T): androidx.compose.runtime.State<T> {
+    val saved by rememberPreference(key, defaultValue)
+    val raw = overrides?.get(key.name) as? kotlinx.serialization.json.JsonPrimitive
+    @Suppress("UNCHECKED_CAST")
+    val draft = when (defaultValue) {
+        is String -> raw?.content?.takeUnless { it == "null" }
+        is Boolean -> raw?.content?.toBooleanStrictOrNull()
+        is Float -> raw?.content?.toFloatOrNull()
+        else -> null
+    } as? T
+    return androidx.compose.runtime.rememberUpdatedState(draft ?: saved)
 }

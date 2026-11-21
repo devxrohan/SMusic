@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import com.devxrohan.smusic.ui.component.AppIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -89,6 +90,7 @@ import androidx.compose.foundation.clickable
 fun ModernHomeTopBarInline(
     navController: NavController,
     homeHeaderStyle: HomeHeaderStyle,
+    preview: Boolean = false,
 ) {
     val currentVersion = BuildConfig.VERSION_NAME
     var showUpdateIcon by remember { mutableStateOf(false) }
@@ -99,6 +101,7 @@ fun ModernHomeTopBarInline(
     val appContext = context.applicationContext
 
     LaunchedEffect(Unit) {
+        if (preview) return@LaunchedEffect
         try {
             val latestVersion = withContext(Dispatchers.IO) { checkForUpdates(appContext) }
             showUpdateIcon = latestVersion?.let { isNewerVersion(it, currentVersion) } ?: false
@@ -110,7 +113,7 @@ fun ModernHomeTopBarInline(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(if (preview) WindowInsets(0, 0, 0, 0) else WindowInsets.systemBars.only(WindowInsetsSides.Top))
     ) {
         // SMusic-style top bar: wordmark left, action icons right
         Row(
@@ -142,7 +145,10 @@ fun ModernHomeTopBarInline(
                     text = stringResource(R.string.ui_music_2),
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onBackground,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
             }
 
@@ -167,63 +173,29 @@ fun ModernHomeTopBarInline(
             }
             val profileLabel = if (!hasYouTubeAccount) guestProfileName.ifBlank { "Guest" } else accountName.ifBlank { accountEmail.ifBlank { "YouTube profile" } }
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Bare icon buttons: no circular surface or ripple behind the glyph.
                 Box {
-                    Box(
-                        modifier = Modifier.size(36.dp).clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { navController.navigate("announcement") }
-                        ),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    AppIconButton(modifier = Modifier.size(48.dp), onClick = { navController.navigate("announcement") }) {
                         Icon(painter = painterResource(R.drawable.notifications), contentDescription = stringResource(R.string.notifications), modifier = Modifier.size(23.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (hasUnseenAnnouncement) {
                         Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 2.dp).size(8.dp).background(androidx.compose.ui.graphics.Color(0xFFE53935), CircleShape))
                     }
                 }
-                Box(
-                    modifier = Modifier.size(36.dp).clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { navController.navigate("explore") }
-                    ),
-                    contentAlignment = Alignment.Center
-                ) {
+                AppIconButton(modifier = Modifier.size(48.dp), onClick = { navController.navigate("explore") }) {
                     Icon(painter = painterResource(R.drawable.explore_outlined), contentDescription = stringResource(R.string.explore), modifier = Modifier.size(23.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Box {
-                    Box(
-                        modifier = Modifier.size(36.dp).clip(CircleShape).clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { showProfileMenu = true }
-                        ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (hasYouTubeAccount && accountPhotoUrl.startsWith("https://")) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current).data(accountPhotoUrl).crossfade(true).build(),
-                                contentDescription = profileLabel,
-                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else if (!hasYouTubeAccount && guestProfilePhotoPath.isNotBlank() && File(guestProfilePhotoPath).exists()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current).data(File(guestProfilePhotoPath)).crossfade(true).build(),
-                                contentDescription = profileLabel,
-                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                contentScale = ContentScale.Crop,
-                            )
-                        } else {
-                            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                                Icon(painter = painterResource(R.drawable.person), contentDescription = profileLabel, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                            }
-                        }
+                    AppIconButton(modifier = Modifier.size(48.dp), onClick = { showProfileMenu = true }) {
+                        com.devxrohan.smusic.ui.component.ProfileAvatar(
+                            model = when {
+                                hasYouTubeAccount && accountPhotoUrl.startsWith("https://") -> accountPhotoUrl
+                                !hasYouTubeAccount && guestProfilePhotoPath.isNotBlank() -> File(guestProfilePhotoPath)
+                                else -> null
+                            }, contentDescription = profileLabel, animateFlower = true,
+                        )
                     }
                     DropdownMenu(
                         expanded = showProfileMenu,
@@ -255,27 +227,13 @@ fun ModernHomeTopBarInline(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Box(Modifier.size(46.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
-                                    if (hasYouTubeAccount && accountPhotoUrl.startsWith("https://")) {
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(LocalContext.current).data(accountPhotoUrl).crossfade(true).build(),
-                                            contentDescription = profileLabel,
-                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else if (!hasYouTubeAccount && guestProfilePhotoPath.isNotBlank() && File(guestProfilePhotoPath).exists()) {
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(LocalContext.current).data(File(guestProfilePhotoPath)).crossfade(true).build(),
-                                            contentDescription = profileLabel,
-                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                            contentScale = ContentScale.Crop,
-                                        )
-                                    } else {
-                                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                                            Icon(painterResource(R.drawable.person), null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                                        }
-                                    }
-                                }
+                                com.devxrohan.smusic.ui.component.ProfileAvatar(
+                                    model = when {
+                                        hasYouTubeAccount && accountPhotoUrl.startsWith("https://") -> accountPhotoUrl
+                                        !hasYouTubeAccount && guestProfilePhotoPath.isNotBlank() -> File(guestProfilePhotoPath)
+                                        else -> null
+                                    }, contentDescription = profileLabel, size = 46.dp,
+                                )
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         text = profileLabel,
@@ -298,7 +256,7 @@ fun ModernHomeTopBarInline(
                             }
 
                             @Composable
-                            fun ProfileRow(icon: Int, title: String, subtitle: String? = null, destructive: Boolean = false, onClick: () -> Unit) {
+                            fun ProfileRow(icon: Int, title: String, destructive: Boolean = false, onClick: () -> Unit) {
                                 val tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                                 Row(
                                     modifier = Modifier
@@ -319,28 +277,27 @@ fun ModernHomeTopBarInline(
                                     Icon(painterResource(icon), null, Modifier.size(22.dp), tint = iconTint)
                                     Column(Modifier.weight(1f)) {
                                         Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = tint)
-                                        if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     if (!destructive) Icon(painterResource(R.drawable.chevron_right), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
 
                             if (!hasYouTubeAccount) {
-                                ProfileRow(R.drawable.account, "Edit guest profile", "Change your name or profile picture") {
+                                ProfileRow(R.drawable.account, "Edit guest profile") {
                                     showProfileMenu = false
                                     navController.navigate("settings/account")
                                 }
                             }
                             if (hasYouTubeAccount) {
-                                ProfileRow(R.drawable.account, stringResource(R.string.ui_account_amp_sync), stringResource(R.string.ui_feed_library_and_pulse_together)) {
+                                ProfileRow(R.drawable.account, stringResource(R.string.ui_account_amp_sync)) {
                                     showProfileMenu = false; navController.navigate("account")
                                 }
                             } else {
-                                ProfileRow(R.drawable.youtube_logo, stringResource(R.string.ui_add_youtube_account), stringResource(R.string.ui_bring_in_your_feed_likes_and)) {
+                                ProfileRow(R.drawable.youtube_logo, stringResource(R.string.ui_add_youtube_account)) {
                                     showProfileMenu = false; navController.navigate("login")
                                 }
                             }
-                            ProfileRow(R.drawable.stats, stringResource(R.string.ui_listening_stats), stringResource(R.string.ui_your_pulse_taste_profile)) {
+                            ProfileRow(R.drawable.stats, stringResource(R.string.ui_listening_stats)) {
                                 showProfileMenu = false; navController.navigate("stats")
                             }
                             ProfileRow(R.drawable.history, stringResource(R.string.history)) {
@@ -351,7 +308,7 @@ fun ModernHomeTopBarInline(
                             }
                             if (hasYouTubeAccount) {
                                 HorizontalDivider(Modifier.padding(vertical = 2.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                ProfileRow(R.drawable.logout, stringResource(R.string.ui_sign_out_of_youtube), stringResource(R.string.ui_your_songs_and_history_stay), destructive = true) {
+                                ProfileRow(R.drawable.logout, stringResource(R.string.ui_sign_out_of_youtube), destructive = true) {
                                     showProfileMenu = false
                                     // Only the account session goes; all songs, likes, history and Pulse data stay.
                                     scope.launch { runCatching { signOutYouTubeAccount(context) } }
@@ -412,6 +369,8 @@ fun ModernHomeTopBarInline(
         }
     }
 }
+
+
 
 @Composable
 fun AnimatedBeatsRing(

@@ -59,12 +59,7 @@ private enum class LocalTab(val label: String) {
     FOLDERS("Folders"),
 }
 
-/**
- * "Local music": every audio file on the phone (MediaStore), browsable by
- * songs / albums / artists / folders with search, sorting, play-all and shuffle.
- * Laid out after Namida's library: tabs on top, quick actions above the list,
- * tap a group to open its tracks.
- */
+/** Browse device audio by songs, albums, artists and folders with sorting and playback actions. */
 @Composable
 fun LocalSongsScreen(
     navController: NavController,
@@ -318,13 +313,7 @@ fun LocalSongsScreen(
                         }
                     }
 
-                    // A fixed 2-column grid stretches each card to fill half of
-                    // whatever width the screen has — fine on a typical phone,
-                    // but on a wider phone, a tablet, a foldable unfolded, or a
-                    // TV/car display, two huge cards fill the whole row and look
-                    // oversized. Adaptive sizing keeps every card close to its
-                    // intended size and simply adds more columns on wider screens,
-                    // matching how every other library grid in the app already behaves.
+                    // Derive column count from available width to keep artwork dimensions bounded.
                     tab == LocalTab.ALBUMS -> LazyVerticalGrid(
                         columns = GridCells.Adaptive(
                             minSize = com.devxrohan.smusic.constants.GridThumbnailHeight + 24.dp,

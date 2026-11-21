@@ -297,6 +297,7 @@ fun SongMenu(
         },
     )
 
+
     HorizontalDivider()
 
     Spacer(modifier = Modifier.height(12.dp))
@@ -404,31 +405,6 @@ fun SongMenu(
         }
     }
 
-    // Pulse feedback is intentionally placed directly below the Play next / Add to playlist / Share row.
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    playerConnection.service.pulseEngine.onNotForMe(song)
-                }
-                android.widget.Toast.makeText(context, R.string.pulse_not_for_me_done, android.widget.Toast.LENGTH_SHORT).show()
-                onDismiss()
-            }
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.block),
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-        )
-        Text(
-            text = stringResource(R.string.pulse_not_for_me),
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.padding(start = 16.dp),
-        )
-    }
 
     LazyColumn(
         contentPadding = PaddingValues(
@@ -438,6 +414,17 @@ fun SongMenu(
             bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
         ),
     ) {
+        item {
+            com.devxrohan.smusic.ui.component.SpeedDialSongPin(song.id, onDismiss = onDismiss)
+        }
+        item {
+            com.devxrohan.smusic.ui.component.PulseFeedbackActions(
+                listOf(com.devxrohan.smusic.pulse.PulseFeedbackTrack(
+                    song.id, song.artists.map { it.id }, song.artists.map { it.name }, song.title,
+                )), onDismiss,
+            )
+        }
+
         item {
             ListItem(
                 headlineContent = { Text(text = stringResource(R.string.start_radio)) },

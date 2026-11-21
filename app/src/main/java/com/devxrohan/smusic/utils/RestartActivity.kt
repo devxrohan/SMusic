@@ -11,11 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Process
 
-/**
- * Lives in its own process (":restart"). The main process starts this activity and then exits; this activity
- * relaunches the real launcher activity, so the new main process is created cleanly after the old one is gone.
- * Used by [AppBackup.restartApp] so that restoring a backup brings the app straight back up.
- */
+/** Relaunch from the dedicated restart process after the original app process exits. */
 class RestartActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

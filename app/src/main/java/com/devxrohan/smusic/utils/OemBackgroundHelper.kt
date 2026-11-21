@@ -8,18 +8,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 
-/**
- * Several manufacturers ship their own background-task killer on top of
- * stock Android (MIUI, ColorOS/Realme UI, FuntouchOS/OriginOS, EMUI/MagicOS,
- * Samsung's "sleeping apps", etc). These can stop a foreground media-playback
- * service — mid-song, with no warning — even after the user has granted the
- * standard "ignore battery optimizations" permission below, because it is a
- * separate, manufacturer-specific permission ("Autostart", "Protected apps")
- * that stock Android has no API for. SMusic previously only ever asked for
- * the standard permission, and only from deep inside Voice Assistant
- * settings where most people never looked — which is the main reason
- * playback randomly stopped on some phones and not others.
- */
+/** Resolves OEM background/autostart settings with standard Android fallbacks. */
 object OemBackgroundHelper {
 
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {
@@ -66,15 +55,7 @@ object OemBackgroundHelper {
             else -> "Background permissions"
         }
 
-    /**
-     * Opens the current manufacturer's own autostart/background-permission
-     * screen. These screens aren't part of the public Android SDK and their
-     * exact component name can change between firmware builds, so every
-     * candidate is checked with [android.content.pm.PackageManager.resolveActivity]
-     * before it's launched, and if none resolve this falls back to the app's
-     * own system "App info" page, which still carries the same toggle on most
-     * of these skins, just under a different name.
-     */
+    /** Opens the OEM autostart page when available, falling back to standard app settings. */
     fun openAutostartSettings(context: Context) {
         for (intent in candidateIntents()) {
             val opened = runCatching {

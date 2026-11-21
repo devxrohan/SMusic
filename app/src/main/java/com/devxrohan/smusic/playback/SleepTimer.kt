@@ -20,21 +20,29 @@ class SleepTimer(
         private set
     var pauseWhenSongEnd by mutableStateOf(false)
         private set
+    var tracksRemaining by mutableStateOf(0)
+        private set
     val isActive: Boolean
-        get() = triggerTime != -1L || pauseWhenSongEnd
+        get() = triggerTime != -1L || pauseWhenSongEnd || tracksRemaining > 0
+
+    fun startTrackCount(count: Int) {
+        require(count in 1..100) { "Choose between 1 and 100 tracks" }
+        clear()
+        tracksRemaining = count
+    }
 
     fun start(minute: Int) {
-        sleepTimerJob?.cancel()
-        sleepTimerJob = null
+        clear()
         if (minute == -1) {
             pauseWhenSongEnd = true
-        } else {
+        } else if (minute > 0) {
             triggerTime = System.currentTimeMillis() + minute.minutes.inWholeMilliseconds
             sleepTimerJob =
                 scope.launch {
                     delay(minute.minutes)
                     player.pause()
                     triggerTime = -1L
+                    sleepTimerJob = null
                 }
         }
     }
@@ -43,6 +51,7 @@ class SleepTimer(
         sleepTimerJob?.cancel()
         sleepTimerJob = null
         pauseWhenSongEnd = false
+        tracksRemaining = 0
         triggerTime = -1L
     }
 
@@ -50,8 +59,14 @@ class SleepTimer(
         mediaItem: MediaItem?,
         reason: Int,
     ) {
-        if (pauseWhenSongEnd) {
-            pauseWhenSongEnd = false
+        if (tracksRemaining > 0 && (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)) {
+            tracksRemaining -= 1
+            if (tracksRemaining == 0) { clear(); player.pause() }
+            return
+        }
+        if (pauseWhenSongEnd && (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                    reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)) {
+            clear()
             player.pause()
         }
     }
@@ -59,8 +74,8 @@ class SleepTimer(
     override fun onPlaybackStateChanged(
         @Player.State playbackState: Int,
     ) {
-        if (playbackState == Player.STATE_ENDED && pauseWhenSongEnd) {
-            pauseWhenSongEnd = false
+        if (playbackState == Player.STATE_ENDED && (pauseWhenSongEnd || tracksRemaining > 0)) {
+            clear()
             player.pause()
         }
     }

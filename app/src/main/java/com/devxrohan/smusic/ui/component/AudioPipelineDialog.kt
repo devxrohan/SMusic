@@ -50,12 +50,7 @@ import com.devxrohan.smusic.db.entities.FormatEntity
 import com.devxrohan.smusic.models.MediaMetadata
 import androidx.compose.ui.res.stringResource
 
-/**
- * Reusable Quality Tag Pill displayed just below the seekbar.
- * Shows "High Quality" when playing from JioSaavn 320kbps,
- * or standard codec format (e.g. WEBM, OPUS, AAC, Dolby Atmos) when playing from YouTube.
- * Tapping opens the Audio Pipeline dialog.
- */
+/** Display the active source quality or codec below the seek bar. */
 @Composable
 fun AudioQualityTag(
     currentFormat: FormatEntity?,
@@ -151,10 +146,8 @@ fun AudioQualityTag(
     }
 }
 
-/**
- * Audio Pipeline inspection bottom sheet matching the exact connected timeline flow:
- * Track Info -> Decoder -> Resampler -> DSP -> Output Device.
- */
+/** Audio Pipeline inspection bottom sheet matching the exact connected timeline flow: Track Info ->
+ * Decoder -> Resampler -> DSP -> Output Device. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudioPipelineDialog(

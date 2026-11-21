@@ -7,11 +7,7 @@ import androidx.media3.common.util.UnstableApi
 import java.nio.ByteOrder
 import kotlin.math.roundToInt
 
-/**
- * High-performance spatial audio processor: expands the stereo image with
- * mid/side processing and acoustic cross-feed delay modeling.
- * O(1) complexity per sample with zero allocations during playback.
- */
+/** Expands stereo width with mid/side processing and cross-feed delay. */
 @UnstableApi
 class SpatialAudioProcessor : BaseAudioProcessor() {
 

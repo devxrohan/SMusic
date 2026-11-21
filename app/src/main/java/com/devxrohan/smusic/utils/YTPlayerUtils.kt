@@ -72,15 +72,7 @@ object YTPlayerUtils {
         streamClientPair = current to client
         return client
     }
-    /**
-     * The main client is used for metadata and initial streams.
-     * Do not use other clients for this because it can result in inconsistent metadata.
-     * For example other clients can have different normalization targets (loudnessDb).
-     *
-     * [com.devxrohan.smusic.innertube.models.YouTubeClient.WEB_REMIX] should be preferred here because currently it is the only client which provides:
-     * - the correct metadata (like loudnessDb)
-     * - premium formats
-     */
+    /** Keep metadata and initial stream requests on the same playback client/session. */
     private val MAIN_CLIENT: YouTubeClient = WEB_REMIX
     /**
      * Clients used for fallback streams in case the streams of the main client do not work.
@@ -452,10 +444,8 @@ object YTPlayerUtils {
             streamExpiresInSeconds,
         )
     }
-    /**
-     * Simple player response intended to use for metadata only.
-     * Stream URLs of this response might not work so don't use them.
-     */
+    /** Simple player response intended to use for metadata only. Stream URLs of this response might not
+     * work so don't use them. */
     suspend fun playerResponseForMetadata(
         videoId: String,
         playlistId: String? = null,

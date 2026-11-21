@@ -16,15 +16,7 @@ import kotlin.math.sin
 import androidx.annotation.DrawableRes
 import com.devxrohan.smusic.R
 
-/**
- * Studio-Grade DJ Audio Processor for SMusic:
- * - Real-Time Echo & Ping-Pong Stereo Delay (20ms - 1000ms, feedback, wet/dry mix)
- * - Pioneer-Style Bipolar DJ Club Filter Sweep (Resonant LPF ◀ Flat ▶ HPF)
- * - Jet Flanger / Phase Sweep (variable LFO rate and depth)
- * - Analog Tape Saturation & Warmth (harmonic soft-clipping)
- *
- * Runs inside Media3 DefaultAudioSink with O(1) complexity and zero heap allocations per frame.
- */
+/** In-chain stereo effects processor for delay, filtering, modulation and saturation. */
 enum class DjPreset(val title: String, val subtitle: String, @param:DrawableRes val iconRes: Int) {
     DEFAULT("Flat / Reset", "Pure original mix", R.drawable.headphones),
     CLUB_BOOTH("Club Booth", "Warm echo & bass pump", R.drawable.graphic_eq),
@@ -40,14 +32,7 @@ enum class DjPreset(val title: String, val subtitle: String, @param:DrawableRes 
 @UnstableApi
 class DjAudioProcessor : BaseAudioProcessor() {
 
-    // NOTE: `enabled` and `echoEnabled` use explicit backing fields (instead of a plain
-    // @Volatile var) so that we can clear the stale delay/flanger/filter buffers the
-    // instant either one flips from OFF -> ON. Without this, turning the master FX
-    // switch on and jumping straight into a preset like "Club Booth" or
-    // "Slowed + Reverb" would replay whatever old audio was still sitting in the delay
-    // buffer from the last time effects were enabled, which is heard as the song
-    // "playing twice" / overlapping itself. Routing through Flat/Reset used to work
-    // only because resetFx() happened to clear the buffer as a side effect.
+    // Clear delay, filter and modulation buffers when enabling effects to prevent stale audio replay.
     @Volatile
     private var _enabled: Boolean = false
     var enabled: Boolean
@@ -115,14 +100,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
             field = value.coerceIn(-1.0f, 1.0f)
         }
 
-    // ==========================================
-    // Lo-Fi character: a real telephone/cassette "lo-fi" sound narrows the band from
-    // BOTH ends (cuts sub-bass as well as highs -- per published lo-fi DSP chains,
-    // roughly a 100Hz-2.8kHz window), adds a slow amplitude "wow" wobble (tape-speed
-    // instability), and a low-level noise/crackle layer. `filterSweep` above only ever
-    // cuts highs OR lows, never both, so bass was never actually reduced for the Lo-Fi
-    // preset -- this fixed high-pass stage is the missing "cut the bass too" half.
-    // ==========================================
+    // The lo-fi path combines band limiting, amplitude wow and low-level noise.
     @Volatile
     var bassCutHz: Float = 0f // 0 = off
         set(value) {
@@ -147,16 +125,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
             field = value.coerceIn(0f, 1f)
         }
 
-    // ==========================================
-    // "Pump" (free-running sidechain-style ducking): per published club/EDM mixing
-    // references, the single most defining characteristic of a "club PA" sound is
-    // sidechain compression -- the beat rhythmically "ducks" the rest of the mix down
-    // and lets it breathe back. We have no real beat detector, so this is a
-    // free-running duck-then-recover envelope at a generic dance-music rate rather
-    // than a true per-track sidechain -- kept gentle enough that it still reads as
-    // "groove"/movement rather than "wrong" on a track that isn't exactly on that
-    // tempo. Used by Club Booth.
-    // ==========================================
+    // Use a free-running duck/recovery envelope for the club preset; this is not a beat detector.
     @Volatile
     var pumpDepth: Float = 0f // 0 = off
         set(value) {
@@ -169,19 +138,8 @@ class DjAudioProcessor : BaseAudioProcessor() {
             field = value.coerceIn(0.5f, 4f)
         }
 
-    // ==========================================
-    // In-chain bass shelf boost. IMPORTANT: this exists because the app's other "bass
-    // boost" control (Android's system LoudnessEnhancer, attached to the audio
-    // session) runs *after* this whole software processor, on the audio session
-    // itself -- our peak limiter further down this file can only see and protect
-    // audio that flows through this class, so it has zero visibility into, or control
-    // over, whatever LoudnessEnhancer adds afterward. That's why bass-heavy presets
-    // kept crackling even after adding the limiter: the actual extra boost was
-    // happening downstream of it. A bass lift done here instead -- a standard
-    // "boosted = dry + gain * lowpassed(dry)" shelf, used by countless real bass-boost
-    // plugins -- flows through saturation and the limiter like everything else, so it
-    // is actually protected from clipping.
-    // ==========================================
+    // Apply the bass shelf before saturation and limiting; downstream hardware gain is outside this
+    // limiter.
     @Volatile
     var bassShelfGain: Float = 0f // 0 = off, ~1.0 = a solid, controlled lift
         set(value) {
@@ -231,18 +189,8 @@ class DjAudioProcessor : BaseAudioProcessor() {
     private var delayBufR = FloatArray(48000)
     private var delayWritePos: Int = 0
 
-    // Diffuser: three short parallel comb filters (Schroeder/Freeverb-style -- this is
-    // the standard, well-documented open-source technique for turning a single clean
-    // delay tap into something that sounds like a reverb wash instead of a distinct
-    // repeated "double" copy of the signal). Each comb's length is a different short,
-    // mutually-prime-ish value well under the ~35-50ms point at which a human ear
-    // starts perceiving a separate discrete echo rather than one blended, "spacious"
-    // sound (the Haas / precedence effect) -- summing several such short, differently
-    // timed repeats is what makes them fuse into a wash instead of a clear repeat.
-    // Base lengths at the "neutral" echoDelayMs=280 setting; scaled by the Delay Time
-    // slider at runtime (see queueInput) but always clamped well under the ~45ms Haas
-    // threshold, so moving that slider still audibly changes the wash's size/texture
-    // without ever bringing back a single, clearly-separated discrete repeat.
+    // Parallel short comb filters diffuse delay taps into a reverb tail; lengths scale with sample
+    // rate.
     private var combALenMs = 23.2f
     private var combBLenMs = 29.7f
     private var combCLenMs = 37.1f
@@ -268,17 +216,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
     private var flangerWritePos: Int = 0
     private var flangerPhase: Double = 0.0
 
-    // Sub-bass "rumble guard": a fixed ~50 Hz high-pass applied at the very end of the
-    // chain whenever any effect is active. Phone speakers physically cannot move
-    // enough air to reproduce content below roughly 60-80 Hz cleanly -- feeding them
-    // boosted sub-bass (from the resonant filter sweep, saturation drive, and the
-    // loudness boost all stacking around the low end on presets like Bass Bomb /
-    // Lo-Fi Radio) doesn't make the music sound "bassier" through a small speaker, it
-    // just makes the speaker's voice coil over-excurse and rattle/crackle. This is a
-    // standard, well-established technique in mobile audio engineering (every proper
-    // bass-boost implementation pairs the boost with a sub-bass cut) and only removes
-    // a band that a phone speaker can't play back anyway, so it doesn't change how any
-    // preset is meant to sound on real speakers/headphones.
+    // Apply a final 50 Hz high-pass while effects are active to limit sub-bass excursion.
     private var rumbleInL = 0f
     private var rumbleOutL = 0f
     private var rumbleInR = 0f
@@ -309,14 +247,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
     private var cracklePopAmpL = 0f
     private var cracklePopAmpR = 0f
 
-    // Final peak limiter (attack/release) -- this is what actually tames bass-drum/kick
-    // transients. The old static per-sample soft-knee only rounds off a sample that is
-    // ALREADY at the ceiling; it can't see a loud transient coming and reduce gain
-    // ahead of it, so the stacked echo+filter+saturation+boost gain on a bass hit could
-    // still slam the ceiling hard enough to sound like a crackle on every beat. A
-    // proper feed-forward limiter (this is how essentially every real loudness
-    // limiter/mastering limiter works) reacts within a few milliseconds and releases
-    // smoothly afterward, which sounds like "controlled and punchy" instead of "clipped".
+    // Use fast-attack, smooth-release limiting to constrain transients without sustained clipping.
     private var limiterGain = 1f
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -402,10 +333,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
         if (remaining == 0) return
 
         val outputBuffer = replaceOutputBuffer(remaining)
-        // Media3 PCM buffers are native-endian. Set the order explicitly: unlike the
-        // spatial processors this processor previously read/wrote Shorts using the
-        // ByteBuffer default (big-endian), which can turn normal PCM into byte-swapped
-        // samples and sound like harsh crackling/distortion on affected devices.
+        // Use native byte order for Media3 PCM reads and writes.
         inputBuffer.order(ByteOrder.nativeOrder())
         outputBuffer.order(ByteOrder.nativeOrder())
 
@@ -436,14 +364,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
         val combBSamples = (sr * combBLenMs * combScale / 1000f).roundToInt().coerceIn(8, combBufBL.size - 1)
         val combCSamples = (sr * combCLenMs * combScale / 1000f).roundToInt().coerceIn(8, combBufCL.size - 1)
         val wet = echoWetMix
-        // BUG FIX (one-line, textbook dry/wet crossfade -- nothing else changed): this
-        // used to be `1.0f - (wet * 0.35f)`, which barely reduced the original signal
-        // even at full wet (wet=0.50 -> dry=0.825). That left the original vocal and a
-        // single ~300-450ms-delayed copy playing at nearly equal volume, which for
-        // short/repeated lyric lines is heard as the song literally "playing twice".
-        // The standard dry/wet mix (dry+wet sum to 1) still lets the effect reach full
-        // intensity at wet=1.0, so the preset's character/strength is unchanged -- it
-        // just no longer stacks two near-equal-volume copies at moderate settings.
+        // Use complementary dry/wet gains so increasing the wet mix does not duplicate the dry signal.
         val dry = 1.0f - wet
         val isPingPong = echoPingPong
 
@@ -477,13 +398,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
         // Flanger LFO parameters
         val flangerLfoInc = (2.0 * PI * flangerRate) / sr
         val flangerBaseDelay = (sr * 0.0025f) // 2.5 ms center
-        val flangerModDepth = (sr * 0.0018f * flangerDepth) // +/- 1.8 ms modulation
-
-        // Drive multiplier reduced (2.2 -> 1.5): a limiter can only catch a *brief*
-        // overshoot -- it cannot fully undo a boost this large without itself sounding
-        // squashed/pumping, which reads as "still distorted" even once hard clipping
-        // is gone. Cutting the drive itself, globally, is safer than leaning on the
-        // limiter to rescue it.
+        val flangerModDepth = (sr * 0.0018f * flangerDepth) // Use shallow delay modulation and bounded drive to limit sustained saturation.
         val satDrive = 1.0f + saturation * 1.5f
 
         // One-pole DC-blocker-style high-pass at ~50 Hz for the rumble guard above.
@@ -502,14 +417,8 @@ class DjAudioProcessor : BaseAudioProcessor() {
         // Bass shelf's one-pole low-pass coefficient.
         val shelfAlpha = if (isBassShelfOn) (2.0 * PI * bassShelfHz / sr).toFloat().coerceIn(0.001f, 0.9f) else 0f
 
-        // Peak limiter: fast attack (catches a transient within ~2ms), slower release
-        // (~120ms, so it doesn't pump audibly) -- standard mastering-limiter timing.
-        // More headroom (27000 -> 23000) and a faster attack (2ms -> 0.7ms): a simple
-        // limiter with no lookahead can still let a fast transient's first instant
-        // through before it reacts, so the only reliable protection is leaving enough
-        // headroom below the ceiling that even that brief overshoot doesn't reach it.
-        // Leave enough true-peak headroom for the downstream Android output path.
-        // The attack is instantaneous (no look-ahead buffer), while release is smooth.
+        // Reserve true-peak headroom and apply instantaneous attack with smooth release; no lookahead
+        // is used.
         val limiterThreshold = 24500f
         val limiterReleaseCoef = kotlin.math.exp(-1.0 / (sr * 0.100)).toFloat()
 
@@ -520,10 +429,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
             var sampleL = rawShortL.toFloat()
             var sampleR = rawShortR.toFloat()
 
-            // 0. LO-FI BASS CUT -- see field comment: narrows the band from the bottom
-            // end too (a real lo-fi/telephone sound is band-limited on both sides, not
-            // just dulled on top), which is also what keeps Lo-Fi Radio's bass from
-            // overloading a phone speaker.
+            // Band-limit the lo-fi preset from both ends instead of only attenuating high frequencies.
             if (isBassCutOn) {
                 val bcL = sampleL - bcInL + bcAlpha * bcOutL
                 bcInL = sampleL; bcOutL = bcL; sampleL = bcL
@@ -541,10 +447,8 @@ class DjAudioProcessor : BaseAudioProcessor() {
                 sampleR *= pumpEnv
             }
 
-            // 0c. IN-CHAIN BASS SHELF BOOST (see field comment above). Standard
-            // "boosted = dry + gain * lowpassed(dry)" shelf -- flows through
-            // saturation and the limiter below like everything else, unlike the
-            // system LoudnessEnhancer boost.
+            // Apply the bass shelf before saturation and limiting; downstream hardware gain is outside
+            // this limiter.
             if (isBassShelfOn) {
                 shelfStateL += shelfAlpha * (sampleL - shelfStateL)
                 sampleL += shelfStateL * bassShelfGain
@@ -552,16 +456,8 @@ class DjAudioProcessor : BaseAudioProcessor() {
                 sampleR += shelfStateR * bassShelfGain
             }
 
-            // 1. ECHO / REVERB PROCESSING -- Schroeder/Freeverb-style diffuser: three
-            // short parallel comb filters (see field comments above) summed together,
-            // instead of one single long delay tap. A lone tap at 180-450ms is always
-            // perceived as a distinct repeated copy of the signal no matter how it's
-            // mixed -- that IS the "double voice" that was being reported on Slowed +
-            // Reverb, Cosmic Echo and Lo-Fi Radio. Three short, differently-timed
-            // repeats summed together fuse into one continuous wash instead (the
-            // standard, published technique behind essentially every real-time
-            // software reverb), while `echoFeedback` still controls how long that
-            // wash sustains and `echoWetMix` still controls how present it is.
+            // Parallel short comb filters diffuse delay taps into a reverb tail; lengths scale with
+            // sample rate.
             if (isEchoOn) {
                 val readA = (combPosA - combASamples + combBufAL.size) % combBufAL.size
                 val outAL = combBufAL[readA]
@@ -693,11 +589,7 @@ class DjAudioProcessor : BaseAudioProcessor() {
             rumbleOutR = rbOutR
             sampleR = rbOutR
 
-            // 8. PEAK LIMITER (attack/release) -- see field comment on `limiterGain`.
-            // This is what actually stops a bass-heavy beat from crackling: it looks at
-            // the loudest of the two channels and, if it's above threshold, pulls the
-            // gain down fast (2ms) and lets it back up slowly (120ms) rather than
-            // waiting for a hard clip and rounding it off after the fact.
+            // Apply a linked-channel peak limiter with attack/release smoothing to protect bass transients.
             val peak = max(abs(sampleL), abs(sampleR))
             val desiredGain = if (peak > limiterThreshold) limiterThreshold / peak else 1f
             // A smoothed attack without look-ahead lets the first transient samples

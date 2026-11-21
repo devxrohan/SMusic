@@ -82,10 +82,7 @@ import com.devxrohan.smusic.utils.makeTimeString
 import kotlin.math.roundToInt
 
 
-/**
- * Current Song Header shown at the top of the queue
- * Displays album art, song info, and control buttons
- */
+/** Current Song Header shown at the top of the queue Displays album art, song info, and control buttons */
 @Composable
 fun CurrentSongHeader(
     sheetState: BottomSheetState,
@@ -112,7 +109,7 @@ fun CurrentSongHeader(
             .fillMaxWidth()
             .background(backgroundColor)
             .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            
+
             .padding(horizontal = 16.dp)
             .padding(top = 20.dp, bottom = 8.dp)
     ) {
@@ -336,71 +333,6 @@ fun CurrentSongHeader(
             thickness = 1.dp
         )
     }
-}
-
-/**
- * Shared Sleep Timer Dialog component used in both Queue and Player.
- */
-@Composable
-fun SleepTimerDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit,
-    onEndOfSong: () -> Unit,
-    initialValue: Float = 30f
-) {
-    var sleepTimerValue by remember { mutableFloatStateOf(initialValue) }
-
-    ActionPromptDialog(
-        titleBar = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = stringResource(R.string.sleep_timer),
-                    overflow = TextOverflow.Ellipsis,
-                    maxLines = 1,
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-            }
-        },
-        onDismiss = onDismiss,
-        onConfirm = {
-            onConfirm(sleepTimerValue.roundToInt())
-        },
-        onCancel = onDismiss,
-        onReset = {
-            sleepTimerValue = 30f
-        },
-        content = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = pluralStringResource(
-                        R.plurals.minute,
-                        sleepTimerValue.roundToInt(),
-                        sleepTimerValue.roundToInt()
-                    ),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-
-                Spacer(Modifier.height(16.dp))
-
-                Slider(
-                    value = sleepTimerValue,
-                    onValueChange = { sleepTimerValue = it },
-                    valueRange = 5f..120f,
-                    steps = (120 - 5) / 5 - 1,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                OutlinedButton(onClick = onEndOfSong, shapes = ButtonDefaults.shapes()) {
-                    Text(stringResource(R.string.end_of_song))
-                }
-            }
-        }
-    )
 }
 
 /**

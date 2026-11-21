@@ -10,15 +10,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-/**
- * Authentic 8D Audio spatial processor:
- * - Dynamic 360° orbital azimuth trajectory (Left <-> Right, Front <-> Back)
- * - Interaural Time Difference (ITD) using sub-millisecond fractional delay modeling
- * - HRTF head shadow (frequency roll-off on shadowed ear) & rear pinna attenuation
- * - Holographic 3D early reflection room diffuser for authentic spaciousness
- * - 1D to 16D real-time intensity scaling (orbital speed, separation, ambience depth)
- * - Zero GC allocations per audio frame, O(1) complexity.
- */
+/** Stereo spatial processing with orbital panning, fractional delays and room reflections. */
 @UnstableApi
 class EightDAudioProcessor : BaseAudioProcessor() {
 
@@ -37,12 +29,7 @@ class EightDAudioProcessor : BaseAudioProcessor() {
     @Volatile
     var bypass: Boolean = false
 
-    /**
-     * Effect intensity level from 1 to 16 (default 8 = classic 8D audio).
-     * Level 1: Gentle, slow ambient rotation (~25s per circle).
-     * Level 8: Classic sweet-spot 8D orbit (~9s per circle, balanced ITD & depth).
-     * Level 16: Rapid, deep spatial 360° orbit (~3.5s per circle, maximum binaural separation).
-     */
+    /** Controls spatial intensity from 1 to 16; level 8 retains the default orbital character. */
     @Volatile
     var level: Int = 8
         set(value) {
@@ -270,18 +257,8 @@ class EightDAudioProcessor : BaseAudioProcessor() {
     }
 
     private fun readFractionalDelay(buffer: ShortArray, writeIdx: Int, delay: Float, bufSize: Int): Float {
-        // BUG FIX: `readPos` (writeIdx - delay) is very often negative here -- writeIdx
-        // cycles 0..bufSize-1 continuously while `delay` can be up to ~40 samples, so
-        // readPos goes negative every single time the write pointer is near the start
-        // of its cycle (which, with a 128-sample buffer, is many times per second).
-        // `Float.toInt()` truncates toward zero, not floor -- for a negative value like
-        // -30.7 that gives -30 (wrong) instead of -31 (correct), which then produces a
-        // fractional part of -0.7 instead of +0.3. Linear interpolation with a
-        // *negative* fraction extrapolates backward past s0 instead of blending
-        // between s0 and s1, which is an audible glitch -- repeating many times a
-        // second, this is exactly what was being heard as "halki chirping" on 8D Audio
-        // even with every other effect off. kotlin.math.floor() handles negative
-        // values correctly, which fixes it.
+        // Use floor for ring-buffer interpolation so negative read positions retain a fraction in [0,
+        // 1).
         val readPos = writeIdx - delay
         val readPosFloor = kotlin.math.floor(readPos).toInt()
         val baseIdx = ((readPosFloor % bufSize) + bufSize) % bufSize

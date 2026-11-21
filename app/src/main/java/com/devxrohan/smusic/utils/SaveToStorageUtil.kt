@@ -147,12 +147,7 @@ object SaveToStorageUtil {
         }
     }
 
-    /**
-     * Starts a device-storage download in an application-owned scope. Unlike a
-     * rememberCoroutineScope() from a menu/bottom sheet, this job is not cancelled
-     * when the composable is dismissed after the user taps "Save to device".
-     * The callback is always delivered on the main thread.
-     */
+    /** Own downloads in an application scope so dismissing a menu cannot cancel them. */
     fun saveToMusicFolderInBackground(
         context: Context,
         mediaMetadata: MediaMetadata,

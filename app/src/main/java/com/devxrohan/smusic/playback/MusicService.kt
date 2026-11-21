@@ -215,21 +215,7 @@ class MusicService :
     @Inject
     lateinit var lyricsHelper: LyricsHelper
 
-    // Every lyrics screen (Classic player strip, the karaoke-style Lyrics
-    // screen, the Spotify-style lyrics screen, legacy Lyrics) used to run its
-    // *own* independent "fetch lyrics for this song" call whenever it didn't
-    // see something already cached yet. lyricsHelper.getLyrics() tries several
-    // providers and keeps whichever answers first/best, so two independent
-    // calls for the very same song could each end up keeping a different
-    // provider's result — one screen would show one provider's lyrics/timing,
-    // another screen the same song's lyrics from a different provider, and
-    // whichever call finished last would silently overwrite the database with
-    // its own result, changing what every other screen showed too. This is
-    // the single place that is now allowed to actually fetch: every screen
-    // calls this instead of fetching on its own, a songId can only have one
-    // fetch in flight at a time, and everything just observes the one shared
-    // `database.lyrics(id)` flow (via PlayerConnection.currentLyrics) for the
-    // result — so every screen is guaranteed to agree.
+    // Fetch lyrics once per media item and share the cached result with all lyrics views.
     private val lyricsFetchInFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Unit>>()
 
     private val lyricsCacheVersionMutex = Mutex()
@@ -265,15 +251,7 @@ class MusicService :
         }
     }
 
-    /**
-     * Unlike [ensureLyricsFetched], this always fetches — used when the
-     * person explicitly asks for a specific provider's lyrics (for example,
-     * picking one in the in-player lyrics search) and expects the current song
-     * to reflect that
-     * choice immediately, not whenever it next happens to be re-fetched.
-     * Still single-flight per songId, same as [ensureLyricsFetched], so a
-     * rapid double-tap on the setting can't start two overlapping fetches.
-     */
+    /** Fetches a specifically requested provider without reusing the automatic provider-selection result. */
     suspend fun refetchLyrics(
         mediaMetadata: com.devxrohan.smusic.models.MediaMetadata,
         provider: com.devxrohan.smusic.constants.PreferredLyricsProvider? = null,
@@ -365,6 +343,9 @@ class MusicService :
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var loudnessEnhancerSessionId: Int = C.AUDIO_SESSION_ID_UNSET
     private var queuePageLoadInProgress = false
+    private var queueLoadGeneration = 0L
+    private var queueLoadJob: kotlinx.coroutines.Job? = null
+    private val playbackSessionStore by lazy { PlaybackSessionStore(filesDir) }
     private var equalizer: Equalizer? = null
     private var equalizerSessionId: Int = C.AUDIO_SESSION_ID_UNSET
     private var bassBoost: BassBoost? = null
@@ -405,6 +386,8 @@ class MusicService :
     private var audioBoostEnhancer: LoudnessEnhancer? = null
     private var audioBoostSessionId: Int = C.AUDIO_SESSION_ID_UNSET
     private var transitionFadeJob: Job? = null
+    private var incomingFadeJob: Job? = null
+    private var audioTransitionGeneration = 0L
     private var lastPlaybackSpeed = 1.0f
     private var discordRpc: com.devxrohan.smusic.utils.DiscordRPC? = null
     private var discordUpdateJob: kotlinx.coroutines.Job? = null
@@ -418,16 +401,8 @@ class MusicService :
     override fun onCreate() {
         super.onCreate()
         instance = this
-        // Ensure the in-memory preference-cache (dataStore.get() below
-        // reads from it, not from disk directly) is genuinely populated
-        // before anything else in this service runs. MainActivity/App
-        // also warm this cache, but asynchronously — if this service is
-        // started independently (media button, Bluetooth auto-play,
-        // notification action) before that finishes, every dataStore.get()
-        // call in this file would silently fall back to its default value
-        // instead of whatever the user actually saved. This is a single
-        // blocking read of the whole preferences map, done once here, not
-        // per-key, so it's cheap — not something to repeat on every event.
+        // Populate the preference cache before restoring service state and configuring audio
+        // processors.
         runBlocking { dataStore.initializeCache() }
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider(
@@ -516,6 +491,7 @@ class MusicService :
         }
 
         playerVolume.collectLatest(scope) {
+            incomingFadeJob?.cancel()
             player.volume = it
         }
 
@@ -524,17 +500,24 @@ class MusicService :
         // device/source-safe fade, not overlapping dual-deck DJ mixing.
         transitionFadeJob?.cancel()
         transitionFadeJob = scope.launch {
+            var outgoingFaded = false
             while (isActive) {
                 try {
                     val durationSeconds = dataStore.get(CrossfadeDurationKey, 0).coerceIn(0, 8)
-                    val durationMs = durationSeconds * 1000L
-                    val duration = player.duration
-                    val position = player.currentPosition
-                    if (durationMs > 0L && player.isPlaying && duration > 0L && duration != C.TIME_UNSET) {
-                        val remaining = duration - position
-                        if (remaining in 1..durationMs) {
-                            val factor = (remaining.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                    if (durationSeconds == 0) incomingFadeJob?.cancel()
+                    if (incomingFadeJob?.isActive != true) {
+                        val windowMs = durationSeconds * 1000L
+                        val duration = player.duration
+                        val remaining = duration - player.currentPosition
+                        val factor = if (windowMs > 0 && player.isPlaying && duration > 0 && duration != C.TIME_UNSET && remaining in 1..windowMs)
+                            (remaining.toFloat() / windowMs).coerceIn(0f, 1f) else 1f
+                        if (factor < 1f) {
                             player.volume = playerVolume.value * factor
+                            outgoingFaded = true
+                        } else if (outgoingFaded) {
+                            // Seeking away from the end, pausing, or disabling fade restores chosen volume.
+                            player.volume = playerVolume.value
+                            outgoingFaded = false
                         }
                     }
                 } catch (_: Exception) { }
@@ -558,11 +541,7 @@ class MusicService :
             updateNotification()
         }
 
-        // Discord Rich Presence (utils/DiscordRPC.kt + MusicService wiring).
-        // One authoritative client per service instance: connects when a token is stored and the
-        // toggle is on, fully disconnects (closeRPC) when logged out or disabled so no stale
-        // Gateway session lingers. Guest/no-token users are completely unaffected — this never
-        // touches Pulse or playback source selection.
+        // Own one Rich Presence client per service and disconnect when its token or toggle is removed.
         dataStore.data
             .map { it[com.devxrohan.smusic.constants.DiscordTokenKey] to (it[com.devxrohan.smusic.constants.EnableDiscordRPCKey] ?: true) }
             .debounce(300)
@@ -616,12 +595,7 @@ class MusicService :
             }
         }
 
-        // Pre-fetch lyrics for the current song as soon as it starts playing, not only once the Lyrics screen is
-        // opened. This used to be gated behind ShowLyricsKey, a *persisted* preference for the mini-player's
-        // Queue/Lyrics tab choice — so prefetching only happened to run when that tab happened to already be
-        // selected, not in response to a song actually starting. In practice that meant lyrics were usually first
-        // requested only when the user opened the lyrics screen and sat there waiting. Fetching unconditionally
-        // here means they're normally already in the database by the time the screen opens.
+        // Start the shared lyrics request when playback changes, before a lyrics view subscribes.
         currentMediaMetadata
             .distinctUntilChangedBy { it?.id }
             .collectLatest(scope) { mediaMetadata ->
@@ -647,61 +621,36 @@ class MusicService :
         }
 
         if (dataStore.get(PersistentQueueKey, true)) {
+            val restoreGeneration = queueLoadGeneration
             scope.launch(SilentHandler) {
-            runCatching {
-                filesDir.resolve(PERSISTENT_QUEUE_FILE).inputStream().use { fis ->
-                    ObjectInputStream(fis).use { oos ->
-                        oos.readObject() as PersistQueue
-                    }
+                val session = withContext(Dispatchers.IO) {
+                    runCatching { playbackSessionStore.read() }.onFailure { reportException(it) }.getOrNull()
+                        ?: runCatching {
+                            fun readLegacy(name: String): Any = filesDir.resolve(name).let { file ->
+                                require(file.length() <= 16L * 1024 * 1024)
+                                ObjectInputStream(file.inputStream()).use { it.readObject() }
+                            }
+                            val queue = readLegacy(PERSISTENT_QUEUE_FILE) as PersistQueue
+                            val automix = runCatching { readLegacy(PERSISTENT_AUTOMIX_FILE) as PersistQueue }.getOrDefault(PersistQueue("automix", emptyList(), 0, 0))
+                            val state = runCatching { readLegacy(PERSISTENT_PLAYER_STATE_FILE) as PersistPlayerState }
+                                .getOrDefault(PersistPlayerState(false, Player.REPEAT_MODE_OFF, false, 1f, queue.position, queue.mediaItemIndex, STATE_IDLE))
+                            PlaybackSessionStore.Session(queue, automix, state)
+                        }.getOrNull()
                 }
-            }.onSuccess { queue ->
-                // Convertir de vuelta al tipo de cola apropiado
-                val restoredQueue = queue.toQueue()
-                playQueue(
-                    queue = restoredQueue,
-                    playWhenReady = false,
-                )
-            }
-            runCatching {
-                filesDir.resolve(PERSISTENT_AUTOMIX_FILE).inputStream().use { fis ->
-                    ObjectInputStream(fis).use { oos ->
-                        oos.readObject() as PersistQueue
-                    }
-                }
-            }.onSuccess { queue ->
-                automixItems.value = queue.items.map { it.toMediaItem() }
-            }
-
-            // Restaurar estado del reproductor
-            runCatching {
-                filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).inputStream().use { fis ->
-                    ObjectInputStream(fis).use { oos ->
-                        oos.readObject() as PersistPlayerState
-                    }
-                }
-            }.onSuccess { playerState ->
-                // Restaurar configuración del reproductor después de cargar la cola
-                scope.launch {
-                    delay(1000) // Esperar a que la cola se cargue
-                    player.repeatMode = playerState.repeatMode
-                    player.shuffleModeEnabled = playerState.shuffleModeEnabled
-                    player.volume = playerState.volume
-
-                    // Restaurar posición si sigue siendo válida
-                    if (playerState.currentMediaItemIndex < player.mediaItemCount) {
-                        player.seekTo(playerState.currentMediaItemIndex, playerState.currentPosition)
-                    }
+                if (restoreGeneration == queueLoadGeneration && session != null && player.mediaItemCount == 0 && session.queue.items.isNotEmpty()) {
+                    automixItems.value = session.automix.items.map { it.toMediaItem() }
+                    val restored = session.queue.copy(mediaItemIndex = session.queue.mediaItemIndex.coerceIn(0, session.queue.items.lastIndex), position = session.queue.position.coerceAtLeast(0))
+                    playQueue(restored.toQueue(), playWhenReady = false, onLoaded = {
+                        player.repeatMode = session.state.repeatMode.takeIf { it in 0..2 } ?: 0
+                        player.shuffleModeEnabled = session.state.shuffleModeEnabled
+                        playerVolume.value = session.state.volume.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 1f
+                        player.volume = playerVolume.value
+                    })
                 }
             }
         }
-        }
 
-        // Guardar cola periódicamente para prevenir pérdida por crash o force kill.
-        // One timer, not two: this used to be a pair of always-running loops
-        // (every 30s unconditionally, plus another every 10s while playing)
-        // that overlapped and double-saved during playback — twice the
-        // wakeups and disk writes for the same result. A single loop that
-        // just waits longer when nothing's playing does the same job.
+        // Use one periodic queue-save job and cancel it with the service scope.
         scope.launch {
             while (isActive) {
                 delay(if (player.isPlaying) 10.seconds else 30.seconds)
@@ -845,12 +794,7 @@ class MusicService :
     }
 
     private fun skipOnError() {
-        /**
-         * Auto skip to the next media item on error.
-         *
-         * To prevent a "runaway diesel engine" scenario, force the user to take action after
-         * too many errors come up too quickly. Pause to show player "stopped" state
-         */
+        /** Advance past playback errors within the retry budget; require user action after repeated failures. */
         consecutivePlaybackErr += 2
         val nextWindowIndex = player.nextMediaItemIndex
 
@@ -959,7 +903,11 @@ class MusicService :
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
+        onLoaded: (() -> Unit)? = null,
     ) {
+        queueLoadJob?.cancel()
+        val loadGeneration = ++queueLoadGeneration
+        queuePageLoadInProgress = false
         if (!scope.isActive) scope = CoroutineScope(Dispatchers.Main) + Job()
         currentQueue = queue
         queueTitle = null
@@ -970,11 +918,12 @@ class MusicService :
             player.prepare()
             player.playWhenReady = playWhenReady
         }
-        scope.launch(SilentHandler) {
+        queueLoadJob = scope.launch(SilentHandler) {
             val initialStatus =
                 withContext(Dispatchers.IO) {
                     queue.getInitialStatus().filterExplicit(dataStore.get(HideExplicitKey, false))
                 }
+            if (loadGeneration != queueLoadGeneration || currentQueue !== queue) return@launch
             if (queue.preloadItem != null && player.playbackState == STATE_IDLE) return@launch
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
@@ -1009,6 +958,7 @@ class MusicService :
             if (isPermanentShuffle) {
                 refreshShuffleOrderIfNeeded()
             }
+            if (loadGeneration == queueLoadGeneration && currentQueue === queue) onLoaded?.invoke()
         }
     }
 
@@ -1318,18 +1268,7 @@ class MusicService :
                 djBassShelfGain.value = p[DjBassShelfGainKey] ?: 0f
                 syncDjProcessor()
                 applyAudioFxEnableState()
-                // BUG FIX: the lines above restore djTempoSpeed/djPitch into the UI's
-                // StateFlow and resync every djAudioProcessor DSP param (echo, filter,
-                // saturation, etc.), but they never push the restored speed/pitch to
-                // the actual ExoPlayer. So after a cold start (app killed overnight,
-                // reopened next day) a persisted preset like "Slowed + Reverb" would
-                // silently keep playing at normal 1.0x speed while the heavy echo /
-                // resonant filter / saturation DSP tuned for 0.85x got reapplied in
-                // full on top of it — that speed/DSP mismatch is what sounds like
-                // crackling/distorted ("fatna") audio, and is exactly why toggling FX
-                // off -> on and reselecting the preset fixed it (that path calls
-                // setDjTempoAndPitch(), which *does* update player.playbackParameters).
-                // Re-applying it here on load closes that gap.
+                // Restore player tempo and pitch alongside processor state when selecting a preset.
                 if (::player.isInitialized && audioFxAndDjEnabled.value && !bypassAllAudioEffects.value) {
                     runCatching {
                         player.playbackParameters = androidx.media3.common.PlaybackParameters(
@@ -1503,15 +1442,7 @@ class MusicService :
         setDjTurntableLinked(false); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setEightDLevel(8); setSpatialSoundEnabled(false)
         setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f)
         djAudioProcessor.resetFx()
-        // BUG FIX (state only, does not touch any DSP/sound parameter): DjAudioProcessor
-        // .resetFx() also forces its internal `enabled` flag to false. That is NOT the
-        // same thing as the master "Audio FX" switch (audioFxAndDjEnabled) shown in the
-        // UI -- the switch stayed ON, but the real DSP engine underneath got silently
-        // disabled. Nothing in applyDjPreset() below ever set `enabled` back to true
-        // for any other preset, so after tapping Flat/Reset once, every preset picked
-        // afterwards was silently a no-op (clean, unprocessed audio, not an actual
-        // effect). Re-syncing it here to the master switch fixes that without changing
-        // what any preset actually sounds like.
+        // Keep the master FX state synchronized after resetting the processor.
         djAudioProcessor.enabled = audioFxAndDjEnabled.value && !bypassAllAudioEffects.value
         setAudioStudioBass(0)
     }
@@ -1519,59 +1450,20 @@ class MusicService :
         if (bypassAllAudioEffects.value) return
         // Same reasoning as resetDjFx() above -- state sync only.
         djAudioProcessor.enabled = audioFxAndDjEnabled.value && !bypassAllAudioEffects.value
-        // BUG FIX: "Audio Studio" (Settings) has its own, completely independent
-        // native Android BassBoost effect (setAudioStudioBass), with no connection to
-        // DJ Presets at all. If that was ever turned up -- even once, even for
-        // testing -- it keeps silently boosting bass on EVERY song forever after,
-        // stacked on top of whatever DJ preset is picked, including presets like
-        // Slowed + Reverb, Lo-Fi Radio or Cosmic Echo that never touch bass
-        // themselves. Because it's a native effect applied on the audio session (like
-        // the old LoudnessEnhancer usage), it also sits outside this app's own DSP
-        // chain, so the peak limiter inside DjAudioProcessor has no visibility into it
-        // either -- this is almost certainly why presets with no boost of their own
-        // were still crackling on bass. Every DJ preset now explicitly clears it, so
-        // the two systems can't silently stack.
+        // Disable the independent native BassBoost before applying an in-chain bass preset.
         setAudioStudioBass(0)
         when (preset) {
             DjPreset.DEFAULT -> resetDjFx()
-            // Bass is now boosted in-chain (bassShelfGain, protected by the limiter)
-            // instead of via the system LoudnessEnhancer, which runs after our
-            // limiter and was the real source of the crackling. A gentle sidechain
-            // "pump" is the defining characteristic of a real club PA sound (per
-            // published club/EDM mixing references) and was completely missing before.
-            // Bass shelf cut way down (.65 -> .20): +0.65 was adding roughly +4dB of
-            // pure extra bass gain on top of whatever the track already had -- no
-            // limiter can absorb that cleanly without sounding squashed. .20 is a
-            // genuinely modest, speaker-safe lift (roughly +1.5dB), which is what a
-            // tasteful "club" bass lift should actually be.
+            // Use in-chain bass gain so saturation and the peak limiter can constrain the boosted
+            // signal.
             DjPreset.CLUB_BOOTH -> { setEchoEnabled(true); setEchoDelayMs(180); setEchoFeedback(.24f); setEchoWetMix(.28f); setEchoPingPong(true); setDjFilterSweep(-.15f); setDjSaturation(.08f); setAudioBoostPercent(100); setAudioBoostEnabled(false); setDjBassShelfGain(.12f); setDjPumpDepth(.12f); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f) }
-            // Wet mix brought down from .50 to .32: even with the corrected dry/wet
-            // crossfade (dry = 1 - wet), a 50/50 split is still an equal-volume second
-            // copy of the vocal, which for short/repeated lines reads as "doubling"
-            // rather than reverb. .32 wet / .68 dry keeps the echo clearly audible and
-            // spacious without it competing with the lead vocal at near-equal level.
+            // Keep echo wet gain below the dry vocal to avoid a doubled voice on short delays.
             DjPreset.SLOWED_REVERB -> { setEchoEnabled(true); setEchoDelayMs(380); setEchoFeedback(.42f); setEchoWetMix(.25f); setEchoPingPong(true); setDjFilterSweep(-.25f); setDjSaturation(.06f); setDjTurntableLinked(true); setDjTempoAndPitch(.85f,.85f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
             DjPreset.NIGHTCORE -> { setEchoEnabled(false); setDjFilterSweep(.20f); setDjSaturation(.04f); setDjTurntableLinked(true); setDjTempoAndPitch(1.25f,1.25f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
-            // Bass boost/saturation/filter trimmed a bit (160%->145%, .40->.30, -.35->-.28):
-            // the new peak limiter + sub-bass rumble guard in DjAudioProcessor handle
-            // transient crackle now, but the *amount* of emphasis stacked here was
-            // still tonally too much for a phone speaker ("bohot zyada bass").
-            // Same fix as Club Booth: moved off the unprotected system LoudnessEnhancer
-            // and onto the in-chain bass shelf, which the limiter actually sees. This
-            // is also why Bass Bomb specifically had by far the worst crackling before
-            // (it had the highest LoudnessEnhancer percentage of any preset).
-            // Same fix, bigger cut (1.05 -> .35): this preset is meant to be the
-            // heaviest bass of the set, but +1.05 (~+6dB raw) was simply too much
-            // gain for any phone speaker or limiter to absorb cleanly. .35 (~+2.5dB)
-            // still reads as clearly the "bassiest" preset while staying clean.
+            // Keep preset gain within the limiter headroom while preserving its bass and filter
+            // balance.
             DjPreset.BASS_BOMB -> { setEchoEnabled(false); setDjFilterSweep(-.20f); setDjSaturation(.08f); setAudioBoostPercent(100); setAudioBoostEnabled(false); setDjBassShelfGain(.18f); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f) }
-            // Real lo-fi/cassette/telephone character (per published lo-fi DSP chains):
-            // narrow the band from BOTH ends -- cut highs (filterSweep) *and* cut
-            // sub-bass (bassCutHz, new) -- add a slow "wow" wobble instead of a
-            // flanger (a flanger is a jet/chorus effect, not what real tape wow sounds
-            // like), and a low-level vinyl noise/crackle layer. This is also what was
-            // missing the "lofi feel" before, and cutting the bass end here is what
-            // keeps Lo-Fi Radio's speaker from overloading.
+            // Apply both low- and high-frequency cuts with wow and noise for the lo-fi preset.
             DjPreset.LOFI_VINYL -> { setEchoEnabled(true); setEchoDelayMs(120); setEchoFeedback(.22f); setEchoWetMix(.26f); setEchoPingPong(false); setDjFilterSweep(-.55f); setDjSaturation(.08f); setDjFlangerEnabled(false); setDjTempoAndPitch(.95f,.95f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(125f); setDjWowDepth(.045f); setDjVinylNoiseLevel(.035f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
             DjPreset.SPACE_ECHO -> { setEchoEnabled(true); setEchoDelayMs(450); setEchoFeedback(.65f); setEchoWetMix(.60f); setEchoPingPong(true); setDjFilterSweep(0f); setDjFlangerEnabled(true); setDjFlangerRate(.4f); setDjFlangerDepth(.35f); setDjSaturation(.10f); setDjTempoAndPitch(1f,1f); setEightDEnabled(false); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
             DjPreset.EIGHT_D -> { setEchoEnabled(false); setDjFilterSweep(0f); setDjFlangerEnabled(false); setDjSaturation(0f); setDjTurntableLinked(false); setDjTempoAndPitch(1f,1f); setEightDLevel(8); setEightDEnabled(true); setSpatialSoundEnabled(false); setDjBassCutHz(0f); setDjWowDepth(0f); setDjVinylNoiseLevel(0f); setDjPumpDepth(0f); setDjBassShelfGain(0f) }
@@ -1852,16 +1744,22 @@ class MusicService :
         setupLoudnessEnhancer()
         setupEqualizer()
         setupAudioStudioEffects()
+        val fadeGeneration = ++audioTransitionGeneration
+        incomingFadeJob?.cancel()
         player.volume = playerVolume.value
         val fadeSeconds = dataStore.get(CrossfadeDurationKey, 0).coerceIn(0, 8)
         if (fadeSeconds > 0 && player.isPlaying) {
-            val targetVolume = playerVolume.value
             player.volume = 0f
-            scope.launch {
-                val steps = 8
-                repeat(steps) { step ->
-                    delay(75L)
-                    player.volume = targetVolume * ((step + 1).toFloat() / steps)
+            incomingFadeJob = scope.launch {
+                try {
+                    val steps = 8
+                    repeat(steps) { step ->
+                        delay(75L)
+                        if (fadeGeneration != audioTransitionGeneration || !player.isPlaying) return@launch
+                        player.volume = playerVolume.value * ((step + 1).toFloat() / steps)
+                    }
+                } finally {
+                    if (scope.isActive && fadeGeneration == audioTransitionGeneration) player.volume = playerVolume.value
                 }
             }
         }
@@ -1880,17 +1778,19 @@ class MusicService :
             !queuePageLoadInProgress
         ) {
             queuePageLoadInProgress = true
+            val pageQueue = currentQueue
+            val pageGeneration = queueLoadGeneration
             scope.launch(SilentHandler) {
                 try {
-                    val mediaItems = currentQueue.nextPage()
+                    val mediaItems = pageQueue.nextPage()
                         .filterExplicit(dataStore.get(HideExplicitKey, false))
                         .distinctBy { it.mediaId }
-                    if (mediaItems.isNotEmpty() && player.playbackState != STATE_IDLE) {
+                    if (pageGeneration == queueLoadGeneration && currentQueue === pageQueue && mediaItems.isNotEmpty() && player.playbackState != STATE_IDLE) {
                         player.addMediaItems(mediaItems)
                         refreshShuffleOrderIfNeeded()
                     }
                 } finally {
-                    queuePageLoadInProgress = false
+                    if (pageGeneration == queueLoadGeneration) queuePageLoadInProgress = false
                 }
             }
         }
@@ -1953,14 +1853,7 @@ class MusicService :
             )
         ) {
             if (player.playWhenReady) {
-                // The user wants this playing — even through a brief
-                // buffering moment or an in-progress error-retry/auto-skip
-                // (which can transiently put the player in STATE_IDLE).
-                // playWhenReady is Media3's own signal for user-intent, not
-                // "is audio actively coming out right now" — using it alone
-                // here (instead of also requiring isBufferingOrReady) means
-                // a temporary hiccup during active listening never starts
-                // the stop-timer below.
+                // Preserve playback intent across transient buffering and retry states.
                 val focusGranted = requestAudioFocus()
                 if (focusGranted) {
                     openAudioEffectSession()
@@ -2127,7 +2020,7 @@ class MusicService :
             if (dataSpec.uri.scheme == "content" || dataSpec.uri.scheme == "file") {
                 return@Factory dataSpec
             }
-            
+
             val mediaId = dataSpec.key ?: error("No media id")
 
             if (downloadCache.isCached(
@@ -2175,11 +2068,7 @@ class MusicService :
                 }
             }
 
-            // Optional JioSaavn-first mode for catalogue tracks. This is a best-effort
-            // title/artist match; if no reliable match or stream is available, continue with YouTube.
-            // This preference is already warmed into the app's DataStore cache at service
-            // startup. Read the cached value synchronously instead of suspending on disk for
-            // every uncached YouTube track; JioSaavn priority remains fully user-controlled.
+            // Try a reliable JioSaavn catalogue match when enabled; otherwise retain YouTube playback.
             val preferSaavn = dataStore.get(
                 com.devxrohan.smusic.constants.PrioritizeJioSaavn320Key,
                 false,
@@ -2404,20 +2293,7 @@ class MusicService :
         visualizerManager.isPlaying = isPlaying
         if (isPlaying && ::player.isInitialized) visualizerManager.start(player.audioSessionId)
 
-        // BUG FIX: applies to every DJ/Audio-FX preset, not just one. If the service
-        // stays alive in the background for a long time (app just closed, not actually
-        // killed — very common on Android) the djAudioProcessor/eightDAudioProcessor
-        // instances never get recreated, so the enable-transition reset added to
-        // DjAudioProcessor/EightDAudioProcessor (which only fires on an OFF -> ON
-        // flip) never runs either. Whatever echo/filter/8D state was sitting in their
-        // buffers before the long idle gap is still there when playback resumes,
-        // which is what was heard as crackling/distorted audio regardless of which
-        // preset was active, and why toggling the master switch off/on (which DOES
-        // force that transition) always fixed it. Instead of relying on that one
-        // transition, we now also do a defensive buffer clear every time playback
-        // actually (re)starts. This is inaudible — playback was silent/paused right
-        // before this fires — and keeps every preset safe across any gap, long or
-        // short, app-killed or not.
+        // Resynchronize native audio effects with the current audio session before applying a preset.
         if (isPlaying && ::player.isInitialized && audioFxAndDjEnabled.value && !bypassAllAudioEffects.value) {
             djAudioProcessor.resetState()
             eightDAudioProcessor.resetState()
@@ -2481,7 +2357,8 @@ class MusicService :
     }
 
     private fun saveQueueToDisk() {
-        if (player.playbackState == STATE_IDLE && player.mediaItemCount == 0) {
+        if (!dataStore.get(PersistentQueueKey, true) || (player.playbackState == STATE_IDLE && player.mediaItemCount == 0)) {
+            playbackSessionStore.clear()
             filesDir.resolve(PERSISTENT_AUTOMIX_FILE).delete()
             filesDir.resolve(PERSISTENT_QUEUE_FILE).delete()
             filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).delete()
@@ -2489,11 +2366,14 @@ class MusicService :
         }
 
         try {
+            val retainedItems = player.mediaItems.mapNotNull { it.metadata }
+            if (retainedItems.isEmpty()) return // A temporarily unresolved queue must not erase the last good session.
+            val retainedIndex = retainedItems.indexOfFirst { it.id == player.currentMediaItem?.mediaId }.coerceAtLeast(0)
             val persistQueue =
                 PersistQueue(
                     title = queueTitle,
-                    items = player.mediaItems.mapNotNull { it.metadata },
-                    mediaItemIndex = player.currentMediaItemIndex.coerceAtLeast(0),
+                    items = retainedItems,
+                    mediaItemIndex = retainedIndex,
                     position = if (player.currentPosition >= 0) player.currentPosition else 0,
                 )
             val persistAutomix =
@@ -2508,45 +2388,14 @@ class MusicService :
             val playerState = PersistPlayerState(
                 repeatMode = player.repeatMode,
                 shuffleModeEnabled = player.shuffleModeEnabled,
-                volume = player.volume,
-                currentMediaItemIndex = player.currentMediaItemIndex.coerceAtLeast(0),
+                volume = playerVolume.value,
+                currentMediaItemIndex = retainedIndex,
                 currentPosition = if (player.currentPosition >= 0) player.currentPosition else 0,
                 playWhenReady = player.playWhenReady, // Estado de reproducción (si está listo para reproducir)
                 playbackState = player.playbackState // Estado actual del reproductor
             )
 
-            runCatching {
-                filesDir.resolve(PERSISTENT_QUEUE_FILE).outputStream().use { fos ->
-                    ObjectOutputStream(fos).use { oos ->
-                        oos.writeObject(persistQueue)
-                    }
-                }
-            }.onFailure {
-                Log.e(TAG, "Error saving queue to disk", it)
-                reportException(it)
-            }
-
-            runCatching {
-                filesDir.resolve(PERSISTENT_AUTOMIX_FILE).outputStream().use { fos ->
-                    ObjectOutputStream(fos).use { oos ->
-                        oos.writeObject(persistAutomix)
-                    }
-                }
-            }.onFailure {
-                Log.e(TAG, "Error saving automix to disk", it)
-                reportException(it)
-            }
-
-            runCatching {
-                filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).outputStream().use { fos ->
-                    ObjectOutputStream(fos).use { oos ->
-                        oos.writeObject(playerState)
-                    }
-                }
-            }.onFailure {
-                Log.e(TAG, "Error saving player state to disk", it)
-                reportException(it)
-            }
+            playbackSessionStore.write(PlaybackSessionStore.Session(persistQueue, persistAutomix, playerState))
         } catch (e: Exception) {
             Log.e(TAG, "Error in saveQueueToDisk", e)
             reportException(e)
@@ -2556,12 +2405,7 @@ class MusicService :
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onDestroy() {
         if (instance === this) instance = null
-        // Must be first — without cancelling this, the periodic queue-save
-        // loops (10s/30s intervals) and any other scope-launched coroutine
-        // keep running in the background indefinitely, since their
-        // isActive check only flips false once the scope itself is
-        // cancelled. This was the real cause of battery drain persisting
-        // even after the service was "destroyed".
+        // Cancel service jobs before teardown so queue-save timers cannot outlive playback.
         scope.cancel()
         if (discordRpc?.isRpcRunning() == true) {
             discordRpc?.closeRPC()
@@ -2610,12 +2454,7 @@ class MusicService :
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        // Without this, the OS's default restart-policy can bring this
-        // service back after we've already decided to stop it — this was
-        // the real reason "Stop music on task clear" could look like it
-        // wasn't working, why the notification could reappear after being
-        // dismissed, and why behavior varied across phones (different
-        // OEMs handle sticky-restart differently).
+        // Prevent service restarts after an intentional shutdown.
         return START_NOT_STICKY
     }
 
@@ -2634,21 +2473,11 @@ class MusicService :
             state != Player.STATE_ENDED
     }
 
-    /**
-     * Explicitly removes the foreground notification before stopping —
-     * calling stopSelf() alone leaves a window where Media3's own
-     * notification-manager can still re-post the notification, which is
-     * why it could reappear even after being dismissed.
-     */
+    /** Remove the foreground notification before stopping the service. */
     private fun stopForegroundAndSelf() {
         pausedIdleStopJob?.cancel()
         pausedIdleStopJob = null
-        // Must happen first and synchronously — stopSelf() below only
-        // requests the service be torn down, it doesn't guarantee it
-        // happens immediately. Without explicitly pausing here, the
-        // player can keep producing audio in the background for however
-        // long that teardown takes, even with the notification and task
-        // already gone.
+        // Revoke playback-resume intent before requesting asynchronous service teardown.
         runCatching {
             player.pause()
             player.stop()
@@ -2665,23 +2494,13 @@ class MusicService :
         stopSelf()
     }
 
-    /**
-     * Schedules stopping the service after a short idle period, but only
-     * when nothing is bound (no UI actively showing) — this avoids ever
-     * interrupting playback someone is actively looking at, while still
-     * genuinely closing things down soon after they've left and paused.
-     */
+    /** Stop after the idle grace period only when no UI client is bound. */
     private fun schedulePausedStopIfIdle() {
         if (hasBoundClients) return
         if (hasResumablePlayback() && player.playWhenReady) return
 
-        // A temporary audio-focus loss (phone call, another app briefly
-        // taking audio) sets this flag so playback can resume automatically
-        // once focus returns — see handleAudioFocusChange(). Stopping the
-        // whole service quickly in that case would leave nothing to
-        // resume when the call ends, so it gets a much longer grace
-        // period instead of the normal short one. A genuinely long call
-        // still eventually stops things, just not within a few seconds.
+        // Resume after transient focus loss only if no manual pause or lifecycle stop revoked playback
+        // intent.
         val isTemporaryInterruption = wasPlayingBeforeAudioFocusLoss
         val stopDelayMs = if (isTemporaryInterruption) 15 * 60 * 1000L else 5_000L
 
@@ -2696,16 +2515,8 @@ class MusicService :
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // onTaskRemoved runs on the main thread and the system gives it very little headroom before flagging the
-        // app as not responding. The previous `runBlocking { dataStore.getSuspend(...) }` here blocked that main
-        // thread on a DataStore read — usually fast (served from the in-memory cache populated at startup — see
-        // DataStore.kt's dataStoreCache), but with no guaranteed upper bound: a cache miss or a slow disk right
-        // when the user swipes the app away reads from the actual DataStore Flow and can easily run past what
-        // onTaskRemoved will tolerate. That's what showed up as "SMusic isn't responding" right after closing.
-        // `dataStore.get(key, default)` is the synchronous, cache-only counterpart — it never touches disk, and
-        // resolves to the same value here in practice since this key's cache entry (or its correct default when
-        // the user has never changed the setting, which is the common case) is already populated well before
-        // onTaskRemoved could ever fire.
+        // Persist shutdown state off the main thread while retaining service-owned coroutine
+        // cancellation.
         val stopOnTaskClear = dataStore.get(StopMusicOnTaskClearKey, false)
         if (stopOnTaskClear || player.currentMediaItem == null) {
             stopForegroundAndSelf()

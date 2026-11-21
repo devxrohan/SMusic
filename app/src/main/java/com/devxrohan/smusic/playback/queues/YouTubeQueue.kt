@@ -37,11 +37,7 @@ class YouTubeQueue(
 
     override fun hasNextPage(): Boolean = continuation != null
 
-    /**
-     * Expand a short account radio using only related results obtained through the authenticated
-     * YouTube Music session. This is deliberately called only by PulseRadioQueue after verifying
-     * that a YouTube account is connected; guest queues continue using Pulse's existing expansion.
-     */
+    /** Expand short account radio queues using related results from the authenticated music session. */
     suspend fun expandConnectedAccountQueue(status: Queue.Status, targetSize: Int = 50): Queue.Status {
         if (accountExpansionComplete || status.items.size >= targetSize) return status
         accountExpansionComplete = true

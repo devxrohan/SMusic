@@ -54,12 +54,7 @@ constructor(
     private val downloadQuality by enumPreference(context, DownloadQualityKey, DownloadQuality.HIGH)
     private val songUrlCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 
-    // Spaces out consecutive stream-resolutions during bulk playlist-downloads
-    // to avoid tripping YouTube's own rate-limiting/bot-detection — a burst of
-    // many songs' worth of fallback-client requests in quick succession can
-    // get the whole session flagged, causing later songs to wrongly report
-    // "Video unavailable" even though they're genuinely available (confirmed
-    // by the same song succeeding when downloaded individually).
+    // Throttle bulk stream resolution to reduce provider rate-limit failures.
     @Volatile private var lastResolutionAtMs = 0L
     private val resolutionSpacingMs = 1200L
 

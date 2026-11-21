@@ -1,7 +1,4 @@
-/*
- * SMusic History Screen
- * Redesigned & Updated
- */
+/** SMusic History Screen Redesigned & Updated */
 
 
 
@@ -27,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -261,6 +259,8 @@ fun HistoryScreen(
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        Icon(painterResource(R.drawable.pulse_waveform), null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = stringResource(R.string.pulse_title),

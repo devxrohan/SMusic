@@ -62,19 +62,20 @@ fun statToPeriod(
         OptionStats.WEEKS -> {
             LocalDateTime
                 .now()
-                .minusWeeks(test.toLong())
-                .minusDays(1)
+                .toLocalDate().with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)).atStartOfDay()
+                .minusWeeks(test.coerceAtLeast(0).toLong())
                 .toInstant(ZoneOffset.UTC)
-                .toEpochMilli()
+                .toEpochMilli() - 1L
         }
 
         OptionStats.MONTHS -> {
             LocalDateTime
                 .now()
                 .withDayOfMonth(1)
-                .minusMonths(test.toLong())
+                .toLocalDate().atStartOfDay()
+                .minusMonths(test.coerceAtLeast(0).toLong())
                 .toInstant(ZoneOffset.UTC)
-                .toEpochMilli()
+                .toEpochMilli() - 1L
         }
 
         OptionStats.YEARS -> {
@@ -82,14 +83,15 @@ fun statToPeriod(
                 .now()
                 .withDayOfMonth(1)
                 .withMonth(1)
-                .minusYears(test.toLong())
+                .toLocalDate().atStartOfDay()
+                .minusYears(test.coerceAtLeast(0).toLong())
                 .toInstant(
                     ZoneOffset.UTC,
-                ).toEpochMilli()
+                ).toEpochMilli() - 1L
         }
 
         OptionStats.CONTINUOUS -> {
-            val index = if (test > StatPeriod.entries.size) 0 else test
+            val index = test.coerceIn(0, StatPeriod.entries.lastIndex)
             StatPeriod.entries[index].toTimeMillis()
         }
     }

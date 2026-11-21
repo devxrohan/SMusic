@@ -19,6 +19,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -48,16 +51,12 @@ constructor(
                         limit = -1,
                         toTimeStamp =
                             if (selection == OptionStats.CONTINUOUS || t == 0) {
-                                LocalDateTime
-                                    .now()
-                                    .toInstant(
-                                        ZoneOffset.UTC,
-                                    ).toEpochMilli()
+                                Long.MAX_VALUE
                             } else {
                                 statToPeriod(selection, t - 1)
                             },
                     )
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val mostPlayedSongs =
         combine(
@@ -71,16 +70,12 @@ constructor(
                         limit = -1,
                         toTimeStamp =
                             if (selection == OptionStats.CONTINUOUS || t == 0) {
-                                LocalDateTime
-                                    .now()
-                                    .toInstant(
-                                        ZoneOffset.UTC,
-                                    ).toEpochMilli()
+                                Long.MAX_VALUE
                             } else {
                                 statToPeriod(selection, t - 1)
                             },
                     )
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val mostPlayedArtists =
         combine(
@@ -94,18 +89,12 @@ constructor(
                         limit = -1,
                         toTimeStamp =
                             if (selection == OptionStats.CONTINUOUS || t == 0) {
-                                LocalDateTime
-                                    .now()
-                                    .toInstant(
-                                        ZoneOffset.UTC,
-                                    ).toEpochMilli()
+                                Long.MAX_VALUE
                             } else {
                                 statToPeriod(selection, t - 1)
                             },
-                    ).map { artists ->
-                        artists.filter { it.artist.isYouTubeArtist }
-                    }
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+                    )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val mostPlayedAlbums =
         combine(
@@ -118,62 +107,59 @@ constructor(
                     limit = -1,
                     toTimeStamp =
                         if (selection == OptionStats.CONTINUOUS || t == 0) {
-                            LocalDateTime
-                                .now()
-                                .toInstant(
-                                    ZoneOffset.UTC,
-                                ).toEpochMilli()
+                            Long.MAX_VALUE
                         } else {
                             statToPeriod(selection, t - 1)
                         },
                 )
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val firstEvent =
         database
             .firstEvent()
-            .stateIn(viewModelScope, SharingStarted.Lazily, null)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    init {
-        viewModelScope.launch {
-            mostPlayedArtists.collect { artists ->
-                artists
-                    .map { it.artist }
-                    .filter {
-                        it.thumbnailUrl == null || Duration.between(
-                            it.lastUpdateTime,
-                            LocalDateTime.now()
-                        ) > Duration.ofDays(10)
-                    }.forEach { artist ->
-                        YouTube.artist(artist.id).onSuccess { artistPage ->
-                            database.query {
-                                update(artist, artistPage)
+    suspend fun observeMetadata() = withContext(Dispatchers.IO) {
+        coroutineScope {
+            launch {
+                mostPlayedArtists.collect { artists ->
+                    artists
+                        .map { it.artist }
+                        .filter {
+                            it.isYouTubeArtist && (it.thumbnailUrl == null || Duration.between(
+                                it.lastUpdateTime,
+                                LocalDateTime.now()
+                            ) > Duration.ofDays(10))
+                        }.forEach { artist ->
+                            com.devxrohan.smusic.utils.MusicPageRequests.artist(artist.id).onSuccess { artistPage ->
+                                database.query {
+                                    update(artist, artistPage)
+                                }
                             }
                         }
-                    }
+                }
             }
-        }
-        viewModelScope.launch {
-            mostPlayedAlbums.collect { albums ->
-                albums
-                    .filter {
-                        it.album.songCount == 0
-                    }.forEach { album ->
-                        YouTube
-                            .album(album.id)
-                            .onSuccess { albumPage ->
-                                database.query {
-                                    update(album.album, albumPage, album.artists)
-                                }
-                            }.onFailure {
-                                reportException(it)
-                                if (it.message?.contains("NOT_FOUND") == true) {
+            launch {
+                mostPlayedAlbums.collect { albums ->
+                    albums
+                        .filter {
+                            it.album.songCount == 0
+                        }.forEach { album ->
+                            com.devxrohan.smusic.utils.MusicPageRequests.album(album.id)
+                                .onSuccess { albumPage ->
                                     database.query {
-                                        delete(album.album)
+                                        update(album.album, albumPage, album.artists)
+                                    }
+                                }.onFailure {
+                                    reportException(it)
+                                    if (it.message?.contains("NOT_FOUND") == true) {
+                                        database.query {
+                                            delete(album.album)
+                                        }
                                     }
                                 }
-                            }
-                    }
+                        }
+                }
             }
         }
     }

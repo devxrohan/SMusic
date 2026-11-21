@@ -76,10 +76,7 @@ fun YouTubeLoginScreen(navController: NavController, onScreenReady: () -> Unit =
                     if (isAccountHandled) return@withContext
                     if (name.isNotEmpty()) {
                         isAccountHandled = true
-                        // Persist the whole profile in one atomic write that survives this screen leaving
-                        // composition. The old per-field setters ran in this screen's coroutine scope, and
-                        // finishLoginNavigation() (instant when started from onboarding) cancelled it before
-                        // the last field (the profile photo) was written.
+                        // Persist account identity atomically in a scope that survives navigation away from login.
                         kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                             context.dataStore.edit { prefs ->
                                 prefs[AccountNameKey] = name
@@ -145,9 +142,19 @@ fun YouTubeLoginScreen(navController: NavController, onScreenReady: () -> Unit =
         }
     }
 
+    var showCookieLogin by remember { mutableStateOf(false) }
+    if (showCookieLogin) com.devxrohan.smusic.ui.screens.settings.YouTubeCookieLoginDialog(
+        onDismiss = { showCookieLogin = false },
+        onConnected = { showCookieLogin = false; finishLoginNavigation(navController) })
+
     Scaffold(
         topBar = {
             TopAppBar(
+                actions = {
+                    androidx.compose.material3.IconButton(onClick = { showCookieLogin = true }) {
+                        Icon(painterResource(R.drawable.lock), "Advanced cookie login")
+                    }
+                },
                 title = {
                     Text(
                         if (isLoadingAccountInfo) {
@@ -179,6 +186,7 @@ fun YouTubeLoginScreen(navController: NavController, onScreenReady: () -> Unit =
                 WebView(context).apply {
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView, url: String?) {
+                            if (showCookieLogin) return
                             if (url != null && url.startsWith(YOUTUBE_MUSIC_URL)) {
                                 val youTubeCookieString = CookieManager.getInstance().getCookie(url)
                                 val parsedCookies = parseCookieString(youTubeCookieString)
@@ -246,10 +254,8 @@ fun YouTubeLoginScreen(navController: NavController, onScreenReady: () -> Unit =
 }
 
 
-/**
- * Remove both the WebView login route and its Sign in/Cancel entry screen from
- * the back stack after a valid YouTube session has been captured.
- */
+/** Remove both the WebView login route and its Sign in/Cancel entry screen from the back stack after a
+ * valid YouTube session has been captured. */
 private fun finishLoginNavigation(navController: NavController) {
     navController.navigate("home") {
         popUpTo(navController.graph.id) {

@@ -6,12 +6,7 @@ import com.devxrohan.smusic.db.entities.Song
 import com.devxrohan.smusic.discordrpc.rpc.DiscordRpcClient
 import com.devxrohan.smusic.discordrpc.rpc.RpcImage
 
-/**
- * Discord Rich Presence: song title/artist, cover art (via the RPC image proxy),
- * progress, and two buttons. Covers + buttons only render when the activity carries a Discord
- * application id, so set `discord.application.id=<your app id>` in local.properties (free: Discord
- * Developer Portal > New Application, name it SMusic, copy the Application ID).
- */
+/** Publish track metadata and progress through Discord Rich Presence with the configured app identity. */
 class DiscordRPC(
     val context: Context,
     token: String,

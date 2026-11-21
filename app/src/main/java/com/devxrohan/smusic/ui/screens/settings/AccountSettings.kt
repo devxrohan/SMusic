@@ -92,8 +92,6 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
     }
     val isDiscordLoggedIn = discordToken.isNotBlank() && discordToken != "error" && discordToken != "null"
     var showAdvancedLogin by remember { mutableStateOf(false) }
-    var cookieInput by remember { mutableStateOf("") }
-    var visitorInput by remember { mutableStateOf("") }
 
     SettingsPage(title = stringResource(R.string.account), navController = navController, scrollBehavior = scrollBehavior) {
         if (!isYouTubeLoggedIn) {
@@ -105,14 +103,10 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
                             title = { Text(guestProfileName.ifBlank { "Guest" }) },
                             description = "Your profile is saved on this device. No account or sign-in required.",
                             icon = {
-                                if (guestProfilePhotoPath.isNotBlank() && File(guestProfilePhotoPath).exists()) {
-                                    AsyncImage(
-                                        model = File(guestProfilePhotoPath), contentDescription = "Guest profile picture",
-                                        modifier = androidx.compose.ui.Modifier.size(40.dp).clip(CircleShape), contentScale = ContentScale.Crop,
-                                    )
-                                } else {
-                                    Icon(painterResource(R.drawable.person), contentDescription = null)
-                                }
+                                com.devxrohan.smusic.ui.component.ProfileAvatar(
+                                    model = guestProfilePhotoPath.takeIf { it.isNotBlank() }?.let(::File),
+                                    contentDescription = "Guest profile picture", size = 40.dp,
+                                )
                             },
                             onClick = { guestNameInput = guestProfileName; showGuestNameDialog = true },
                         )
@@ -148,7 +142,12 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
                     PreferenceEntry(
                         title = { Text(if (isYouTubeLoggedIn) accountName.ifBlank { accountEmail.ifBlank { "YouTube account connected" } } else "Connect YouTube Music") },
                         description = if (isYouTubeLoggedIn) accountEmail.ifBlank { accountChannelHandle.ifBlank { "Connected" } } else "Sign in through YouTube Music to sync your library and history.",
-                        icon = { Icon(painterResource(R.drawable.play), contentDescription = null) },
+                        icon = {
+                            if (isYouTubeLoggedIn) com.devxrohan.smusic.ui.component.ProfileAvatar(
+                                model = accountPhotoUrl.takeIf { it.startsWith("https://") },
+                                contentDescription = "YouTube profile", size = 40.dp,
+                            ) else Icon(painterResource(R.drawable.play), contentDescription = null)
+                        },
                         onClick = { navController.navigate(if (isYouTubeLoggedIn) "account" else "login") },
                     )
                 },
@@ -170,7 +169,7 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
                         title = { Text(stringResource(R.string.ui_advanced_login_cookies)) },
                         description = stringResource(R.string.ui_paste_a_youtube_music_cookie_string),
                         icon = { Icon(painterResource(R.drawable.lock), contentDescription = null) },
-                        onClick = { cookieInput = ""; visitorInput = visitorData; showAdvancedLogin = true },
+                        onClick = { showAdvancedLogin = true },
                     )
                 },
                 {
@@ -199,6 +198,14 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
                         description = if (isDiscordLoggedIn) "Rich Presence is ${if (discordRpcEnabled) "enabled" else "connected but disabled"}." else stringResource(R.string.discord_rich_presence),
                         icon = { Icon(painterResource(R.drawable.info), contentDescription = null) },
                         onClick = { navController.navigate("settings/discord") },
+                    )
+                },
+                {
+                    PreferenceEntry(
+                        title = { Text("Advanced Discord login") },
+                        description = "Sign in with a Discord token",
+                        icon = { Icon(painterResource(R.drawable.lock), null) },
+                        onClick = { navController.navigate("settings/discord/login?manual=true") },
                     )
                 },
                 {
@@ -241,77 +248,6 @@ fun AccountSettings(navController: NavController, scrollBehavior: TopAppBarScrol
         )
     }
 
-    if (showAdvancedLogin) {
-        AlertDialog(
-            onDismissRequest = { showAdvancedLogin = false },
-            title = { Text(stringResource(R.string.ui_advanced_youtube_login)) },
-            text = {
-                androidx.compose.foundation.layout.Column {
-                    Text(stringResource(R.string.ui_paste_cookies_copied_from_music_youtube))
-                    OutlinedTextField(
-                        value = cookieInput,
-                        onValueChange = { cookieInput = it },
-                        label = { Text(stringResource(R.string.ui_cookie_string)) },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        minLines = 3,
-                        maxLines = 6,
-                        visualTransformation = PasswordVisualTransformation(),
-                    )
-                    OutlinedTextField(
-                        value = visitorInput,
-                        onValueChange = { visitorInput = it },
-                        label = { Text(stringResource(R.string.ui_visitor_data_optional)) },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        singleLine = true,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val parsed = parseCookieString(cookieInput.trim())
-                    if (cookieInput.isBlank() || "SAPISID" !in parsed) {
-                        Toast.makeText(context, "Invalid cookie: SAPISID was not found", Toast.LENGTH_LONG).show()
-                    } else {
-                        val cookieToSave = cookieInput.trim()
-                        val visitorToSave = visitorInput.trim()
-                        scope.launch {
-                            innerTubeCookie = cookieToSave
-                            visitorData = visitorToSave
-                            // accountInfo() reads the active InnerTube session; cookie login must
-                            // initialize the same in-memory cookie as the WebView login flow.
-                            YouTube.cookie = cookieToSave
-                            showAdvancedLogin = false
-                            Toast.makeText(context, "Cookie saved. Loading YouTube profile…", Toast.LENGTH_LONG).show()
-                            scope.launch {
-                                var resolved = false
-                                repeat(4) { attempt ->
-                                    if (!resolved) {
-                                        val result = withContext(Dispatchers.IO) {
-                                            YouTube.accountInfo()
-                                        }
-                                        val info = result.getOrNull()
-                                        if (info != null && (info.name.isNotBlank() || !info.email.isNullOrBlank())) {
-                                            accountName = info.name.takeIf { it.isNotBlank() }.orEmpty()
-                                            accountEmail = info.email.orEmpty()
-                                            accountChannelHandle = info.channelHandle.orEmpty()
-                                            accountPhotoUrl = info.photoUrl?.takeIf { it.startsWith("https://") }.orEmpty()
-                                            resolved = true
-                                        } else if (attempt < 3) {
-                                            delay(900L)
-                                        }
-                                    }
-                                }
-                                if (!resolved) {
-                                    Toast.makeText(context, "Cookie saved, but YouTube profile could not be loaded. Check that the cookie is current.", Toast.LENGTH_LONG).show()
-                                } else {
-                                    Toast.makeText(context, "YouTube profile loaded", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                    }
-                }) { Text(stringResource(R.string.ui_save_session)) }
-            },
-            dismissButton = { TextButton(onClick = { showAdvancedLogin = false }) { Text(stringResource(R.string.cancel)) } },
-        )
-    }
+    if (showAdvancedLogin) YouTubeCookieLoginDialog(
+        onDismiss = { showAdvancedLogin = false }, onConnected = { showAdvancedLogin = false })
 }

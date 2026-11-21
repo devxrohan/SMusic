@@ -84,15 +84,13 @@ fun AccountScreen(
             scrollBehavior = scrollBehavior,
         )
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-            Box(Modifier.size(92.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                if (isYouTubeLoggedIn && accountPhoto.startsWith("https://")) {
-                    AsyncImage(model = accountPhoto, contentDescription = stringResource(R.string.ui_youtube_profile_photo), modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
-                } else if (!isYouTubeLoggedIn && guestPhotoPath.isNotBlank() && java.io.File(guestPhotoPath).exists()) {
-                    AsyncImage(model = java.io.File(guestPhotoPath), contentDescription = "Guest profile picture", modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
-                } else {
-                    Icon(painterResource(R.drawable.person), contentDescription = stringResource(R.string.ui_smusic_profile), modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-            }
+            com.devxrohan.smusic.ui.component.ProfileAvatar(
+                model = when {
+                    isYouTubeLoggedIn && accountPhoto.startsWith("https://") -> accountPhoto
+                    !isYouTubeLoggedIn && guestPhotoPath.isNotBlank() -> java.io.File(guestPhotoPath)
+                    else -> null
+                }, contentDescription = stringResource(R.string.ui_smusic_profile), size = 92.dp,
+            )
             Text(
                 text = if (!isYouTubeLoggedIn) guestName else accountName.ifBlank { "YouTube account" },
                 style = MaterialTheme.typography.titleLarge,

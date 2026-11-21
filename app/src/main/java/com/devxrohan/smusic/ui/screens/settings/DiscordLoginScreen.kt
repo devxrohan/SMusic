@@ -51,13 +51,13 @@ private const val SAMSUNG_USER_AGENT =
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiscordLoginScreen(navController: NavController) {
+fun DiscordLoginScreen(navController: NavController, manualLogin: Boolean = false) {
     val context = LocalContext.current
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var discordToken by rememberPreference(DiscordTokenKey, "")
     var webView: WebView? = null
-    var devLoginSheet by remember { mutableStateOf(false) }
+    var devLoginSheet by remember { mutableStateOf(manualLogin) }
     var isDone by remember { mutableStateOf(false) }
 
     fun finishLogin(token: String) {

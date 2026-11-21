@@ -25,12 +25,7 @@ import kotlin.coroutines.resume
 import java.io.File
 import java.time.LocalDateTime
 
-/**
- * SMusic has ONE profile. A YouTube account is simply connected to it:
- *  - connecting merges the account's library/feed into the existing profile (nothing local is cleared)
- *  - signing out removes only the account session; every song, like, history entry, Pulse signal
- *    and playlist that is already on the device stays exactly where it was.
- */
+/** Connect YouTube to the existing local profile without clearing its library or preferences. */
 
 /** Keys remembering which remote ids the last sync saw, so only things REMOVED on YouTube get removed locally. */
 internal val RemoteSeenLikedSongsKey = stringPreferencesKey("yt_seen_liked_songs")
@@ -43,12 +38,7 @@ private val RemoteSeenKeys = listOf(
     RemoteSeenArtistsKey, RemoteSeenPlaylistsKey,
 )
 
-/**
- * Signs out of YouTube completely. Everything that belonged to the account session is cleared (cookie,
- * dataSyncId, account identity, the account-bound visitorData, WebView cookies and the in-memory client state),
- * so the next request is a normal anonymous guest request exactly like before the account was added.
- * The local library, history and Pulse data are untouched.
- */
+/** Clear YouTube session credentials, identity and account-bound caches on sign-out. */
 suspend fun signOutYouTubeAccount(context: Context) {
     // Invalidate the in-memory preference cache BEFORE DataStore emits its update. Without this,
     // getSuspend(InnerTubeCookieKey) could return the old cached cookie, re-authenticate YouTube,
@@ -105,10 +95,7 @@ private val GuestLikedAlbumIdsKey = stringPreferencesKey("guest_liked_album_ids"
 private val GuestBookmarkedPlaylistIdsKey = stringPreferencesKey("guest_bookmarked_playlist_ids")
 private const val GUEST_HISTORY_SNAPSHOT = "guest_history_snapshot.tsv"
 
-/**
- * Older builds parked Guest likes/history in a snapshot and wiped them while an account was active.
- * Merge that snapshot back (additively) so those users get everything back in the unified profile.
- */
+/** Merge legacy guest snapshots additively into the unified local profile. */
 suspend fun migrateLegacyGuestSnapshot(context: Context, database: MusicDatabase) {
     AccountSyncGate.mutex.withLock {
         val store = context.dataStore

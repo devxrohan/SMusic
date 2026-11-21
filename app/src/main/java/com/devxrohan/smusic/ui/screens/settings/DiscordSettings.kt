@@ -26,14 +26,7 @@ import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.utils.rememberPreference
 import kotlinx.coroutines.launch
 
-/**
- * Built with SMusic's own settings UI primitives.
- *
- * This is a Rich Presence connection screen, not a separate "Discord account" with its own
- * profile/feed — there is no Discord music feed, playlists, or social data to surface here,
- * only a token used to open a Gateway WebSocket for presence updates. That limitation is
- * accurately reflected below rather than invented away.
- */
+/** Configures Discord Rich Presence using the shared settings components. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscordSettings(

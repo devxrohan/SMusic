@@ -327,8 +327,8 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/discord") {
         com.devxrohan.smusic.ui.screens.settings.DiscordSettings(navController, scrollBehavior)
     }
-    composable("settings/discord/login") {
-        com.devxrohan.smusic.ui.screens.settings.DiscordLoginScreen(navController)
+    composable("settings/discord/login?manual={manual}") { entry ->
+        com.devxrohan.smusic.ui.screens.settings.DiscordLoginScreen(navController, manualLogin = entry.arguments?.getString("manual") == "true")
     }
     composable("settings/ai") {
         com.devxrohan.smusic.ui.screens.settings.AiSettings(navController, scrollBehavior)

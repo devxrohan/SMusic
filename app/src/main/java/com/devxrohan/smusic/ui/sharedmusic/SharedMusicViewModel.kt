@@ -32,12 +32,7 @@ sealed class SharedMusicUiState {
     data class UrlShared(val url: String) : SharedMusicUiState()
 }
 
-/**
- * Reuses SMusic's own, already-working Shazam pipeline (the same
- * ShazamSignatureGenerator/Shazam.recognize() MusicRecognitionScreen.kt already uses for mic
- * input) and feeds it audio extracted from the shared video/audio file via AudioExtractor +
- * AudioSegmentSelector, trying a few candidate windows until one resolves.
- */
+/** Feed extracted video audio into the existing signature-based recognition pipeline. */
 @HiltViewModel
 class SharedMusicViewModel @Inject constructor(
     application: Application,
@@ -74,10 +69,8 @@ class SharedMusicViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Resolve a shared public media link into a temporary audio/video file, then pass it
-     * through the same Shazam recognition path used for shared files.
-     */
+    /** Resolve a shared public media link into a temporary audio/video file, then pass it through the
+     * same Shazam recognition path used for shared files. */
     private fun resolveSharedUrl(url: String) {
         _uiState.value = SharedMusicUiState.Processing("Resolving shared link...")
         viewModelScope.launch {

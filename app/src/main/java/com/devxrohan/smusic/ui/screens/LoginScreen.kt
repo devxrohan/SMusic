@@ -32,11 +32,7 @@ import com.devxrohan.smusic.LocalPlayerAwareWindowInsets
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.ui.component.IconButton
 
-/**
- * Entry point shown before YouTubeLoginScreen's WebView is launched. SMusic keeps its own
- * existing onboarding untouched, so this is a focused account-login explainer that leads
- * straight into [YouTubeLoginScreen].
- */
+/** Explain account login before opening the WebView without changing onboarding. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(navController: NavController) {

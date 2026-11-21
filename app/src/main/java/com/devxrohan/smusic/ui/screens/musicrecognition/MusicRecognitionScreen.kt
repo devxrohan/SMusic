@@ -7,6 +7,7 @@
 
 package com.devxrohan.smusic.ui.screens.musicrecognition
 
+import com.devxrohan.smusic.utils.dataStore
 import com.devxrohan.smusic.ui.utils.bottomSafeArea
 
 import android.Manifest
@@ -21,22 +22,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -96,19 +88,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -139,6 +124,10 @@ fun MusicRecognitionScreen(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val recognitionHistory = remember(context) { com.devxrohan.smusic.recognition.RecognitionHistory(context.dataStore) }
+    var historyMessage by remember { mutableStateOf<String?>(null) }
+    var showRecognitionHistory by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+
 
     var state by remember { mutableStateOf<MusicRecognitionState>(MusicRecognitionState.Ready) }
     var recognitionJob by remember { mutableStateOf<Job?>(null) }
@@ -157,13 +146,28 @@ fun MusicRecognitionScreen(
             )
         }
 
+    fun acceptRecognitionState(next: MusicRecognitionState) {
+        state = next
+        if (next is MusicRecognitionState.Success) scope.launch {
+            try { recognitionHistory.add(next.result) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { historyMessage = "Recognition succeeded, but history could not be saved." }
+        }
+    }
+    if (showRecognitionHistory) {
+        RecognitionHistoryDialog(
+            history = recognitionHistory,
+            onDismiss = { showRecognitionHistory = false },
+            onOpen = { track -> state = MusicRecognitionState.Success(track.toResult()); showRecognitionHistory = false },
+        )
+    }
     val requestPermissionLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
                 launchRecognition(
                     scope = scope,
                     strings = strings,
-                    onState = { state = it },
+                    onState = ::acceptRecognitionState,
                     onHaptic = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
                     onSearch = { query -> navController.navigate("search/${Uri.encode(query)}") },
                     onReplaceJob = {
@@ -190,7 +194,7 @@ fun MusicRecognitionScreen(
             launchRecognition(
                 scope = scope,
                 strings = strings,
-                onState = { state = it },
+                onState = ::acceptRecognitionState,
                 onHaptic = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
                 onSearch = { query -> navController.navigate("search/${Uri.encode(query)}") },
                 onReplaceJob = {
@@ -219,7 +223,7 @@ fun MusicRecognitionScreen(
 
     Scaffold(
         topBar = {
-            LargeFlexibleTopAppBar(
+            androidx.compose.material3.TopAppBar(
                 title = { Text(stringResource(R.string.music_recognition), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     Surface(
@@ -241,7 +245,7 @@ fun MusicRecognitionScreen(
                     }
                 },
                 colors =
-                    TopAppBarDefaults.largeTopAppBarColors(
+                    TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
                         scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ),
@@ -253,30 +257,11 @@ fun MusicRecognitionScreen(
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
     ) { padding ->
-        val primary = MaterialTheme.colorScheme.primary
-        val tertiary = MaterialTheme.colorScheme.tertiary
-        val gradient =
-            remember(primary, tertiary) {
-                listOf(
-                    primary.copy(alpha = 0.35f),
-                    tertiary.copy(alpha = 0.18f),
-                    Color.Transparent,
-                )
-            }
-        val backgroundBrush =
-            remember(gradient) {
-                Brush.radialGradient(
-                    colors = gradient,
-                    center = Offset(0.58f, 0.28f),
-                    radius = 1100f,
-                )
-            }
-
         Box(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .background(backgroundBrush)
+                    .background(MaterialTheme.colorScheme.background)
                     .padding(padding)
                     .statusBarsPadding(),
         ) {
@@ -347,6 +332,12 @@ fun MusicRecognitionScreen(
                     }
                 }
 
+                androidx.compose.material3.TextButton(onClick = { showRecognitionHistory = true }) {
+                    Icon(painterResource(R.drawable.history), contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Recognition history")
+                }
+                historyMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 // Keep the final content scrollable above the global bottom area
                 // in both floating and docked navigation modes.
                 Spacer(modifier = Modifier.height(20.dp + bottomSafeArea()))
@@ -370,12 +361,10 @@ private fun RecognitionListenPane(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        IdleHeader()
-
         Spacer(modifier = Modifier.height(28.dp))
 
-        ListeningOrb(
-            modifier = Modifier.size(260.dp),
+        RecognitionListenControl(
+            modifier = Modifier.size(200.dp),
             isActive = isListening,
             isProcessing = isProcessing,
             onClick = onStart,
@@ -390,10 +379,7 @@ private fun RecognitionListenPane(
         ) { target ->
             when (target) {
                 MusicRecognitionState.Ready -> {
-                    StatusPill(
-                        label = stringResource(R.string.music_recognition_tap_to_listen),
-                        iconRes = R.drawable.mic,
-                    )
+                    Spacer(Modifier.height(0.dp))
                 }
 
                 MusicRecognitionState.Listening -> {
@@ -855,127 +841,6 @@ private fun ResultInfoBlock(
             }
         }
     }
-}
-
-@Composable
-private fun ListeningOrb(
-    modifier: Modifier,
-    isActive: Boolean,
-    isProcessing: Boolean,
-    onClick: () -> Unit,
-) {
-    val ringProgress: Float
-    val ringProgress2: Float
-    if (isActive) {
-        val infinite = rememberInfiniteTransition(label = "orbPulse")
-        val animatedRingProgress by infinite.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(animation = tween(1700, easing = LinearEasing)),
-            label = "ring1",
-        )
-        val animatedRingProgress2 by infinite.animateFloat(
-            initialValue = 0.25f,
-            targetValue = 1.25f,
-            animationSpec = infiniteRepeatable(animation = tween(2100, easing = LinearEasing)),
-            label = "ring2",
-        )
-        ringProgress = animatedRingProgress
-        ringProgress2 = animatedRingProgress2
-    } else {
-        ringProgress = 0f
-        ringProgress2 = 0f
-    }
-
-    val orbScale by animateFloatAsState(
-        targetValue = if (isActive) 1.03f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "orbScale",
-    )
-
-    val baseColor =
-        if (isProcessing) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
-    val surfaceContainerHigh = MaterialTheme.colorScheme.surfaceContainerHigh
-
-    val container =
-        remember(baseColor, surfaceContainerHigh) {
-            Brush.radialGradient(
-                colors =
-                    listOf(
-                        baseColor.copy(alpha = 0.42f),
-                        baseColor.copy(alpha = 0.16f),
-                        surfaceContainerHigh.copy(alpha = 0.9f),
-                    ),
-            )
-        }
-    val density = LocalDensity.current
-    val ringStrokeWidth = remember(density) { with(density) { 10.dp.toPx() } }
-    val ringStroke =
-        remember(ringStrokeWidth) { Stroke(width = ringStrokeWidth, cap = StrokeCap.Round) }
-
-    Box(
-        modifier =
-            modifier
-                .scale(orbScale)
-                .clip(CircleShape)
-                .background(container)
-                .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val r = size.minDimension / 2f
-            val center = Offset(size.width / 2f, size.height / 2f)
-
-            if (isActive) {
-                drawRing(center, r, ringProgress, baseColor, ringStroke)
-                drawRing(center, r, ringProgress2, baseColor.copy(alpha = 0.85f), ringStroke)
-            }
-
-            val glow = baseColor.copy(alpha = if (isActive) 0.22f else 0.12f)
-            drawCircle(glow, radius = r * 0.88f, center = center)
-            drawCircle(Color.Black.copy(alpha = 0.06f), radius = r * 0.78f, center = center)
-        }
-
-        val icon =
-            when {
-                isProcessing -> R.drawable.cached
-                isActive -> R.drawable.listening
-                else -> R.drawable.mic
-            }
-
-        val iconAlpha by animateFloatAsState(
-            targetValue = if (isProcessing) 0.9f else 1f,
-            animationSpec = tween(180),
-            label = "iconAlpha",
-        )
-
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = null,
-            modifier = Modifier
-                .size(54.dp)
-                .alpha(iconAlpha),
-            tint = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-private fun DrawScope.drawRing(
-    center: Offset,
-    baseRadius: Float,
-    progress: Float,
-    color: Color,
-    stroke: Stroke,
-) {
-    val p = progress.coerceIn(0f, 1f)
-    val radius = baseRadius * (0.62f + 0.55f * p)
-    val alpha = (1f - p) * 0.55f
-    drawCircle(
-        color = color.copy(alpha = alpha),
-        radius = radius,
-        center = center,
-        style = stroke,
-    )
 }
 
 @Composable

@@ -1,4 +1,8 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.devxrohan.smusic.ui.screens.settings
+
+import com.devxrohan.smusic.ui.component.appButtonShapes
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,6 +32,9 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.devxrohan.smusic.utils.dataStore
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,7 +51,7 @@ import com.devxrohan.smusic.R
 import com.devxrohan.smusic.constants.DisableScreenshotKey
 import com.devxrohan.smusic.constants.PauseListenHistoryKey
 import com.devxrohan.smusic.constants.PauseSearchHistoryKey
-import com.devxrohan.smusic.ui.component.IconButton
+import com.devxrohan.smusic.ui.component.AppIconButton as IconButton
 import com.devxrohan.smusic.ui.component.PreferenceEntry
 import com.devxrohan.smusic.ui.component.SettingsGeneralCategory
 import com.devxrohan.smusic.ui.component.SettingsPage
@@ -77,6 +84,12 @@ fun PrivacySettings(
         defaultValue = true
     )
 
+    val (pauseRecognitionHistory, onPauseRecognitionHistoryChange) = rememberPreference(
+        com.devxrohan.smusic.constants.PauseRecognitionHistoryKey, false)
+    val scope = rememberCoroutineScope()
+    var showClearRecognitionHistoryDialog by remember { mutableStateOf(false) }
+    var recognitionClearError by remember { mutableStateOf<String?>(null) }
+    var clearingRecognition by remember { mutableStateOf(false) }
     var showClearListenHistoryDialog by remember { mutableStateOf(false) }
     var showClearSearchHistoryDialog by remember { mutableStateOf(false) }
 
@@ -102,6 +115,19 @@ fun PrivacySettings(
                 )},
             )
         )
+        SettingsGeneralCategory(title = "Recognition history", items = listOf({
+            SwitchPreference(
+                title = { Text("Pause recognition history") },
+                icon = { Icon(painterResource(R.drawable.mic), null) },
+                checked = pauseRecognitionHistory,
+                onCheckedChange = onPauseRecognitionHistoryChange,
+            )
+        }, {
+            PreferenceEntry(title = { Text("Clear recognition history") },
+                icon = { Icon(painterResource(R.drawable.delete_history), null) },
+                isEnabled = !clearingRecognition,
+                onClick = { recognitionClearError = null; showClearRecognitionHistoryDialog = true })
+        }))
         SettingsGeneralCategory(
             title = stringResource(R.string.search_history),
             items = listOf(
@@ -155,6 +181,22 @@ fun PrivacySettings(
     }
 
 
+    if (showClearRecognitionHistoryDialog) {
+        AlertDialog(onDismissRequest = { if (!clearingRecognition) showClearRecognitionHistoryDialog = false },
+            title = { Text("Clear recognition history?") },
+            text = { Text(recognitionClearError ?: "Remove all songs from your recognition history on this device?") },
+            confirmButton = { TextButton(shapes = appButtonShapes(), enabled = !clearingRecognition, onClick = {
+                scope.launch {
+                    clearingRecognition = true
+                    try { com.devxrohan.smusic.recognition.RecognitionHistory(context.dataStore).clear(); showClearRecognitionHistoryDialog = false }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) { recognitionClearError = "Could not clear recognition history. Please try again." }
+                    finally { clearingRecognition = false }
+                }
+            }) { Text(if (clearingRecognition) "Clearing…" else "Clear") } },
+            dismissButton = { TextButton(shapes = appButtonShapes(), enabled = !clearingRecognition, onClick = { showClearRecognitionHistoryDialog = false }) { Text("Cancel") } })
+    }
+
     if (showClearListenHistoryDialog) {
         ConfirmationDialog2(
             title = stringResource(R.string.clear_listen_history),
@@ -205,7 +247,7 @@ private fun ConfirmationDialog2(
             )
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(shapes = appButtonShapes(), onClick = onConfirm) {
                 Text(
                     text = stringResource(android.R.string.ok),
                     fontWeight = FontWeight.Medium
@@ -213,7 +255,7 @@ private fun ConfirmationDialog2(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(shapes = appButtonShapes(), onClick = onDismiss) {
                 Text(
                     text = stringResource(android.R.string.cancel),
                     fontWeight = FontWeight.Medium

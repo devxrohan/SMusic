@@ -5,13 +5,7 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/**
- * New (not in SMusic) — SMusic feeds extracted audio into its own Composite/AudD recognition
- * engines, which accept arbitrary sample rates. SMusic's existing Shazam pipeline
- * (shazamkit/ShazamSignatureGenerator, already used by MusicRecognitionScreen.kt for mic input)
- * expects 16-bit mono PCM at a fixed sample rate, so this reads the WAV file [AudioExtractor]
- * produces, downmixes to mono if needed, and linearly resamples to [targetSampleRateHz].
- */
+/** Reads validated WAV/PCM metadata for recognition audio processing. */
 object WavPcmReader {
 
     fun readAsPcm16Mono(file: File, sourceSampleRate: Int, sourceChannels: Int, targetSampleRateHz: Int): ShortArray {

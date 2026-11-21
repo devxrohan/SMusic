@@ -12,12 +12,7 @@ import com.devxrohan.smusic.share.SharedContent
 import com.devxrohan.smusic.ui.theme.SMusicTheme
 import dagger.hilt.android.AndroidEntryPoint
 
-/**
- * Entry point for "Find Music" in Android's share sheet — the activity the user asked for:
- * sharing an Instagram Reel / YouTube Short video via Share -> SMusic -> Find Music.
- * Registered for ACTION_SEND/ACTION_SEND_MULTIPLE with video, audio, and plain-text MIME types in the
- * manifest. Delegates recognition to SMusic's own Shazam pipeline via [SharedMusicViewModel].
- */
+/** Handle shared video audio through the Find Music entry in the Android share sheet. */
 @AndroidEntryPoint
 class SharedMusicIdentificationActivity : ComponentActivity() {
 

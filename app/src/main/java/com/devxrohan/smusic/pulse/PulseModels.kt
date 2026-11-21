@@ -124,6 +124,7 @@ class PulseState {
     val exposure: MutableMap<String, Exposure> = HashMap()
     /** Soft suppression with timestamp (ms). Reversible. */
     val notForMeSongs: MutableMap<String, Long> = HashMap()
+    val positiveFeedback: MutableMap<String, PulsePreference> = HashMap()
     val dislikedArtists: MutableMap<String, Long> = HashMap()
     /** Explicit user block only. */
     val blockedArtists: MutableSet<String> = HashSet()
@@ -132,6 +133,9 @@ class PulseState {
     /** Completed offline downloads are a strong intent signal, but weaker than an explicit like. */
     val downloadedSongs: MutableSet<String> = HashSet()
 
+    /** Optional user choice; automatic learning keeps its own value underneath. */
+    var discoveryPreference: Double? = null
+    fun recommendationAppetite(): Double = discoveryPreference ?: discoveryAppetite
     var discoveryAppetite: Double = PulseParams.DISCOVERY_NEUTRAL
     var totalPlays: Int = 0
     var lastRotationDecay: Long = 0L
@@ -163,13 +167,17 @@ class PulseState {
 
     /** Pulse's allowed influence now: stage share, capped for returning users who've been away a long time. */
     fun effectiveShare(now: Long = System.currentTimeMillis()): Double {
-        val base = PulseParams.pulseShare(stage())
+        val base = maxOf(PulseParams.pulseShare(stage()), if (PulsePreferences.hasActive(this, now)) .45 else 0.0)
         val idle = if (sessionLastTs == 0L) 0L else now - sessionLastTs
         return if (idle > PulseParams.STALE_AFTER_MS) minOf(base, 0.5) else base
     }
 
-    fun topArtists(n: Int): List<Pair<String, Double>> =
-        artists.entries.sortedByDescending { it.value.score }.take(n).map { it.key to it.value.score }
+    fun topArtists(n: Int, now: Long = System.currentTimeMillis()): List<Pair<String, Double>> {
+        val preferred = PulsePreferences.directArtists(this, now)
+        return (artists.keys + preferred.keys).map { id ->
+            id to maxOf(artists[id]?.score ?: 0.0, (preferred[id] ?: 0.0) * .85)
+        }.sortedByDescending { it.second }.take(n)
+    }
 
     fun isHidden(artistId: String, now: Long): Boolean {
         if (artistId in blockedArtists) return true

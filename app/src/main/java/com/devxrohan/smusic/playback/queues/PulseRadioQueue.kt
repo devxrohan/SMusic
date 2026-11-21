@@ -15,11 +15,7 @@ import com.devxrohan.smusic.utils.get
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.withContext
 
-/**
- * Pulse radio queue. Provider pagination remains the primary source; Pulse can additionally
- * expand the queue with seed-aware related songs when Similar Content is enabled.
- * The expansion is stateful so a 15-item provider page never becomes the hard queue limit.
- */
+/** Preserve provider pagination and expand seed-aware radio only when Similar Content is enabled. */
 class PulseRadioQueue(
     private val seed: MediaMetadata,
     private val pulse: PulseEngine,

@@ -46,6 +46,7 @@ import com.devxrohan.smusic.playback.queues.ListQueue
 import com.devxrohan.smusic.ui.component.DefaultDialog
 import com.devxrohan.smusic.ui.component.DownloadGridMenu
 import com.devxrohan.smusic.ui.component.GridMenu
+import com.devxrohan.smusic.ui.component.PulseFeedbackGridItems
 import com.devxrohan.smusic.ui.component.GridMenuItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -385,6 +386,13 @@ fun SelectionMediaMetadataMenu(
         )
     }
 
+    val pulseFeedback = com.devxrohan.smusic.ui.component.rememberPulseFeedback(
+        songSelection.map { song -> com.devxrohan.smusic.pulse.PulseFeedbackTrack(
+            song.id, song.artists.mapNotNull { it.id },
+            song.artists.filter { it.id != null }.map { it.name }, song.title,
+        ) }, onDismiss = { clearAction(); onDismiss() },
+    )
+
     GridMenu(
         contentPadding =
             PaddingValues(
@@ -471,23 +479,7 @@ fun SelectionMediaMetadataMenu(
             }
         }
 
-        GridMenuItem(
-            icon = R.drawable.block,
-            title = R.string.pulse_not_for_me,
-        ) {
-            onDismiss()
-            val songs = songSelection.toList()
-            coroutineScope.launch(Dispatchers.IO) {
-                songs.forEach { song ->
-                    playerConnection.service.pulseEngine.onNotForMe(
-                        song.id,
-                        song.artists.mapNotNull { it.id },
-                    )
-                }
-            }
-            android.widget.Toast.makeText(context, R.string.pulse_not_for_me_done, android.widget.Toast.LENGTH_SHORT).show()
-            clearAction()
-        }
+        PulseFeedbackGridItems(pulseFeedback)
 
         DownloadGridMenu(
             state = downloadState,

@@ -13,10 +13,8 @@ internal object PulseLearn {
         else -> 0.35
     }
 
-    /**
-     * One observed listen. Returns true when it COUNTED (>= 50% played or explicit like).
-     * [prevPercent] lets live updates avoid re-crossing milestones; backfill passes 0.
-     */
+    /** One observed listen. Returns true when it COUNTED (>= 50% played or explicit like). [prevPercent]
+     * lets live updates avoid re-crossing milestones; backfill passes 0. */
     fun applySignal(state: PulseState, sig: PulseSignal, now: Long = sig.timestamp): Boolean {
         decayRotationIfDue(state, now)
         val artistIds = sig.artistIds.filter { it.isNotBlank() }
@@ -143,6 +141,7 @@ internal object PulseLearn {
 
     /** Soft-suppresses the song only. The artist is NOT blocked; a repeat within cooldown nudges them down. */
     fun applyNotForMe(state: PulseState, songId: String, artistIds: List<String>, now: Long) {
+        state.positiveFeedback.remove(songId)
         state.notForMeSongs[songId] = now
         state.exposure[songId]?.let { it.skipped += 1 }
         artistIds.forEach { id ->
@@ -191,10 +190,8 @@ internal object PulseLearn {
         prune(state)
     }
 
-    /**
-     * Closes the loop: if the user keeps ignoring unfamiliar recommendations, discovery eases off;
-     * if they keep accepting them, it grows. Only acts with enough evidence.
-     */
+    /** Closes the loop: if the user keeps ignoring unfamiliar recommendations, discovery eases off; if
+     * they keep accepting them, it grows. Only acts with enough evidence. */
     fun adaptAppetite(state: PulseState) {
         if (state.novelShown < PulseParams.NOVEL_ACCEPT_MIN_SHOWN) return
         val acceptance = (state.novelPlayed.toDouble() / state.novelShown).coerceIn(0.0, 1.0)

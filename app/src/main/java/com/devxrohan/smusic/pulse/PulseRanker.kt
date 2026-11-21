@@ -24,13 +24,16 @@ internal data class SurfaceWeights(
 internal class RankContext(
     val taste: TasteMap, val drift: Double, val lastSongId: String?,
     val emb: Embedding, val tv: TasteVectors, val seedArtists: List<String>,
+    val preferences: PulsePreferenceWeights,
 ) {
     /** Sound-space closeness (0..1) to what the user is into; for a radio, blended with closeness to the seed. */
     fun sim(artistIds: List<String>): Double {
-        if (emb.vec.isEmpty() || artistIds.isEmpty()) return 0.0
+        val intent = (artistIds.maxOfOrNull { preferences.artists[it] ?: 0.0 } ?: 0.0) * .75
+        if (emb.vec.isEmpty() || artistIds.isEmpty()) return intent
         val taste = PulseEmbedding.similarity(emb, tv, artistIds)
-        if (seedArtists.isEmpty()) return taste
-        return 0.6 * PulseEmbedding.similarityToSeed(emb, seedArtists, artistIds) + 0.4 * taste
+        val inferred = if (seedArtists.isEmpty()) taste else
+            0.6 * PulseEmbedding.similarityToSeed(emb, seedArtists, artistIds) + 0.4 * taste
+        return maxOf(inferred, intent)
     }
 }
 
@@ -57,14 +60,14 @@ internal object PulseRanker {
     }
 
     /** 0 = recent taste matches long-term taste, 1 = completely different artists lately. */
-    fun drift(state: PulseState): Double {
-        val long = state.topArtists(5).map { it.first }.toSet()
+    fun drift(state: PulseState, now: Long = System.currentTimeMillis()): Double {
+        val long = state.topArtists(5, now).map { it.first }.toSet()
         val short = state.recentRotation.entries.sortedByDescending { it.value }.take(5).map { it.key }.toSet()
         if (long.size < 3 || short.size < 3) return 0.0
         return 1.0 - long.intersect(short).size.toDouble() / minOf(long.size, short.size)
     }
 
-    private fun anchors(state: PulseState) = state.topArtists(PulseParams.COOC_ANCHORS).map { it.first }
+    private fun anchors(state: PulseState, now: Long) = state.topArtists(PulseParams.COOC_ANCHORS, now).map { it.first }
 
     private fun cooc(state: PulseState, artistId: String, anchors: List<String>): Double {
         if (state.artistCooc.isEmpty()) return 0.0
@@ -86,6 +89,8 @@ internal object PulseRanker {
 
     private fun isNovel(state: PulseState, c: PulseCandidate): Boolean =
         c.artistIds.isNotEmpty() && c.artistIds.none { it in state.seenArtists }
+
+    private fun surfaceFatigue(w: SurfaceWeights) = w.discovery >= 0.25
 
     fun score(state: PulseState, c: PulseCandidate, w: SurfaceWeights, anchors: List<String>, now: Long, rc: RankContext, sim: Double = 0.0): Double {
         val primary = c.artistIds.firstOrNull() ?: ""
@@ -109,52 +114,65 @@ internal object PulseRanker {
             songAff = squash(st.replays * 0.6 + st.completions * 0.4 + if (st.liked) 1.0 else 0.0)
             penalty += squash(st.skips.toDouble()) * 0.20 + squash(st.skipSeverity) * 0.45
         }
-        val novel = if (isNovel(state, c)) 1.0 else 0.0
-        val discovery = w.discovery * novel * state.discoveryAppetite
+        if (c.kind == PulseKind.SONG && st != null && surfaceFatigue(w) && st.lastPlayed > 0L) {
+            val ageHours = ((now - st.lastPlayed).coerceAtLeast(0L) / 3_600_000.0)
+            penalty += 0.32 * kotlin.math.exp(-ageHours / 3.0)
+            val completionRate = st.completions.toDouble() / st.plays.coerceAtLeast(1)
+            songAff += 0.15 * completionRate.coerceIn(0.0, 1.0)
+        }
+        val novel = if (isNovel(state, c) && c.artistIds.none { (rc.preferences.artists[it] ?: 0.0) > .5 }) 1.0 else 0.0
+        val discovery = w.discovery * novel * state.recommendationAppetite()
         // Explicit intent is stronger than inferred taste: subscriptions and offline saves
         // should noticeably pull related artists/songs upward without making them mandatory.
         val subscribedBoost = if (c.artistIds.any { it in state.subscribedArtists }) 0.16 else 0.0
         val downloadedBoost = if (c.kind == PulseKind.SONG && c.id in state.downloadedSongs) 0.11 else 0.0
+        val likedBoost = if (c.kind == PulseKind.SONG && st?.liked == true) 0.18 else 0.0
 
-        var s = w.fam * fam + w.act * act + w.rot * rot + w.cooc * co + w.ctx * ctx + w.song * songAff + w.clu * clu + w.trans * trans + w.emb * sim + discovery + subscribedBoost + downloadedBoost - penalty
+        var s = w.fam * fam + w.act * act + w.rot * rot + w.cooc * co + w.ctx * ctx + w.song * songAff + w.clu * clu + w.trans * trans + w.emb * sim + discovery + subscribedBoost + downloadedBoost + likedBoost + rc.preferences.score(c) - penalty
 
         // Freshness: recently shown content sinks; a shown item the user ignored sinks further.
         state.exposure[c.id]?.let { e ->
-            if (now - e.lastShown < PulseParams.FRESHNESS_WINDOW_MS) s *= 0.6
-            if (e.shown >= 3 && e.played == 0) s *= 0.7
+            if (now - e.lastShown < PulseParams.FRESHNESS_WINDOW_MS) s -= kotlin.math.abs(s) * 0.4 + 0.05
+            if (e.shown >= 3 && e.played == 0) s -= kotlin.math.abs(s) * 0.3 + 0.04
         }
         if (c.kind == PulseKind.SONG) {
             state.notForMeSongs[c.id]?.let { ts ->
-                if (now - ts < PulseParams.NOT_FOR_ME_MS) s *= 0.05
+                if (now - ts < PulseParams.NOT_FOR_ME_MS) s -= kotlin.math.abs(s) + 1.0
             }
         }
         return s
     }
 
-    /**
-     * Full pipeline: score, hard-drop blocked / cooled-down artists, compose to the surface's novelty
-     * target, then spread long same-artist runs. Returns candidate indices in final order.
-     */
+    /** Full pipeline: score, hard-drop blocked / cooled-down artists, compose to the surface's novelty
+     * target, then spread long same-artist runs. Returns candidate indices in final order. */
     /** Minimum explainable connection to the user/seed taste. Prevents generic source candidates from leaking into Pulse. */
     fun relevance(state: PulseState, c: PulseCandidate, surface: PulseSurface, now: Long, seedArtistIds: List<String> = emptyList()): Double {
+        return relevanceScores(state, listOf(c), surface, now, seedArtistIds).single()
+    }
+
+    fun relevanceScores(state: PulseState, candidates: List<PulseCandidate>, surface: PulseSurface, now: Long, seedArtistIds: List<String> = emptyList()): List<Double> {
         val emb = PulseEmbedding.get(state)
         val tv = PulseEmbedding.tasteVectors(state, emb, now)
+        val anchorArtists = state.topArtists(PulseParams.COOC_ANCHORS, now)
+        val preferences = PulsePreferences.weights(state, now)
+        return candidates.map { c ->
         val seed = if (seedArtistIds.isEmpty()) 0.0 else PulseEmbedding.similarityToSeed(emb, seedArtistIds, c.artistIds)
         val taste = PulseEmbedding.similarity(emb, tv, c.artistIds)
         val top = c.artistIds.maxOfOrNull { state.artists[it]?.score ?: 0.0 } ?: 0.0
         val co = c.artistIds.maxOfOrNull { id ->
-            state.topArtists(PulseParams.COOC_ANCHORS).maxOfOrNull { a ->
+            anchorArtists.maxOfOrNull { a ->
                 state.artistCooc[pairKey(id, a.first)]?.let { squash(it) } ?: 0.0
             } ?: 0.0
         } ?: 0.0
         val related = c.artistIds.maxOfOrNull { id ->
-            state.topArtists(PulseParams.COOC_ANCHORS).maxOfOrNull { a ->
+            anchorArtists.maxOfOrNull { a ->
                 state.relatedEdges[pairKey(id, a.first)]?.let { squash(it) } ?: 0.0
             } ?: 0.0
         } ?: 0.0
         val explicit = (if (c.artistIds.any { it in state.subscribedArtists }) 0.10 else 0.0) +
             (if (c.kind == PulseKind.SONG && c.id in state.downloadedSongs) 0.06 else 0.0)
-        return (taste * 0.35 + seed * 0.30 + top * 0.15 + co * 0.12 + related * 0.08 + explicit).coerceIn(0.0, 1.0)
+        (taste * 0.35 + seed * 0.30 + top * 0.15 + co * 0.12 + related * 0.08 + explicit + preferences.score(c)).coerceIn(0.0, 1.0)
+        }
     }
 
     fun rank(
@@ -164,43 +182,43 @@ internal object PulseRanker {
     ): List<Int> {
         if (inputs.isEmpty()) return emptyList()
         val w = weights(surface)
-        val an = anchors(state)
+        val an = anchors(state, now)
         val emb = PulseEmbedding.get(state)
-        val rc = RankContext(PulseClusters.compute(state), drift(state), lastSongId, emb,
-            PulseEmbedding.tasteVectors(state, emb, now), seedArtistIds)
+        val rc = RankContext(PulseClusters.compute(state), drift(state, now), lastSongId, emb,
+            PulseEmbedding.tasteVectors(state, emb, now), seedArtistIds, PulsePreferences.weights(state, now))
         val sims = inputs.map { rc.sim(it.artistIds) }
         val scores = inputs.indices.map { score(state, inputs[it], w, an, now, rc, sims[it]) }
         val baseOrder = inputs.indices
-            .filterNot { i -> inputs[i].artistIds.any { state.isHidden(it, now) } }
+            .distinctBy { inputs[it].kind to inputs[it].id }
+            .filterNot { i -> inputs[i].artistIds.any { state.isHidden(it, now) } ||
+                (inputs[i].kind == PulseKind.SONG && state.notForMeSongs[inputs[i].id]?.let { now - it < PulseParams.NOT_FOR_ME_MS } == true) }
             .sortedWith(compareByDescending<Int> { scores[it] }.thenBy { it })
 
         // For recommendation surfaces, prefer candidates that have an explainable connection
         // to the user's taste/seed. Keep a graceful fallback when the source returns too few
         // explainable candidates so Home/Radio never becomes empty because metadata is sparse.
         val order = if (surface != PulseSurface.KEEP_LISTENING) {
-            val rel = inputs.map { relevance(state, it, surface, now, seedArtistIds) }
+            val rel = relevanceScores(state, inputs, surface, now, seedArtistIds)
             val threshold = if (surface == PulseSurface.RADIO) PulseParams.MIN_RELEVANCE else 0.08
             val relevant = baseOrder.filter { rel[it] >= threshold }
-            if (relevant.size >= minOf(6, baseOrder.size.coerceAtLeast(1))) relevant else baseOrder
+            val relevantSet = relevant.toSet()
+            if (relevant.size >= minOf(6, baseOrder.size.coerceAtLeast(1))) relevant
+            else relevant + baseOrder.filterNot { it in relevantSet }
         } else baseOrder
 
-        val target = (w.targetNovelty + (state.discoveryAppetite - PulseParams.DISCOVERY_NEUTRAL) * 0.5)
-            .coerceIn(0.05, 0.95)
-        val novel = order.filter { isNovel(state, inputs[it]) }.toSet()
+        val target = ((w.targetNovelty + (state.recommendationAppetite() - PulseParams.DISCOVERY_NEUTRAL) * 0.5) *
+            (0.45 + state.confidence() * 0.55)).coerceIn(0.05, 0.75)
+        val novel = order.filter { isNovel(state, inputs[it]) && inputs[it].artistIds.none { id -> (rc.preferences.artists[id] ?: 0.0) > .5 } }.toSet()
         val adjacent = novel.filter { i ->
             inputs[i].artistIds.any { cooc(state, it, an) > 0.0 || rc.taste.massOf(it) >= 0.3 }
         }.toSet()
         val composed = if (surface == PulseSurface.RADIO && emb.vec.isNotEmpty())
-            composeRadio(order, sims, scores, state.discoveryAppetite)
+            composeRadio(order, sims, scores, state.recommendationAppetite())
         else compose(order, novel, adjacent, target)
         return spread(composed, inputs, if (surface == PulseSurface.RADIO) 1 else PulseParams.MAX_CONSECUTIVE_ARTIST)
     }
 
-    /**
-     * Radio flow in sound space: mostly NEAR (very close to the seed/session), regularly a STRETCH (same taste
-     * neighbourhood but a step sideways), and FAR items (unrelated to anything known) only at the very end.
-     * Rhythm is near, near, stretch, near, near, stretch... ; a discovery-hungry user gets stretches more often.
-     */
+    /** Sequence radio by seed proximity, mixing near and stretch choices while deferring unrelated tracks. */
     internal fun composeRadio(order: List<Int>, sims: List<Double>, scores: List<Double>, appetite: Double): List<Int> {
         if (order.size < 4) return order
         val maxScore = order.maxOf { scores[it] }.takeIf { it > 0.0 } ?: 1.0

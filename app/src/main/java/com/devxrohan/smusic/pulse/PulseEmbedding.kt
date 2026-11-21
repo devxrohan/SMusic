@@ -3,15 +3,7 @@ package com.devxrohan.smusic.pulse
 import kotlin.math.ln
 import kotlin.math.sqrt
 
-/**
- * Continuous "sound space" for artists, used instead of (unavailable) genre labels.
- *
- * Every artist gets a deterministic pseudo-random base vector (random indexing). Vectors are then smoothed
- * over the listening graph (own co-listening + related-artist links from the music source) with a
- * personalised-random-walk style propagation, so artists that share neighbours, even 2-3 hops away, end up
- * close together. Cosine similarity in this space generalises: "close to what you play", "bridges two of
- * your tastes", "same neighbourhood but a bit different". Nothing is stored; it's rebuilt from the graph.
- */
+/** Builds deterministic artist-graph embeddings from co-listening and related-artist edges. */
 internal class Embedding(val vec: Map<String, FloatArray>) {
     fun has(id: String) = vec.containsKey(id)
     fun of(id: String): FloatArray? = vec[id]

@@ -2,12 +2,7 @@ package com.devxrohan.smusic.pulse
 
 import kotlin.math.ln
 
-/**
- * Data-driven "taste groups". SMusic has no genre metadata, so instead of faking genres Pulse finds
- * communities of artists that the user's own listening (co-listening sessions) and the music source's
- * related-artist links tie together, then measures how much of the user's taste lives in each group.
- * Deterministic label propagation: same input, same groups.
- */
+/** Derive taste groups from artist co-listening evidence without inventing genre labels. */
 internal class TasteMap(
     val labelOf: Map<String, Int>,
     /** Cluster taste mass normalised to 0..1 (1 = the user's biggest taste group). */

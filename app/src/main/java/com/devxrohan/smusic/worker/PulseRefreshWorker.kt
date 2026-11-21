@@ -9,10 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
-/**
- * Keeps Pulse warm away from Home rendering. It only performs cheap persisted learning/backfill;
- * network candidate generation remains demand-driven so background work never consumes the user's data.
- */
+/** Refresh persisted Pulse learning in background; fetch recommendation candidates only on demand. */
 class PulseRefreshWorker(
     appContext: Context,
     workerParams: WorkerParameters,

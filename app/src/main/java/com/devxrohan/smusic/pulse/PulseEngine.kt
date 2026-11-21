@@ -36,7 +36,7 @@ data class PulseShelf(
     val reason: String = "",
 )
 
-data class PulseArtistInsight(val id: String, val name: String, val score: Double)
+data class PulseArtistInsight(val id: String, val name: String, val score: Double, val thumbnail: String? = null)
 
 data class PulseSummary(
     val stage: PulseStage,
@@ -54,18 +54,17 @@ data class PulseSummary(
     val reasonHighlights: List<String> = emptyList(),
     /** Stable smart-mix names generated from actual listening evidence. */
     val smartMixes: List<String> = emptyList(),
+    val discoveryMode: String = "AUTO",
 )
 
-/**
- * Pulse: SMusic's persistent personal music brain. Reads real playback/history, learns silently,
- * and ranks candidates for existing Home rows plus a few additive shelves.
- * Every public entry point is failure-safe: on any error callers receive their original input.
- */
+/** Learns from playback and history, persists taste signals and ranks supported recommendation rows. */
 @Singleton
 class PulseEngine @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val database: MusicDatabase,
 ) {
+    val revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    val tuningRevision = kotlinx.coroutines.flow.MutableStateFlow(0L)
     private val mutex = Mutex()
     private var state: PulseState? = null
     private val file get() = PulseStorage.file(context.filesDir)
@@ -74,12 +73,7 @@ class PulseEngine @Inject constructor(
     @Suppress("RedundantSuspendModifier")
     private suspend fun guestModeActive(): Boolean = true
 
-    /**
-     * True while a YouTube account is connected. Then YouTube is the primary source: its feed order and
-     * its radio/queue are never reordered by Pulse. Pulse only ranks its own rows (Similar To, Discover,
-     * Picked for you), and those rows are built from the account's authenticated YouTube results.
-     * Signed out (guest) Pulse is primary and shapes everything from the user's own taste.
-     */
+    /** Preserve connected-account feed and radio order; Pulse ranks only its own shelves. */
     suspend fun accountPrimary(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val cookie = context.dataStore.data.first()[com.devxrohan.smusic.constants.InnerTubeCookieKey].orEmpty()
@@ -98,7 +92,21 @@ class PulseEngine @Inject constructor(
         return loaded
     }
 
-    private fun persist(s: PulseState) = PulseStorage.save(file, s)
+    private fun persist(s: PulseState) {
+        PulseStorage.save(file, s)
+        revision.value = revision.value + 1
+    }
+
+    suspend fun setDiscoveryMode(mode: String) = mutex.withLock {
+        val preference = when (mode) { "AUTO" -> null; "FAMILIAR" -> 0.15; "BALANCED" -> 0.35; "ADVENTUROUS" -> 0.60; else -> error("Unknown discovery mode") }
+        val loaded = ensureLoaded()
+        val previous = loaded.discoveryPreference
+        loaded.discoveryPreference = preference
+        try { withContext(Dispatchers.IO) { persist(loaded) } }
+        catch (failure: Exception) { loaded.discoveryPreference = previous; throw failure }
+        tuningRevision.value = tuningRevision.value + 1
+    }
+
     /** Whether queue-level Pulse Similar Content expansion is enabled by the user. */
     fun similarContentEnabled(): Boolean = context.dataStore.get(com.devxrohan.smusic.constants.SimilarContent, true)
 
@@ -149,8 +157,17 @@ class PulseEngine @Inject constructor(
             val s = ensureLoaded()
             if (s.backfillVersion >= PulseParams.BACKFILL_VERSION) return@withLock
             val rebuilt = PulseState().also { fresh ->
-                fresh.blockedArtists.addAll(s.blockedArtists)           // explicit user choices survive a rebuild
+                fresh.blockedArtists.addAll(s.blockedArtists)
+                fresh.dislikedArtists.putAll(s.dislikedArtists)
+                fresh.smartPlaylistIds.addAll(s.smartPlaylistIds)
+                fresh.dismissedPlaylists.addAll(s.dismissedPlaylists)           // explicit user choices survive a rebuild
                 fresh.notForMeSongs.putAll(s.notForMeSongs)
+                fresh.positiveFeedback.putAll(s.positiveFeedback)
+                s.positiveFeedback.values.flatMap { it.artistIds }.distinct().forEach { id ->
+                    s.artists[id]?.let { fresh.artists[id] = ArtistAffinity(name = it.name) }
+                }
+                fresh.discoveryPreference = s.discoveryPreference
+                fresh.discoveryAppetite = s.discoveryAppetite
             }
             val events = withContext(Dispatchers.IO) { database.events().first() }
                 .take(PulseParams.BACKFILL_MAX_ROWS)
@@ -161,6 +178,9 @@ class PulseEngine @Inject constructor(
                 val pct = if (dur > 0) (e.event.playTime.toDouble() / dur).coerceAtMost(1.0) else 0.6
                 PulseLearn.applySignal(rebuilt, signalOf(song, pct, toMs(e.event.timestamp)))
             }
+            // Historical plays must not clear a later explicit Not for me choice.
+            rebuilt.notForMeSongs.putAll(s.notForMeSongs)
+            rebuilt.positiveFeedback.putAll(s.positiveFeedback)
             rebuilt.backfillVersion = PulseParams.BACKFILL_VERSION
             state = rebuilt
             withContext(Dispatchers.IO) { persist(rebuilt) }
@@ -185,6 +205,7 @@ class PulseEngine @Inject constructor(
     /** Called from the player's playback-stats callback. Early skips are learned too, not just counted plays. */
     suspend fun onPlaybackFinished(songId: String, playTimeMs: Long) = safe(Unit) {
         if (!guestModeActive()) return@safe
+        if (playTimeMs < 2000L || context.dataStore.data.first()[com.devxrohan.smusic.constants.PauseListenHistoryKey] == true) return@safe
         val song = withContext(Dispatchers.IO) { database.song(songId).first() } ?: return@safe
         mutex.withLock {
             val s = ensureLoaded()
@@ -229,6 +250,25 @@ class PulseEngine @Inject constructor(
         }
     }
 
+    suspend fun onTasteFeedback(tracks: List<PulseFeedbackTrack>, positive: Boolean): Boolean =
+        withContext(Dispatchers.IO) {
+            safe(false) {
+                val valid = tracks.filter { it.id.isNotBlank() }.distinctBy { it.id }
+                if (valid.isEmpty()) return@safe false
+                mutex.withLock {
+                    val updated = PulseStorage.fromJson(PulseStorage.toJson(ensureLoaded()))
+                    val now = System.currentTimeMillis()
+                    valid.forEach { track ->
+                        if (positive) PulsePreferences.apply(updated, track, now)
+                        else PulseLearn.applyNotForMe(updated, track.id, track.artistIds.filter(String::isNotBlank), now)
+                    }
+                    persist(updated)
+                    state = updated
+                    true
+                }
+            }
+        }
+
     suspend fun onNotForMe(song: Song) = safe(Unit) {
         if (!guestModeActive()) return@safe
         mutex.withLock {
@@ -262,13 +302,16 @@ class PulseEngine @Inject constructor(
         if (!guestModeActive()) return@safe null
         mutex.withLock {
             val s = ensureLoaded()
-            fun insight(id: String, score: Double) =
-                PulseArtistInsight(id, s.artists[id]?.name.orEmpty().ifBlank { id }, score)
+            suspend fun insight(id: String, score: Double): PulseArtistInsight {
+                val artist = withContext(Dispatchers.IO) { database.artist(id).first() }
+                return PulseArtistInsight(id, s.artists[id]?.name.orEmpty().ifBlank { artist?.artist?.name ?: id }, score, artist?.artist?.thumbnailUrl)
+            }
             PulseSummary(
                 stage = s.stage(),
                 totalPlays = s.totalPlays,
-                discoveryAppetite = s.discoveryAppetite,
-                topArtists = s.topArtists(8).filter { s.artists[it.first]?.name?.isNotBlank() == true }
+                discoveryAppetite = s.recommendationAppetite(),
+                discoveryMode = when (s.discoveryPreference) { null -> "AUTO"; 0.15 -> "FAMILIAR"; 0.35 -> "BALANCED"; else -> "ADVENTUROUS" },
+                topArtists = s.topArtists(8).filter { s.artists[it.first]?.name?.isNotBlank() == true && !s.isHidden(it.first, System.currentTimeMillis()) }
                     .map { insight(it.first, it.second) },
                 tasteGroups = PulseClusters.compute(s).let { tm ->
                     tm.mass.entries.sortedByDescending { it.value }.take(4).map { (lab, _) ->
@@ -281,7 +324,7 @@ class PulseEngine @Inject constructor(
                 reasonHighlights = reasonHighlights(s, now = System.currentTimeMillis()),
                 smartMixes = smartMixNames(s),
                 rising = s.recentRotation.entries.sortedByDescending { it.value }
-                    .filter { s.artists[it.key]?.name?.isNotBlank() == true }
+                    .filter { s.artists[it.key]?.name?.isNotBlank() == true && !s.isHidden(it.key, System.currentTimeMillis()) }
                     .take(5).map { insight(it.key, it.value) },
             )
         }
@@ -289,15 +332,19 @@ class PulseEngine @Inject constructor(
 
     private fun reasonHighlights(s: PulseState, now: Long): List<String> {
         val out = ArrayList<String>(4)
-        s.topArtists(3).mapNotNull { s.artists[it.first]?.name?.takeIf { n -> n.isNotBlank() } }
-            .forEach { out += "Built around $it and artists you repeatedly return to" }
+        val requested = PulsePreferences.directArtists(s, now)
+        s.topArtists(3, now).forEach { (id, _) ->
+            val name = s.artists[id]?.name?.takeIf(String::isNotBlank) ?: return@forEach
+            out += if (id in requested) "You asked for more music like $name"
+                else "Built around $name and artists you repeatedly return to"
+        }
         val bucket = PulseTimeBucket.fromTimestamp(now)
         val contextHits = s.timeBuckets[bucket]?.entries?.sortedByDescending { it.value }?.take(1)?.mapNotNull {
             s.artists[it.key]?.name?.takeIf { n -> n.isNotBlank() }
         }.orEmpty()
         contextHits.forEach { out += "Your current time-of-day taste leans toward $it" }
-        if (s.discoveryAppetite >= 0.58) out += "Pulse is opening more room for new artists because you accept discovery"
-        else if (s.discoveryAppetite <= 0.22) out += "Pulse is keeping discovery conservative because familiar music performs better for you"
+        if (s.recommendationAppetite() >= 0.58) out += "Pulse is opening more room for new artists because you accept discovery"
+        else if (s.recommendationAppetite() <= 0.22) out += "Pulse is keeping discovery conservative because familiar music performs better for you"
         if (PulseRanker.drift(s) >= 0.45) out += "Your recent listening has shifted, so recent taste gets extra weight"
         return out.distinct().take(4)
     }
@@ -327,10 +374,7 @@ class PulseEngine @Inject constructor(
 
     // ---------- Home integration ----------
 
-    /**
-     * KEEP LISTENING (songs + artists + albums, the existing mixed row). Pulse fills a stage-dependent
-     * share of [size]; the rest stays exactly what SMusic already produced. Cold start returns [original].
-     */
+    /** Fill the stage-dependent Keep Listening share while preserving the original cold-start content. */
     suspend fun blendKeepListening(
         original: List<LocalItem>,
         songPool: List<Song>,
@@ -343,8 +387,8 @@ class PulseEngine @Inject constructor(
         mutex.withLock {
             val s = ensureLoaded()
             val share = s.effectiveShare()
-            if (share <= 0.0) return@withLock original
             val now = System.currentTimeMillis()
+            if (share <= 0.0) return@withLock original.filterNot { isRejected(s, it, now) }
             val pool: List<LocalItem> = songPool.distinctBy { it.id } +
                 artistPool.distinctBy { it.id } +
                 albumPool.distinctBy { it.id }
@@ -393,41 +437,37 @@ class PulseEngine @Inject constructor(
             val s = ensureLoaded()
             val share = s.effectiveShare()
             val now = System.currentTimeMillis()
-            if (share <= 0.0 || candidates.isEmpty()) return@withLock candidates.take(max)
+            if (share <= 0.0 || candidates.isEmpty()) return@withLock candidates.filterNot { s.isHidden(it.id, now) }.take(max)
             val cands = candidates.map { PulseCandidate(it.id, PulseKind.ARTIST, listOf(it.id)) }
             val ranked = PulseRanker.rank(s, cands, PulseSurface.KEEP_LISTENING, now).map { candidates[it] }
             ranked.take(max)
         }
     }
 
-    /**
-     * Re-ranks the mixed Songs + Artists (+ albums/playlists) of one Similar To row. Keeps every entity
-     * type, drops blocked/duplicate items, and composes toward the similar-surface novelty target.
-     */
+    /** Rank mixed Similar To results with novelty targets, removing blocked artists and duplicate items. */
     suspend fun rankSimilar(items: List<YTItem>, usedIds: MutableSet<String>, limit: Int = 16): List<YTItem> = safe(items) {
         if (!guestModeActive()) return@safe items
         mutex.withLock {
             val s = ensureLoaded()
-            if (s.effectiveShare() <= 0.0) return@withLock items
             val now = System.currentTimeMillis()
+            if (s.effectiveShare() <= 0.0) return@withLock items.filter { item -> artistIdsOf(item).none { s.isHidden(it, now) } && s.notForMeSongs[item.id]?.let { now - it < PulseParams.NOT_FOR_ME_MS } != true }
             val fresh = items.filter { it.id !in usedIds }.filter(::looksLikeMusic).distinctBy { it.id }
             val cands = fresh.map { PulseCandidate(it.id, kindOf(it), artistIdsOf(it)) }
-            val relevant = cands.withIndex().filter { (_, c) ->
-                PulseRanker.relevance(s, c, PulseSurface.SIMILAR, now) >= PulseParams.MIN_RELEVANCE
-            }
+            val relevance = PulseRanker.relevanceScores(s, cands, PulseSurface.SIMILAR, now)
+            val relevant = cands.withIndex().filter { relevance[it.index] >= PulseParams.MIN_RELEVANCE }
             val relevantItems = relevant.map { fresh[it.index] }
             val relevantCands = relevant.map { it.value }
             val out = PulseRanker.rank(s, relevantCands, PulseSurface.SIMILAR, now)
                 .map { relevantItems[it] }.take(limit)
             usedIds.addAll(out.map { it.id })
-            if (out.size < PulseParams.MIN_SHELF_ITEMS) items.distinctBy { it.id }.take(limit) else out
+            if (out.size < PulseParams.MIN_SHELF_ITEMS) {
+                val fallback = items.distinctBy { it.id }.filter { item -> artistIdsOf(item).none { s.isHidden(it, now) } && s.notForMeSongs[item.id]?.let { now - it < PulseParams.NOT_FOR_ME_MS } != true }
+                PulseRanker.rank(s, fallback.map { PulseCandidate(it.id, kindOf(it), artistIdsOf(it)) }, PulseSurface.SIMILAR, now).map { fallback[it] }.take(limit)
+            } else out
         }
     }
 
-    /**
-     * "Picked for you": Pulse-ranks a pool of YouTube results (already fetched with the account cookie when one is
-     * connected) on the shelf surface. Cold start returns nothing so Home stays pure YouTube.
-     */
+    /** Rank previously fetched candidates for Picked for You; omit the shelf during cold start. */
     suspend fun pickedForYou(pool: List<YTItem>, usedIds: MutableSet<String>, limit: Int = 12): List<YTItem> = safe(emptyList()) {
         mutex.withLock {
             val s = ensureLoaded()
@@ -438,9 +478,8 @@ class PulseEngine @Inject constructor(
                 .filter(::looksLikeMusic).distinctBy { it.id }
                 .filter { item -> artistIdsOf(item).none { s.isHidden(it, now) } }.toList()
             val cands = fresh.map { PulseCandidate(it.id, kindOf(it), artistIdsOf(it)) }
-            val relevant = cands.withIndex().filter { (_, c) ->
-                PulseRanker.relevance(s, c, PulseSurface.SHELF, now) >= PulseParams.MIN_RELEVANCE
-            }
+            val relevance = PulseRanker.relevanceScores(s, cands, PulseSurface.SHELF, now)
+            val relevant = cands.withIndex().filter { relevance[it.index] >= PulseParams.MIN_RELEVANCE }
             val items = relevant.map { fresh[it.index] }
             if (items.size < PulseParams.MIN_SHELF_ITEMS) return@withLock emptyList()
             val out = PulseRanker.rank(s, relevant.map { it.value }, PulseSurface.SHELF, now).map { items[it] }.take(limit)
@@ -582,10 +621,7 @@ class PulseEngine @Inject constructor(
 
     // ---------- Smart Radio / AutoMix ----------
 
-    /**
-     * Generic re-ranker for Smart Radio and AutoMix: keeps every item, only reorders (no hard drops except
-     * blocked artists). Cold start returns [items] unchanged. [seedId] is never moved.
-     */
+    /** Reorder radio candidates without moving the seed; only blocked artists are removed. */
     suspend fun <T> rankForRadio(
         items: List<T>,
         idOf: (T) -> String,
@@ -598,11 +634,11 @@ class PulseEngine @Inject constructor(
         if (accountPrimary()) return@safe items
         mutex.withLock {
             val s = ensureLoaded()
-            if (s.effectiveShare() <= 0.0 || items.size < 3) return@withLock items
             val now = System.currentTimeMillis()
+            if (s.effectiveShare() <= 0.0 || items.size < 3) return@withLock items.filter { item -> idOf(item) == seedId || (artistIdsOf(item).none { s.isHidden(it, now) } && s.notForMeSongs[idOf(item)]?.let { now - it < PulseParams.NOT_FOR_ME_MS } != true) }
             val body = items.filter { idOf(it) != seedId }.distinctBy { idOf(it) }
             val cands = body.map { PulseCandidate(idOf(it), PulseKind.SONG, artistIdsOf(it)) }
-            val scored = cands.withIndex().map { it.index to PulseRanker.relevance(s, it.value, PulseSurface.RADIO, now, seedArtistIds) }
+            val scored = PulseRanker.relevanceScores(s, cands, PulseSurface.RADIO, now, seedArtistIds).mapIndexed { index, value -> index to value }
             val relevantIndexes = scored.filter { it.second >= PulseParams.MIN_RELEVANCE }.map { it.first }.toSet()
             val filteredBody = if (relevantIndexes.size >= 5) body.filterIndexed { i, _ -> i in relevantIndexes } else body
             val filteredCands = filteredBody.map { PulseCandidate(idOf(it), PulseKind.SONG, artistIdsOf(it)) }
@@ -630,11 +666,7 @@ class PulseEngine @Inject constructor(
 
     private var lastPlaylistSync = 0L
 
-    /**
-     * Creates/refreshes local Pulse playlists (stable ids, never synced to YouTube). Contextual ones
-     * (Late Night / Weekend) need real evidence in that time bucket; every playlist needs >= 10 songs.
-     * Throttled to once per 6h.
-     */
+    /** Refresh local-only Pulse playlists when sufficient listening and time-bucket evidence exists. */
     suspend fun syncSmartPlaylists(songPool: List<Song>) = safe(Unit) {
         if (!guestModeActive()) return@safe
         val plan: List<Triple<String, String, List<Song>>> = mutex.withLock {
@@ -747,10 +779,7 @@ class PulseEngine @Inject constructor(
         }
     }
 
-    /**
-     * Discover Your Next Favorite: unfamiliar songs/artists/albums from the music source that sit closest to the
-     * user's sound-space, never artists they've already played and never hidden ones.
-     */
+    /** Choose unfamiliar candidates near the taste embedding while excluding played and hidden artists. */
     suspend fun discoverNext(pool: List<YTItem>, usedIds: MutableSet<String>, limit: Int = 12): List<YTItem> = safe(emptyList()) {
         if (!guestModeActive()) return@safe emptyList()
         mutex.withLock {
@@ -787,6 +816,7 @@ class PulseEngine @Inject constructor(
             val s = ensureLoaded()
             val e = s.exposure[itemId]
             when {
+                PulsePreferences.isActive(s.positiveFeedback[itemId], System.currentTimeMillis()) -> "You asked for more like this"
                 e?.reason?.isNotBlank() == true -> e.reason
                 s.songs[itemId]?.replays?.let { it >= 2 } == true -> "You replay this often"
                 s.songs[itemId]?.liked == true -> "You liked this"

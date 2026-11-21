@@ -4,10 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/**
- * Versioned persistence for [PulseState]: one small JSON file, written atomically (tmp + rename).
- * A missing or corrupt file yields a fresh state (which then triggers backfill) and never throws.
- */
+/** Persist versioned Pulse state atomically; missing or corrupt data triggers history backfill. */
 object PulseStorage {
     const val FILE_NAME = "pulse_state.json"
 
@@ -20,12 +17,12 @@ object PulseStorage {
         }.getOrElse { PulseState() }
 
     fun save(file: File, state: PulseState) {
-        runCatching {
-            file.parentFile?.mkdirs()
-            val tmp = File(file.parentFile, "$FILE_NAME.tmp")
-            tmp.writeText(toJson(state).toString())
-            if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+        check(file.parentFile!!.exists() || file.parentFile!!.mkdirs())
+        val tmp = File(file.parentFile, "$FILE_NAME.tmp")
+        java.io.FileOutputStream(tmp).use { output ->
+            output.write(toJson(state).toString().toByteArray(Charsets.UTF_8)); output.fd.sync()
         }
+        check(tmp.renameTo(file)) { "Could not save Pulse profile" }
     }
 
     // ---- encode ----
@@ -35,6 +32,7 @@ object PulseStorage {
         put("backfillVersion", s.backfillVersion)
         put("totalPlays", s.totalPlays)
         put("appetite", s.discoveryAppetite)
+        s.discoveryPreference?.let { put("discoveryPreference", it) }
         put("rotDecay", s.lastRotationDecay)
         put("sessSong", s.sessionLastSong ?: JSONObject.NULL)
         put("sessArtist", s.sessionLastArtist ?: JSONObject.NULL)
@@ -74,6 +72,11 @@ object PulseStorage {
                     .put(e.source).put(e.shelf).put(e.position).put(e.reason))
             }
         })
+        put("moreLikeThis", JSONObject().also { objectValue ->
+            s.positiveFeedback.forEach { (id, preference) ->
+                objectValue.put(id, JSONArray().put(preference.timestamp).put(JSONArray(preference.artistIds)).put(preference.title))
+            }
+        })
         put("notForMe", longMap(s.notForMeSongs))
         put("disliked", longMap(s.dislikedArtists))
         put("blocked", JSONArray(s.blockedArtists.toList()))
@@ -92,6 +95,7 @@ object PulseStorage {
         s.backfillVersion = o.optInt("backfillVersion", 0)
         s.totalPlays = o.optInt("totalPlays", 0)
         s.discoveryAppetite = o.optDouble("appetite", PulseParams.DISCOVERY_NEUTRAL)
+        s.discoveryPreference = if (o.has("discoveryPreference")) o.optDouble("discoveryPreference").takeIf { it.isFinite() && it in 0.1..0.7 } else null
         s.lastRotationDecay = o.optLong("rotDecay", 0L)
         s.sessionLastSong = o.optString("sessSong", "").ifEmpty { null }
         s.sessionLastArtist = o.optString("sessArtist", "").ifEmpty { null }
@@ -142,6 +146,14 @@ object PulseStorage {
                     a.optInt(0), a.optLong(1), a.optInt(2), a.optInt(3), a.optInt(4), a.optBoolean(5),
                     a.optString(6), a.optString(7), a.optInt(8, -1), a.optString(9)
                 )
+            }
+        }
+        o.optJSONObject("moreLikeThis")?.let { preferences ->
+            preferences.keys().asSequence().take(500).forEach { id ->
+                val entry = preferences.optJSONArray(id) ?: return@forEach
+                val timestamp = entry.optLong(0)
+                val artists = entry.optJSONArray(1)?.let { a -> List(a.length()) { a.optString(it) }.filter(String::isNotBlank).distinct() }.orEmpty()
+                if (id.isNotBlank() && timestamp > 0) s.positiveFeedback[id] = PulsePreference(timestamp, artists, entry.optString(2))
             }
         }
         readLongs(o.optJSONObject("notForMe"), s.notForMeSongs)

@@ -42,10 +42,7 @@ object LyricsTranslationHelper {
     private var translationJob: Job? = null
     private val memoryCache = mutableMapOf<String, List<String>>()
 
-    /**
-     * "auto" translates between Hindi and English: Hindi (Devanagari or romanised) lyrics become English,
-     * English lyrics become Hindi, and any other language goes to English. Other codes are used as picked.
-     */
+    /** Auto translates Hindi to English and English to Hindi; other languages default to English. */
     fun resolveTargetLanguage(code: String, lines: List<String>): String =
         if (code == "auto") LyricsLanguageDetector.autoTarget(lines) else code
 

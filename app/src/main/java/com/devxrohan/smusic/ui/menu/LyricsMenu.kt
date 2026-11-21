@@ -126,10 +126,7 @@ fun LyricsMenu(
         mutableStateOf(false)
     }
 
-    // The lyrics-card share flow (text share + customizable image card) already
-    // exists as a standalone composable, it just wasn't reachable from this
-    // three-dot menu yet. Wiring it up here surfaces it on every lyrics screen
-    // that opens this same menu (Karaoke, Classic and the Spotify-style view).
+    // Open the existing lyrics-share flow from the player menu.
     var showShareDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showEditDialog) {
@@ -178,7 +175,7 @@ fun LyricsMenu(
         rememberSaveable(showSearchDialog, stateSaver = TextFieldValue.Saver) {
             mutableStateOf(
                 TextFieldValue(
-                    text = mediaMetadataProvider().artists.joinToString { it.name }.artistForLyricsSearch(),
+                    text = com.devxrohan.smusic.lyrics.lyricsSearchArtists(mediaMetadataProvider().artists.map { it.name }),
                 ),
             )
         }

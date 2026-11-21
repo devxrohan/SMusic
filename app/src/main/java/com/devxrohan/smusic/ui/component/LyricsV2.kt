@@ -162,6 +162,7 @@ fun LyricsV2(
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val player = playerConnection.player
+    val lyricsInk = rememberLyricsInk()
     val context = LocalContext.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -169,6 +170,10 @@ fun LyricsV2(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
     // ── Preferences ──
+    val reduceLyricsMotion by rememberPreference(com.devxrohan.smusic.constants.DisableAnimationsKey, false)
+    val lyricsOffsetMs by rememberPreference(com.devxrohan.smusic.constants.LyricsOffsetMsKey, 0f)
+    val syncOffsetMs = com.devxrohan.smusic.lyrics.LyricsUtils.syncOffsetMillis(lyricsOffsetMs)
+    val lyricsAlignment by rememberPreference(com.devxrohan.smusic.constants.LyricsAlignmentKey, "AUTO")
     val (lyricsScroll) = rememberPreference(LyricsScrollKey, defaultValue = true)
     val (lyricsTextSize) = rememberPreference(LyricsTextSizeKey, defaultValue = 26f)
     val (lyricsLineSpacing) = rememberPreference(LyricsLineSpacingKey, defaultValue = 1.3f)
@@ -312,13 +317,13 @@ fun LyricsV2(
     var currentLineIndex by remember { mutableIntStateOf(0) }
 
     // Frame-accurate position loop
-    LaunchedEffect(entriesWithWords, isSynced) {
+    LaunchedEffect(entriesWithWords, isSynced, syncOffsetMs) {
         if (!isSynced || entriesWithWords.isEmpty()) return@LaunchedEffect
         while (isActive) {
             val sliderPos = sliderPositionProvider()
             val pos = sliderPos ?: player.currentPosition
 
-            currentPositionMs = pos
+            currentPositionMs = pos - syncOffsetMs
             currentLineIndex = findCurrentLineIndex(entriesWithWords, currentPositionMs, 0L)
             delay(16L) // ~60fps polling
         }
@@ -351,7 +356,7 @@ fun LyricsV2(
     }
 
     // Auto-scroll to active line
-    LaunchedEffect(currentLineIndex, isManualScrolling, lyricsScroll) {
+    LaunchedEffect(currentLineIndex, isManualScrolling, lyricsScroll, reduceLyricsMotion) {
         if (!lyricsScroll || isManualScrolling || !isSynced) return@LaunchedEffect
         if (currentLineIndex < 0 || currentLineIndex >= entriesWithWords.size) return@LaunchedEffect
 
@@ -367,10 +372,11 @@ fun LyricsV2(
                 0
             )
         }
-        listState.animateScrollToItem(
-            index = currentLineIndex,
-            scrollOffset = -targetOffset
-        )
+        if (reduceLyricsMotion) {
+            listState.scrollToItem(index = currentLineIndex, scrollOffset = -targetOffset)
+        } else {
+            listState.animateScrollToItem(index = currentLineIndex, scrollOffset = -targetOffset)
+        }
     }
 
     BackHandler(enabled = isSelectionModeActive) {
@@ -449,7 +455,7 @@ fun LyricsV2(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(nestedScrollConnection)
-                .smoothFadingEdge(vertical = 80.dp)
+                .smoothFadingEdge(top = if (listState.canScrollBackward) 80.dp else null, bottom = 80.dp)
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -458,7 +464,7 @@ fun LyricsV2(
                 key = { index, entry -> "${index}_${entry.time}" }
             ) { index, item ->
                 if (item == HEAD_LYRICS_ENTRY) {
-                    Spacer(modifier = Modifier.height(120.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                     return@itemsIndexed
                 }
                 if (item.text.isBlank()) {
@@ -468,14 +474,19 @@ fun LyricsV2(
 
                 // ── Agent-based positioning ──
                 // v1 or null -> Start, v2 -> End, others -> Center
-                val textAlign = when (item.agent?.lowercase()) {
+                val textAlign = when (lyricsAlignment) {
+                    "START" -> TextAlign.Start
+                    "CENTER" -> TextAlign.Center
+                    "END" -> TextAlign.End
+                    else -> when (item.agent?.lowercase()) {
                     "v1", null -> TextAlign.Start
                     "v2" -> TextAlign.End
                     else -> TextAlign.Center
+                    }
                 }
-                val horizontalAlignment = when (item.agent?.lowercase()) {
-                    "v1", null -> Alignment.Start
-                    "v2" -> Alignment.End
+                val horizontalAlignment = when (textAlign) {
+                    TextAlign.Start -> Alignment.Start
+                    TextAlign.End -> Alignment.End
                     else -> Alignment.CenterHorizontally
                 }
 
@@ -538,7 +549,7 @@ fun LyricsV2(
                                         }
                                     }
                                 } else if (isSynced && item.time > 0) {
-                                    player.seekTo(item.time)
+                                    player.seekTo((item.time + syncOffsetMs).coerceAtLeast(0L))
                                 }
                             },
                             onLongClick = {
@@ -572,11 +583,12 @@ fun LyricsV2(
                             ),
                             color = textColor.copy(alpha = if (isActive) 1f else inactiveAlpha),
                             textAlign = textAlign,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().lyricsInk(lyricsInk),
                         )
                     } else if (!item.words.isNullOrEmpty() && isSynced) {
                         // ── Word-synced original lyrics rendering ──
-                        LyricsLineV2(
+                        androidx.compose.runtime.CompositionLocalProvider(LocalLyricsInk provides lyricsInk) {
+LyricsLineV2(
                             words = item.words,
                             isActive = isActive,
                             isPast = isPast,
@@ -588,17 +600,13 @@ fun LyricsV2(
                             textAlign = textAlign,
                             lyricsFontFamily = lyricsFontFamily,
                         )
+}
                     } else {
-                        // ── Plain text rendering (no word-level timing) ──
-                        // There are no per-word timestamps to bounce here, but the
-                        // line should still visibly react when it becomes the
-                        // active one instead of just snapping between font
-                        // weight/alpha values. A gentle scale-and-fade "pop" gives
-                        // it the same sense of motion as the karaoke line above,
-                        // without inventing fake word timings.
+                        // Render untimed words without syllable timing while retaining line-level
+                        // emphasis.
                         val activeLineScale by androidx.compose.animation.core.animateFloatAsState(
-                            targetValue = if (isActive) 1f else 0.97f,
-                            animationSpec = androidx.compose.animation.core.spring(
+                            targetValue = if (reduceLyricsMotion || isActive) 1f else 0.97f,
+                            animationSpec = if (reduceLyricsMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(
                                 dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
                                 stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
                             ),
@@ -606,7 +614,7 @@ fun LyricsV2(
                         )
                         val activeLineAlpha by androidx.compose.animation.core.animateFloatAsState(
                             targetValue = if (isActive) 1f else inactiveAlpha,
-                            animationSpec = androidx.compose.animation.core.tween(260),
+                            animationSpec = androidx.compose.animation.core.tween(if (reduceLyricsMotion) 0 else 260),
                             label = "plainLyricLineAlpha",
                         )
                         Text(
@@ -622,6 +630,7 @@ fun LyricsV2(
                             textAlign = textAlign,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .lyricsInk(lyricsInk)
                                 .graphicsLayer {
                                     scaleX = activeLineScale
                                     scaleY = activeLineScale
@@ -820,7 +829,9 @@ internal fun LyricsMiniKaraokeLine(
     modifier: Modifier = Modifier,
 ) {
     if (words.isEmpty()) return
-    LyricsLineV2(
+    val lyricsInk = rememberLyricsInk()
+    androidx.compose.runtime.CompositionLocalProvider(LocalLyricsInk provides lyricsInk) {
+LyricsLineV2(
         words = words,
         isActive = true,
         isPast = false,
@@ -834,6 +845,7 @@ internal fun LyricsMiniKaraokeLine(
         modifier = modifier,
         singleLine = true,
     )
+}
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -850,21 +862,10 @@ private fun LyricsLineV2(
     textAlign: TextAlign,
     lyricsFontFamily: FontFamily?,
     modifier: Modifier = Modifier,
-    // The compact strip above the seek bar has room for exactly one line.
-    // FlowRow wraps to a second row once words stop fitting the available
-    // width, which is correct for the full lyrics screen but not for that
-    // strip. In single-line mode words lay out in a plain non-wrapping Row
-    // and anything past the visible width is clipped away — like Spotify's
-    // mini lyric line — instead of dropping to a second row underneath.
+    // Keep compact lyrics on one line; reserve wrapped words for the full lyrics view.
     singleLine: Boolean = false,
 ) {
-    // FlowRow adds no gap between items on its own, and some lyrics providers
-    // never send an explicit " " word token (or any baked-in space) between
-    // consecutive words — those songs ended up with every word jammed flush
-    // against the next one. A real arrangement gap guarantees a visible gap
-    // between words on every song regardless of what the provider sent, so
-    // explicit " " tokens below are now just skipped instead of rendered as
-    // their own transparent item (rendering both would double the gap).
+    // Preserve word boundaries when the provider omits explicit whitespace tokens.
     val wordGap = (baseFontSize * 0.22f).dp
     val arrangement = when (textAlign) {
         TextAlign.Center -> Arrangement.spacedBy(wordGap, Alignment.CenterHorizontally)
@@ -903,10 +904,7 @@ private fun LyricsLineV2(
             }
         }
         if (singleLine) {
-            // A Row of individually animated word Texts cannot apply TextOverflow.Ellipsis
-            // to the whole sentence. Measure the complete line first, then keep the longest
-            // prefix that leaves room for a real ellipsis. This keeps word-level karaoke
-            // animation while making timestamped lyrics truncate exactly like plain lyrics.
+            // Measure the full lyric line and reserve ellipsis space before rendering animated words.
             BoxWithConstraints(
                 modifier = modifier
                     .fillMaxWidth()
@@ -1035,6 +1033,7 @@ private fun AnimatedWordV2(
     isBackground: Boolean,
     lyricsFontFamily: FontFamily?,
 ) {
+    val lyricsInk = LocalLyricsInk.current
     val wordStartMs = (word.startTime * 1000).toLong()
     val wordEndMs = (word.endTime * 1000).toLong()
     val wordDuration = (wordEndMs - wordStartMs).coerceAtLeast(1L)
@@ -1074,7 +1073,7 @@ private fun AnimatedWordV2(
     val wordScale = 1f + (0.015f * sinProgress)
 
     // Float is only applied when the word is actively sung, making it pop from the line.
-    // We use animateFloatAsState so that when it finishes (and drops to 0f), 
+    // We use animateFloatAsState so that when it finishes (and drops to 0f),
     // it smoothly decays back into place rather than a harsh mathematical snap.
     val targetFloat = if (isWordActive) -4f * sinProgress else 0f
     val floatOffset by androidx.compose.animation.core.animateFloatAsState(
@@ -1098,6 +1097,7 @@ private fun AnimatedWordV2(
     // ── Two-layer rendering: dim base + liquid fill overlay ──
     Box(
         modifier = Modifier
+            .lyricsInk(lyricsInk)
             .graphicsLayer {
                 translationY = floatOffset * density
                 scaleX = wordScale

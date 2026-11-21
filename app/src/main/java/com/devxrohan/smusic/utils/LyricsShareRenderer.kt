@@ -39,17 +39,7 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.roundToInt
 
-/**
- * Draws the picked lyric lines as one shareable picture.
- *
- * The card is a plain [Canvas] drawing rather than a captured Composable: a
- * screenshot of the lyrics screen would carry the scrubber, whatever lines
- * happened to be on screen and that device's own status bar, so two people
- * sharing the same verse would end up with two different-looking pictures.
- * Drawing it by hand means the card is always just the verse, the sleeve and
- * the song credit, sized to exactly how much room the picked lines need
- * instead of a fixed box with empty space in it.
- */
+/** Renders share images on Canvas using the selected passage, artwork and card layout. */
 object LyricsShareRenderer {
     const val MAX_SELECTED_LINES = 10
 
@@ -213,12 +203,7 @@ internal fun wrap(text: String, paint: Paint, width: Float): List<String> {
 
 // ── Pieces ───────────────────────────────────────────────────────────────
 
-/**
- * The mark, top right: the app icon beside its name, with the "S" picked
- * out in the brand red and the rest in white. Both carry a soft dark
- * shadow so the mark stays legible however light or busy the backdrop's
- * gradient turns out at that corner.
- */
+/** Keep the app icon and wordmark legible over artwork using a restrained text shadow. */
 internal fun drawBrand(canvas: Canvas, context: Context, type: Fonts, onLight: Boolean = false) {
     val white = type.heading(62f, if (onLight) 0xFF24201D.toInt() else 0xF2FFFFFF.toInt())
     val red = type.heading(62f, BRAND_RED)
@@ -303,12 +288,7 @@ internal fun ellipsised(text: String, paint: Paint, width: Float): String {
     return text.take(end).trimEnd() + "…"
 }
 
-/**
- * The face drawn onto the card — whichever font the person has set for the
- * app, resolved to an Android [Typeface] rather than a Compose [androidx.compose.ui.text.font.FontFamily],
- * since this is a plain [Canvas] drawing. The card's lettering changes with
- * the app's own font setting instead of always being set in one fixed face.
- */
+/** Resolve the selected app font to an Android Typeface for Canvas-based exports. */
 internal class Fonts(context: Context, appFont: AppFont) {
     private val display = appFont.getTypeface(context, bold = true)
     private val regular = appFont.getTypeface(context, bold = false)

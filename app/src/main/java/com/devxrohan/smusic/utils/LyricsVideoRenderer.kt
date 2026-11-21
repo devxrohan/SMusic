@@ -48,25 +48,7 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.roundToInt
 
-/**
- * Turns a picked passage of lyrics into a shareable MP4: the same backdrop,
- * brand mark and artwork the still "share card" draws (see
- * [LyricsShareRenderer], whose background/brand/artwork drawing this reuses
- * as-is so the look stays identical), the song's own audio underneath it,
- * and the selected lyrics staying in fixed positions. The active line fades
- * in and out as the song progresses; the lyric block never scrolls and
- * there is no word-by-word karaoke effect.
- *
- * Frames are drawn on a Canvas bitmap and uploaded through EGL to the encoder's
- * input Surface. EGL assigns explicit presentation timestamps starting at zero,
- * so export runs as fast as the device encoder allows and the MP4 duration does
- * not inherit the phone's uptime. Audio is decoded once and re-encoded to AAC
- * (Android's `MediaMuxer` can only write an MP4 audio track in a codec it
- * understands, and this app's own stream picker actually prefers Opus —
- * see `codecRank` in [YTPlayerUtils] — so assuming AAC and copying bytes
- * straight through silently produced a silent video for almost every
- * song); an already-AAC source just has its samples copied through as-is.
- */
+/** Renders selected lyric passages to MP4 using the shared card layout and export pipeline. */
 object LyricsVideoRenderer {
 
     sealed class AudioSource {
@@ -319,11 +301,7 @@ object LyricsVideoRenderer {
 
     // ── Frame drawing ────────────────────────────────────────────────────
 
-    /**
-     * Draws every selected line using the same measured rows, font size,
-     * tracking, wrapping and vertical centring as the still lyrics card.
-     * Only the active line's opacity changes as the clip progresses.
-     */
+    /** Reuse the still-card text layout for video frames; vary only the active-line opacity. */
     private fun drawLyricStack(
         canvas: Canvas,
         width: Int,
@@ -375,11 +353,7 @@ object LyricsVideoRenderer {
         val endUs: Long,
     )
 
-    /** An audio track fully encoded to AAC and held in memory (a 45s-capped
-     * clip is at most ~1MB as AAC, trivial to buffer) — resolved *before* the
-     * video encoder starts, so its final format is already known by the time
-     * the muxer needs every track added, whether it came from a straight
-     * sample copy or a full decode/re-encode. */
+    /** Resolve and buffer bounded AAC audio before starting video encoding. */
     private data class EncodedAudio(val format: MediaFormat, val samples: List<Pair<ByteArray, MediaCodec.BufferInfo>>)
 
     private fun openAudioTrack(context: Context, source: AudioSource, clipStartMs: Long, totalMs: Long): AudioPlan? {
@@ -446,10 +420,7 @@ object LyricsVideoRenderer {
         return samples.takeIf { it.isNotEmpty() }?.let { EncodedAudio(plan.format, it) }
     }
 
-    /** Slow(er) path: decode the source codec (commonly Opus — this app's own
-     * stream picker ranks it above AAC, see `codecRank` in [YTPlayerUtils])
-     * to PCM, then re-encode that PCM to AAC, since `MediaMuxer`'s MP4 writer
-     * only reliably takes AAC on every API level this app supports. */
+    /** Transcode non-AAC sources through PCM so the MP4 muxer receives a compatible audio track. */
     private suspend fun transcodeToAac(plan: AudioPlan): EncodedAudio? {
         val exportContext = currentCoroutineContext()
         val sourceMime = plan.format.getString(MediaFormat.KEY_MIME) ?: return null
@@ -485,11 +456,7 @@ object LyricsVideoRenderer {
             var lastProgressAt = SystemClock.elapsedRealtime()
             var audioEndUs = 0L
 
-            // Always drain the AAC encoder while feeding it. The previous
-            // implementation dropped decoded PCM whenever dequeueInputBuffer
-            // briefly returned TRY_AGAIN_LATER; on some devices that meant
-            // almost every Opus frame was discarded and the exported MP4 was
-            // effectively silent.
+            // Drain the AAC encoder while feeding PCM; retain input until the encoder accepts it.
             fun drainEncoder(timeoutUs: Long): Boolean {
                 var progressed = false
                 while (true) {
@@ -674,10 +641,7 @@ object LyricsVideoRenderer {
         artistName: String,
         onProgress: (Progress) -> Unit,
     ): Boolean {
-        // Resolved up front, before the muxer or the video encoder exist: this
-        // is what lets its final (always-AAC) format be added as a track
-        // before the video track's own format is even known, in whichever
-        // order each actually becomes ready.
+        // Resolve the AAC format before creating muxer tracks and starting video encoding.
         suspend fun encodeAudio(source: AudioSource): EncodedAudio? = withContext(Dispatchers.IO) {
             val plan = openAudioTrack(context, source, clipStartMs, totalMs) ?: return@withContext null
             try {
@@ -799,10 +763,7 @@ object LyricsVideoRenderer {
         }
     }
 
-    /** EGL is used only as a timestamped bridge to MediaCodec's input Surface.
-     * Canvas still does all typography/layout work; GL simply uploads that frame
-     * and assigns its exact media timestamp, so rendering is not forced to wait
-     * for real-world playback time. */
+    /** Use EGL only to timestamp Canvas-rendered frames on the MediaCodec input surface. */
     private class EglFrameRenderer(
         private val inputSurface: Surface,
         private val width: Int,

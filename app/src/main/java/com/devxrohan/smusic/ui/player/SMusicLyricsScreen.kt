@@ -148,13 +148,7 @@ fun SMusicLyricsScreen(
         label = "rotation"
     )
 
-    // This used to fetch lyrics itself here through its own Hilt entry point,
-    // racing MusicService's own fetch-on-song-start for the same song — two
-    // independent provider lookups can legitimately disagree, which is what
-    // let this screen show (and save to the database) different lyrics than
-    // the Classic strip or Spotify lyrics screen for the exact same song.
-    // ensureLyricsFetched is a no-op if a fetch already ran or is in flight,
-    // so every screen is now guaranteed to agree on one shared result.
+    // Consume service-owned lyrics state so opening this screen cannot duplicate provider requests.
     LaunchedEffect(mediaMetadata.id, currentLyrics) {
         if (currentLyrics == null) {
             runCatching { playerConnection.service.ensureLyricsFetched(mediaMetadata) }
@@ -529,7 +523,7 @@ fun SMusicLyricsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
+                            .padding(horizontal = 16.dp).padding(top = 16.dp),
                         contentAlignment = Alignment.TopCenter
                     ) {
                         if (useLyricsV2) {

@@ -1109,6 +1109,7 @@ class MainActivity : ComponentActivity() {
                                                     ?: return@BottomSheet
 
                                                 if (mediaMetadata != null) {
+                                                    com.devxrohan.smusic.ui.theme.PlayerIdentityTheme(darkTheme = true, pureBlack = pureBlack) {
                                                     if (playerScreenStyle == PlayerScreenStyle.SPOTIFY) {
                                                         SpotifyLyrics(
                                                             onNavigateBack = {
@@ -1125,6 +1126,7 @@ class MainActivity : ComponentActivity() {
                                                             },
                                                             modifier = Modifier.fillMaxSize()
                                                         )
+                                                    }
                                                     }
                                                 } else {
                                                     Box(

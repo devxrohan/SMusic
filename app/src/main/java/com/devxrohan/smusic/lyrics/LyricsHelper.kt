@@ -23,13 +23,7 @@ import javax.inject.Singleton
 import java.util.concurrent.ConcurrentHashMap
 import androidx.annotation.Keep
 
-/**
- * Coordinates lyrics providers for the current song.
- *
- * All enabled providers are started together. Answers are considered in fixed
- * priority order; word-timed results win while line-timed and plain text remain
- * fallbacks. This prevents a quick fuzzy match from pre-empting a better source.
- */
+/** Fetches enabled providers concurrently and selects results in the configured priority order. */
 
 @Keep
 @Singleton
@@ -110,7 +104,7 @@ constructor(
         // a non-cooperative socket call to unwind on the caller's coroutine.
         val lookupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val searchTitle = mediaMetadata.title.forLyricsSearch()
-        val searchArtist = mediaMetadata.artists.joinToString { it.name }.artistForLyricsSearch()
+        val searchArtist = com.devxrohan.smusic.lyrics.lyricsSearchArtists(mediaMetadata.artists.map { it.name })
 
         // Resolve the recording once before the race. lrc.red and BiniLyrics
         // then consume the same ISRC/document rather than independently fuzzy-matching
@@ -139,10 +133,7 @@ constructor(
             var plainFallback: String? = null
             var selectedWordTimed: String? = null
 
-            // All providers are already running concurrently. Keep the fixed
-            // priority, but never let one stalled provider hold the lyrics page
-            // in its loading state indefinitely. A short per-provider wait lets
-            // already-completed lower-priority requests be considered as well.
+            // Bound provider waits while preserving priority among concurrently running lyrics requests.
             withTimeoutOrNull(7_000L) {
                 for ((provider, job) in jobs) {
                     val lyrics = withTimeoutOrNull(900L) { job.await() }

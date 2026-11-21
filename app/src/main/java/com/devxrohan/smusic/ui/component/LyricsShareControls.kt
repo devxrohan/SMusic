@@ -117,7 +117,7 @@ private fun LyricsDesignOptions(labels: List<String>, previews: List<Bitmap?>, s
                         selected = checked
                         contentDescription = label
                     },
-                    shape = RoundedCornerShape(if (checked) 24.dp else 14.dp),
+                    shape = RoundedCornerShape(if (checked) 24.dp else 16.dp),
                     color = if (checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                     border = BorderStroke(if (checked) 2.dp else 1.dp,
                         if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)) {

@@ -1,5 +1,7 @@
 package com.devxrohan.smusic.ui.screens.settings
 
+import com.devxrohan.smusic.ui.component.DottedSlider as Slider
+
 
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
@@ -53,7 +55,7 @@ import com.devxrohan.smusic.constants.SimilarContent
 import com.devxrohan.smusic.constants.SkipSilenceKey
 import com.devxrohan.smusic.constants.StopMusicOnTaskClearKey
 import com.devxrohan.smusic.ui.component.EnumListPreference
-import com.devxrohan.smusic.ui.component.IconButton
+import com.devxrohan.smusic.ui.component.AppIconButton as IconButton
 import com.devxrohan.smusic.ui.component.PreferenceGroupTitle
 import com.devxrohan.smusic.ui.component.SettingsGeneralCategory
 import com.devxrohan.smusic.ui.component.SettingsPage
@@ -112,11 +114,6 @@ fun PlayerSettings(
         rememberEnumPreference<PlayerScreenStyle>(
             PlayerScreenStyleKey,
             defaultValue = PlayerScreenStyle.CLASSIC,
-        )
-    val (lyricsScreenStyle, onLyricsScreenStyleChange) =
-        rememberEnumPreference<LyricsScreenStyle>(
-            LyricsScreenStyleKey,
-            defaultValue = LyricsScreenStyle.LYRICS_2,
         )
     val (colourfullPlayerColor, onColourfullPlayerColorChange) = rememberPreference(
         ColourfullPlayerColorKey,
@@ -283,7 +280,7 @@ fun PlayerSettings(
                         .padding(16.dp)
                 ) {
                     var sliderValue by remember { mutableFloatStateOf(0.5f) }
-                    SquigglySlider(
+                    com.devxrohan.smusic.ui.component.DottedSlider(
                         value = sliderValue,
                         valueRange = 0f..1f,
                         onValueChange = { sliderValue = it },
@@ -388,6 +385,13 @@ fun PlayerSettings(
                 )},
 
                 {SwitchPreference(
+                    title = { Text("Skip songs that cannot play") },
+                    icon = { Icon(painterResource(R.drawable.skip_next), null) },
+                    checked = autoSkipNextOnError,
+                    onCheckedChange = onAutoSkipNextOnErrorChange
+                )},
+
+                {SwitchPreference(
                     title = { Text(stringResource(R.string.audio_normalization)) },
                     icon = { Icon(painterResource(R.drawable.volume_up), null) },
                     checked = audioNormalization,
@@ -409,20 +413,6 @@ fun PlayerSettings(
                 SettingsGeneralCategory(
                     title = stringResource(R.string.ui_player_style),
                     items = listOf(
-                        {
-                            EnumListPreference(
-                                title = { Text(stringResource(R.string.ui_lyrics_display_style)) },
-                                icon = { Icon(painterResource(R.drawable.lyrics), null) },
-                                selectedValue = lyricsScreenStyle,
-                                onValueSelected = onLyricsScreenStyleChange,
-                                valueText = {
-                                    when (it) {
-                                        LyricsScreenStyle.LYRICS_2 -> "Karaoke / synced lyrics"
-                                        LyricsScreenStyle.CLASSIC -> "Classic lyrics"
-                                    }
-                                },
-                            )
-                        },
                         {
                             EnumListPreference(
                                 title = { Text(stringResource(R.string.player_screen_style)) },
@@ -531,13 +521,7 @@ fun PlayerSettings(
                     onCheckedChange = similarContentEnabledChange,
                 )},
 
-                {SwitchPreference(
-                    title = { Text(stringResource(R.string.auto_skip_next_on_error)) },
-                    description = stringResource(R.string.auto_skip_next_on_error_desc),
-                    icon = { Icon(painterResource(R.drawable.skip_next), null) },
-                    checked = autoSkipNextOnError,
-                    onCheckedChange = onAutoSkipNextOnErrorChange
-                )},
+
             )
         )
 

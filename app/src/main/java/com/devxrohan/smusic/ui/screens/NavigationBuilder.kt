@@ -296,6 +296,8 @@ fun NavGraphBuilder.navigationBuilder(
         val latestVersion by mutableLongStateOf(BuildConfig.VERSION_CODE.toLong())
         SettingsScreen(latestVersion, navController, scrollBehavior)
     }
+    composable("settings/lyrics") { com.devxrohan.smusic.ui.screens.settings.LyricsSettings(navController, scrollBehavior) }
+
     composable("settings/appearance") {
         AppearanceSettings(navController, scrollBehavior)
     }

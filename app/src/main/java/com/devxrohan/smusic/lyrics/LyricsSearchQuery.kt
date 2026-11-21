@@ -3,13 +3,7 @@ package com.devxrohan.smusic.lyrics
 import java.text.Normalizer
 import java.util.Locale
 
-/**
- * Prepare YouTube playback metadata for lyric catalogues.
- *
- * YouTube titles often contain upload labels and feature credits which are
- * absent from catalogue entries. Recording/version labels (Live, Remix,
- * Acoustic, Slowed, etc.) are deliberately preserved.
- */
+/** Normalizes catalogue queries while preserving meaningful recording and version labels. */
 fun String.forLyricsSearch(): String {
     var value = this.trim()
     TITLE_PREFIX.replace(value, "").also { value = it }
@@ -21,12 +15,13 @@ fun String.forLyricsSearch(): String {
 
 /** Normalize YouTube artist/channel metadata without merging away collaborators. */
 fun String.artistForLyricsSearch(): String {
-    var value = this.trim()
+    var value = this.trim().replace(PLAY_COUNT_LABEL, " ")
+    if (value.trim(' ', ',', '·', '•', '|').isBlank()) return ""
     ARTIST_PREFIXES.forEach { value = it.replace(value, " ") }
     ARTIST_SUFFIXES.forEach { value = it.replace(value, " ") }
     value = value.replace(TOPIC_SUFFIX, "")
         .replace(WHITESPACE, " ")
-        .trim().trim(',', '·', '|', '-', '–', '—')
+        .trim().trim(',', '·', '•', '|', '-', '–', '—').trim()
     return value.ifBlank { this.trim() }
 }
 
@@ -75,3 +70,11 @@ private val ARTIST_SPLIT = Regex(
     """\s*(?:,|&|;|/|\s+and\s+|\s+x\s+|\s+with\s+|\s+feat\.?\s+|\s+ft\.?\s+)\s*""",
     RegexOption.IGNORE_CASE,
 )
+
+private val PLAY_COUNT_LABEL = Regex(
+    """(?:^|[\s·•|,]+)\d[\d.,]*\s*[KMB]?\s*(?:plays?|views?|streams?)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+fun lyricsSearchArtists(names: List<String>): String = names.map { it.artistForLyricsSearch() }
+    .filter { it.isNotBlank() }.distinct().joinToString(", ")

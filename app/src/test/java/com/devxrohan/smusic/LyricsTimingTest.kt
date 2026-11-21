@@ -50,4 +50,18 @@ class LyricsTimingTest {
         assertEquals(0, LyricsUtils.findCurrentLineIndex(lines, 1900L))
         assertEquals(1, SMusicLyricsUtils.findCurrentLineIndex(lines, 1900L, leadMs = 200L))
     }
+    @Test
+    fun globalOffsetIsBoundedAndRejectsNonFinitePreferences() {
+        assertEquals(0L, LyricsUtils.syncOffsetMillis(Float.NaN))
+        assertEquals(0L, LyricsUtils.syncOffsetMillis(Float.POSITIVE_INFINITY))
+        assertEquals(0L, LyricsUtils.syncOffsetMillis(Float.NEGATIVE_INFINITY))
+        assertEquals(10_000L, LyricsUtils.syncOffsetMillis(50_000f))
+        assertEquals(-10_000L, LyricsUtils.syncOffsetMillis(-50_000f))
+    }
+    @Test
+    fun positiveOffsetDelaysAndNegativeOffsetAdvancesHighlights() {
+        val lines = listOf(LyricsEntry(1000L, "First"), LyricsEntry(2000L, "Second"))
+        assertEquals(0, LyricsUtils.findCurrentLineIndex(lines, 2100L - LyricsUtils.syncOffsetMillis(200f)))
+        assertEquals(1, LyricsUtils.findCurrentLineIndex(lines, 1900L - LyricsUtils.syncOffsetMillis(-200f)))
+    }
 }

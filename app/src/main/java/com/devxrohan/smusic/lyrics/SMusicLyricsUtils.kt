@@ -29,10 +29,7 @@ object SMusicLyricsUtils {
     val LINE_REGEX = "((\\[\\d\\d:\\d\\d\\.\\d{2,3}\\] ?)+)(.+)".toRegex()
     val TIME_REGEX = "\\[(\\d\\d):(\\d\\d)\\.(\\d{2,3})\\]".toRegex()
 
-    // Word-level ("enhanced") LRC tags look like <00:12.340> right before each
-    // word, e.g. "[00:12.340]<00:12.340>Hello <00:12.600>world". If these are
-    // not parsed out, the raw "<00:12.340>" text leaks straight into the
-    // displayed lyric line instead of driving a per-word sync highlight.
+    // Parse enhanced-LRC word timestamps so timing tags never appear in rendered lyrics.
     private val WORD_TAG_REGEX = "<(\\d{1,3}):(\\d{2})(?:[.,](\\d{1,3}))?>".toRegex()
     private val ENHANCED_LINE_REGEX = Regex("^\\[(\\d{1,3}):(\\d{2})[.:](\\d{2,3})](.*)$")
     private val ENHANCED_WORD_REGEX = Regex("<(\\d{1,3}):(\\d{2})[.:](\\d{2,3})>([^<]*)")
@@ -53,12 +50,7 @@ object SMusicLyricsUtils {
     /** True when a (already line-timestamp-stripped) lyric line still carries inline word tags. */
     fun hasInlineWordTags(text: String): Boolean = WORD_TAG_REGEX.containsMatchIn(text)
 
-    /**
-     * Splits an enhanced-LRC line's remainder (after the leading [mm:ss.xx] is
-     * removed) into plain display text plus, when available, per-word timing.
-     * Always returns clean text even if the tags are malformed, so raw
-     * timestamps never reach the UI.
-     */
+    /** Parses enhanced-LRC display text and optional per-word timestamps. */
     fun stripInlineWordTags(text: String, lineStartMs: Long): Pair<String, List<WordTimestamp>> {
         if (!hasInlineWordTags(text)) return text to emptyList()
 
@@ -273,12 +265,7 @@ object SMusicLyricsUtils {
         }.sorted().withInstrumentalGapMarkers()
     }
 
-    /**
-     * Insert explicit silent rows only when a provider tells us where the vocal
-     * actually ends. A large distance to the next line timestamp alone is not
-     * treated as silence, because line-synced providers do not tell us when the
-     * singer stopped.
-     */
+    /** Insert silence from explicit vocal-end metadata, never from a large inter-line gap alone. */
     private fun List<LyricsEntry>.withInstrumentalGapMarkers(): List<LyricsEntry> {
         if (size < 2) return this
         val result = ArrayList<LyricsEntry>(size + 4)
@@ -311,11 +298,7 @@ object SMusicLyricsUtils {
             trimmed.contains("\"syllabus\"", ignoreCase = true)
     }
 
-    /**
-     * Parses line-timed JSON from Apple Music-like providers and common wrappers.
-     * Supports `time`/`duration` + `syllabus`, and `start`/`startTime`/`timestamp` + words.
-     * Numeric times are treated as milliseconds unless explicitly represented as seconds strings.
-     */
+    /** Parse line-timed JSON wrappers with duration, syllable and word-level timestamp variants. */
     fun parseStructuredTimedLyricsJson(lyrics: String): List<LyricsEntry> {
         if (!isStructuredTimedLyricsJson(lyrics)) return emptyList()
         return runCatching {
@@ -637,13 +620,7 @@ object SMusicLyricsUtils {
             }.filter { it.text.isNotBlank() }.toList()
     }
 
-    /**
-     * Removes line entries that are exact parsing artifacts: same timestamp AND
-     * same text appearing back to back. Legitimate repeated lines (e.g. a chorus
-     * sung again later) always have a different timestamp, so this never drops
-     * real lyrics — only the literal duplicate a single line's timestamp can
-     * accidentally be parsed into twice.
-     */
+    /** Deduplicates adjacent entries only when their timestamp and text both match. */
     private fun dedupeAdjacent(entries: List<LyricsEntry>): List<LyricsEntry> {
         if (entries.size < 2) return entries
         val result = mutableListOf<LyricsEntry>()
@@ -680,12 +657,7 @@ object SMusicLyricsUtils {
         return high.coerceIn(0, lines.lastIndex)
     }
 
-    /**
-     * Converts a Katakana string to Romaji.
-     * This optimized version uses a pre-defined map and StringBuilder for better performance
-     * compared to chained regex replacements.
-     * Expected impact: Significant reduction in object creation (Regex, String) and faster execution.
-     */
+    /** Romanizes Katakana using a shared character map and an incremental string builder. */
     fun katakanaToRomaji(katakana: String?): String {
         if (katakana.isNullOrEmpty()) return ""
 
@@ -721,22 +693,10 @@ object SMusicLyricsUtils {
         return romajiBuilder.toString().lowercase()
     }
 
-    /**
-     * Romanizes Japanese text using Kuromoji Tokenizer and the optimized katakanaToRomaji function.
-     * Runs on Dispatchers.Default for CPU-intensive work.
-     * Expected impact: Faster tokenization due to reused Tokenizer instance and faster
-     * per-token romanization.
-     */
+    /** Runs Japanese tokenization and Katakana romanization on the Default dispatcher. */
     suspend fun romanizeJapanese(text: String): String = withContext(Dispatchers.Default) { text }
 
-    /**
-     * Converts a Katakana string to Romaji.
-     * This optimized version uses a pre-defined map and StringBuilder for better performance
-     * compared to chained regex replacements.
-     * Expected impact: Significant reduction in object creation (Regex, String) and faster execution.
-     * @param katakana The Katakana string to convert.
-     * @param nextKatakana Optional: The next Katakana string (from the next token) to help with sokuon (ッ) gemination.
-     */
+    /** Romanizes Katakana using a shared character map and an incremental string builder. */
     fun katakanaToRomaji(katakana: String?, nextKatakana: String? = null): String {
         if (katakana.isNullOrEmpty()) return ""
 
@@ -835,21 +795,11 @@ object SMusicLyricsUtils {
         romajaBuilder.toString()
     }
 
-    /**
-     * Checks if the given text contains any Japanese characters (Hiragana, Katakana, or common Kanji).
-     * This function is generally efficient due to '.any' and early exit.
-     * No major performance bottlenecks expected here for typical inputs.
-     */
+    /** Detect Japanese script characters with an early-exit scan. */
     fun isJapanese(text: String): Boolean {
         return text.any { char ->
             (char in '\u3040'..'\u309F') || // Hiragana
-            (char in '\u30A0'..'\u30FF') || // Katakana
-            // CJK Unified Ideographs (covers most common Kanji)
-            // Note: This range also includes many Chinese Hanzi.
-            // Differentiating Japanese Kanji from Chinese Hanzi solely based on Unicode
-            // ranges is challenging as they share many characters.
-            // For more accurate Japanese detection, one might need to analyze
-            // the presence of Hiragana/Katakana alongside Kanji.
+            (char in '\u30A0'..'\u30FF') || // CJK ideographs are shared by Chinese and Japanese; script ranges cannot distinguish them.
             (char in '\u4E00'..'\u9FFF')
         }
     }
@@ -863,16 +813,7 @@ object SMusicLyricsUtils {
         }
     }
         
-    /**
-     * Checks if the given text contains any Chinese characters (common Hanzi).
-     * This function is generally efficient due to '.any' and early exit.
-     * To improve accuracy in distinguishing between Chinese and Japanese (which shares Kanji),
-     * this function now checks if the text *predominantly* consists of CJK Unified Ideographs
-     * and *lacks* significant amounts of Hiragana or Katakana.
-     *
-     * A simple threshold is used here. More sophisticated methods (e.g., frequency analysis,
-     * dictionaries, or machine learning models) would be needed for higher accuracy.
-     */
+    /** Detects CJK unified ideographs, which may also appear in Japanese text. */
     fun isChinese(text: String): Boolean {
         if (text.isEmpty()) return false
 

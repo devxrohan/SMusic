@@ -172,13 +172,7 @@ import kotlin.time.Duration.Companion.seconds
 fun Lyrics(
     sliderPositionProvider: () -> Long?,
     onNavigateBack: (() -> Unit)? = null,
-    // When this composable is embedded inside a screen that already draws its own header/back button/background
-    // (e.g. the "Classic" style inside SMusicLyricsScreen), pass true here so the lyrics content always renders.
-    // Without it, the content below was only ever shown `if (isFullscreen || showLyrics)`, and `showLyrics` is a
-    // persisted preference tied to a *different* toggle (the mini-player's Queue/Lyrics tab) — not to whether this
-    // screen is open. A caller that is clearly already a dedicated lyrics screen shouldn't depend on the state of
-    // that unrelated toggle to decide whether to show anything at all; that mismatch is what made the "Classic"
-    // style look blank while the Karaoke style (which has no such gate) displayed fine.
+    // Dedicated lyrics screens bypass the queue-tab visibility preference.
     forceShowContent: Boolean = false,
     @SuppressLint("ModifierParameter") modifier: Modifier = Modifier,
     onSelectionChanged: (String) -> Unit = {},
@@ -194,6 +188,13 @@ fun Lyrics(
     val isFullscreen = onNavigateBack != null
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.SLIM)
     val landscapeOffset = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val lyricsOffsetMs by rememberPreference(com.devxrohan.smusic.constants.LyricsOffsetMsKey, 0f)
+    val syncOffsetMs = com.devxrohan.smusic.lyrics.LyricsUtils.syncOffsetMillis(lyricsOffsetMs)
+    val lyricsInk = rememberLyricsInk()
+    val lyricsSize by rememberPreference(com.devxrohan.smusic.constants.LyricsTextSizeKey, if (isFullscreen) 25f else 24f)
+    val lyricsSpacing by rememberPreference(com.devxrohan.smusic.constants.LyricsLineSpacingKey, 1.3f)
+    val lyricsAlignment by rememberPreference(com.devxrohan.smusic.constants.LyricsAlignmentKey, "AUTO")
+    val customLyricsAlignment = when(lyricsAlignment) { "START" -> TextAlign.Start; "END" -> TextAlign.End; else -> TextAlign.Center }
     val scrollLyrics by rememberPreference(LyricsScrollKey, true)
 
     var showLyrics by rememberPreference(ShowLyricsKey, defaultValue = false)
@@ -247,14 +248,7 @@ fun Lyrics(
     var isAnimating by remember { mutableStateOf(false) }
     val maxSelectionLimit = com.devxrohan.smusic.utils.LyricsShareRenderer.MAX_SELECTED_LINES
 
-    // The single shared, cached lyrics for this song — the exact same value
-    // every other lyrics screen reads (see MusicService.ensureLyricsFetched).
-    // This screen used to keep its own independent cache and run its own
-    // independent fetch whenever that cache missed, racing MusicService's own
-    // fetch-on-song-start; since a provider lookup can legitimately return a
-    // different result on each independent call, that's what let this screen
-    // (and the lyrics it then wrote back to the database) disagree with every
-    // other lyrics screen for the very same song.
+    // Observe the service-owned lyrics result instead of starting a parallel provider request.
     val lyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
     val currentLyricsEntity = lyricsEntity
     val isLoadingLyrics = lyricsEntity == null
@@ -298,10 +292,7 @@ fun Lyrics(
     LaunchedEffect(currentSongId, lyricsEntity) {
         val metadata = mediaMetadata ?: return@LaunchedEffect
         if (lyricsEntity == null) {
-            // No-op if MusicService's fetch-on-song-start already has this
-            // cached or already has a fetch in flight for it — see
-            // MusicService.ensureLyricsFetched for why this is the only
-            // place allowed to actually call the lyrics providers.
+            // Reuse the service-owned lyrics request and cache rather than starting a duplicate fetch.
             runCatching { playerConnection.service.ensureLyricsFetched(metadata) }
         }
     }
@@ -324,13 +315,8 @@ fun Lyrics(
             when {
                 hasRealTiming -> listOf(LyricsEntry.HEAD_LYRICS_ENTRY) + parsed
                 parsed.isNotEmpty() -> {
-                    // No real timestamps anywhere — plain lyrics, or a timed
-                    // format (e.g. untimed TTML) that carries no timing data.
-                    // Spread each line evenly across the track's duration (or a
-                    // fixed per-line pace until the duration is known) so this
-                    // screen still highlights, auto-scrolls and animates the
-                    // current line the same way a fully synced song does,
-                    // instead of showing a flat, static wall of text.
+                    // Assign display timing to untimed lyrics for scrolling, without claiming
+                    // word-level synchronization.
                     val trackDuration = duration.takeIf { it > 0L && it != C.TIME_UNSET }
                         ?: (parsed.size * 2500L)
                     val synthetic = parsed.mapIndexed { index, entry ->
@@ -491,7 +477,7 @@ fun Lyrics(
         }
     }
 
-    LaunchedEffect(lyrics, isSynced) {
+    LaunchedEffect(lyrics, isSynced, syncOffsetMs) {
         if (lyrics.isNullOrEmpty() || !isSynced) {
             currentLineIndex = -1
             return@LaunchedEffect
@@ -502,7 +488,7 @@ fun Lyrics(
             isSeeking = sliderPos != null
             currentLineIndex = findCurrentLineIndex(
                 lines,
-                sliderPos ?: playerConnection.player.currentPosition
+                (sliderPos ?: playerConnection.player.currentPosition) - syncOffsetMs
             )
         }
     }
@@ -1078,6 +1064,8 @@ fun Lyrics(
                             start = 8.dp,
                             end = 8.dp
                         )
+                    } else if (forceShowContent) {
+                        PaddingValues(top = 24.dp, bottom = maxHeight / 2)
                     } else {
                         WindowInsets.systemBars
                             .only(WindowInsetsSides.Top)
@@ -1085,7 +1073,10 @@ fun Lyrics(
                             .asPaddingValues()
                     },
                     modifier = Modifier
-                        .fadingEdge(vertical = if (isFullscreen) 32.dp else 64.dp)
+                        .fadingEdge(
+                            top = if (forceShowContent && !lazyListState.canScrollBackward) null else if (isFullscreen) 32.dp else 64.dp,
+                            bottom = if (isFullscreen) 32.dp else 64.dp,
+                        )
                         .nestedScroll(nestedScrollConnection)
                 ) {
                     val displayedCurrentLineIndex =
@@ -1164,7 +1155,7 @@ fun Lyrics(
                                                 }
                                             }
                                         } else if (isSynced) {
-                                            playerConnection.player.seekTo(item.time)
+                                            playerConnection.player.seekTo((item.time + syncOffsetMs).coerceAtLeast(0L))
                                             scope.launch {
                                                 performSmoothPageScroll(index, 1500) // Usar la función mejorada
                                             }
@@ -1271,10 +1262,11 @@ fun Lyrics(
 
                                     Text(
                                         text = styledText,
-                                        fontSize = if (isFullscreen) 25.sp else 24.sp,
-                                        textAlign = TextAlign.Center,
+                                        fontSize = lyricsSize.sp,
+                                        lineHeight = (lyricsSize * lyricsSpacing).sp,
+                                        textAlign = customLyricsAlignment,
                                         fontWeight = FontWeight.ExtraBold,
-                                        modifier = Modifier
+                                        modifier = Modifier.lyricsInk(lyricsInk)
                                             .graphicsLayer {
                                                 scaleX = bounceScale
                                                 scaleY = bounceScale
@@ -1294,12 +1286,14 @@ fun Lyrics(
 
                                     Text(
                                         text = displayText,
-                                        fontSize = if (isFullscreen) 25.sp else 24.sp,
+                                        modifier = Modifier.lyricsInk(lyricsInk),
+                                        fontSize = lyricsSize.sp,
+                                        lineHeight = (lyricsSize * lyricsSpacing).sp,
                                         color = animateColorAsState(
                                             targetValue = lineColor,
                                             animationSpec = tween(250)
                                         ).value,
-                                        textAlign = TextAlign.Center,
+                                        textAlign = customLyricsAlignment,
                                         fontWeight = FontWeight.Bold,
                                     )
                                 }

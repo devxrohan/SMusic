@@ -247,10 +247,7 @@ object AiTranslationService {
         }.getOrNull()
     }
 
-    // ── Free, no-key translation ──
-    // Google's own web client ("dict-chrome-ex") requires no API key. Lines are
-    // batched and separated by private-use marker characters so one request can
-    // translate many lyric lines while keeping them in order.
+    // Batch translation lines with private-use separators through the no-key Google web endpoint.
     private const val GOOGLE_FREE_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
     private const val GOOGLE_FREE_MAX_BATCH_CHARS = 3500
     private val googleMarkerRegex = Regex("\uE000[^\uE001]*\uE001")
@@ -337,10 +334,7 @@ object AiTranslationService {
         return runCatching {
             onLog?.invoke("Contacting free Google Translate...")
 
-            // "xx-Latn" is this app's own code for "write it phonetically in the
-            // Latin alphabet" (Hinglish and similar). Google's free endpoint has a
-            // dedicated transliteration mode (dt=rm) for exactly that, rather than
-            // translating the meaning first.
+            // Treat xx-Latn as phonetic Latin output and use the endpoint transliteration mode.
             val isLatinTarget = targetLangCode.endsWith("-Latn", ignoreCase = true)
             val target = targetLangCode.substringBefore("-Latn").ifBlank { "en" }
             val dt = if (isLatinTarget) "rm" else "t"

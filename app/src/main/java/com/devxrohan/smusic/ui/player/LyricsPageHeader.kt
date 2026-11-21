@@ -22,7 +22,7 @@ internal fun LyricsPageHeader(metadata: MediaMetadata, color: Color, shareEnable
     onSelectLyrics: () -> Unit, onMore: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        AsyncImage(metadata.thumbnailUrl, null, Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)),
+        AsyncImage(metadata.thumbnailUrl, null, Modifier.size(44.dp).clip(com.devxrohan.smusic.ui.component.rememberArtworkFlower()),
             contentScale = ContentScale.Crop)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(stringResource(R.string.now_playing), style = MaterialTheme.typography.labelMedium,

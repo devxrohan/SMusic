@@ -42,7 +42,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import com.devxrohan.smusic.ui.component.DottedSlider as Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -85,6 +85,7 @@ import com.devxrohan.smusic.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.devxrohan.smusic.extensions.togglePlayPause
 import com.devxrohan.smusic.lyrics.LyricsEntry
 import com.devxrohan.smusic.lyrics.SMusicLyricsUtils
+import com.devxrohan.smusic.lyrics.LyricsUtils
 import com.devxrohan.smusic.ui.menu.LyricsMenu
 import com.devxrohan.smusic.ui.utils.highQualityThumbnail
 import com.devxrohan.smusic.utils.makeTimeString
@@ -110,14 +111,7 @@ fun SpotifyLyrics(
     val context = LocalContext.current
 
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
-    // The single shared, cached lyrics for this song — the exact same value
-    // every other lyrics screen (Classic player strip, the karaoke-style
-    // Lyrics screen) reads. This screen used to run its own independent
-    // lyrics fetch whenever this was empty, racing MusicService's own
-    // fetch-on-song-start; since lyricsHelper.getLyrics() can return a
-    // different provider's result on each independent call, that meant this
-    // screen could show different lyrics (or different timing) than every
-    // other screen for the very same song. See MusicService.ensureLyricsFetched.
+    // Observe the service-owned lyrics result instead of starting a parallel provider request.
     val currentLyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
     val playbackState by playerConnection.playbackState.collectAsState()
     val isPlaying by playerConnection.isPlaying.collectAsState()
@@ -134,11 +128,7 @@ fun SpotifyLyrics(
     var lyricsSurfaceColor by remember { mutableStateOf(Color(0xFF311000)) }
 
     val lyrics = currentLyricsEntity?.lyrics?.trim()
-    // Use the same robust parser as every other lyrics screen in the app: it
-    // recognizes LRC, enhanced/word-level LRC, TTML (XML), WebVTT/SubRip and
-    // structured timed JSON, and only falls back to plain untimed lines (shown
-    // whole, one every ~2.5s) when a song truly has no timestamps at all.
-    // This is what stops raw XML/timestamp text from leaking onto this screen.
+    // Use the shared timed-lyrics parser for LRC, TTML, subtitle and structured JSON formats.
     val lines = remember(lyrics) {
         when {
             lyrics.isNullOrBlank() || lyrics == LYRICS_NOT_FOUND -> emptyList()
@@ -194,9 +184,11 @@ fun SpotifyLyrics(
             }
         }
     }
-    val activeLineIndex = remember(lines, position) {
+    val lyricsOffsetMs by com.devxrohan.smusic.utils.rememberPreference(com.devxrohan.smusic.constants.LyricsOffsetMsKey, 0f)
+    val syncOffsetMs = LyricsUtils.syncOffsetMillis(lyricsOffsetMs)
+    val activeLineIndex = remember(lines, position, syncOffsetMs) {
         if (lines.isEmpty()) 0
-        else SMusicLyricsUtils.findCurrentLineIndex(lines, position).coerceAtLeast(0)
+        else SMusicLyricsUtils.findCurrentLineIndex(lines, position - syncOffsetMs).coerceAtLeast(0)
     }
     val listState = rememberLazyListState()
     var isSelectionModeActive by remember(mediaMetadata?.id) { mutableStateOf(false) }
@@ -232,10 +224,7 @@ fun SpotifyLyrics(
 
     LaunchedEffect(mediaMetadata?.id) {
         val metadata = mediaMetadata ?: return@LaunchedEffect
-        // No-op if MusicService's own fetch-on-song-start already has this
-        // cached or already has one in flight — this only matters for the
-        // rare case where this screen opens before that prefetch has had a
-        // chance to run at all.
+        // Reuse cached or in-flight service lyrics when this view opens before prefetch completes.
         runCatching { playerConnection.service.ensureLyricsFetched(metadata) }
     }
 
@@ -377,7 +366,7 @@ fun SpotifyLyrics(
                                                 else if (selectedIndices.size < 6) selectedIndices.add(index)
                                                 if (selectedIndices.isEmpty()) isSelectionModeActive = false
                                             } else if (lines[index].time > 0) {
-                                                playerConnection.player.seekTo(lines[index].time)
+                                                playerConnection.player.seekTo((lines[index].time + syncOffsetMs).coerceAtLeast(0L).let { if (duration > 0) it.coerceAtMost(duration) else it })
                                             }
                                         },
                                         onLongClick = {

@@ -12,13 +12,7 @@ import java.net.URLEncoder
 import java.util.Locale
 import kotlin.math.abs
 
-/**
- * lrc.red provider.
- *
- * lrc.red returns Apple-style TTML with per-syllable timestamps. We keep the
- * TTML intact so SMusicLyricsUtils/TTMLParser can expose the exact word timing
- * to the Classic player and the full karaoke lyrics screen.
- */
+/** Preserves lrc.red TTML so the parser can retain per-syllable timing. */
 object LrcRedLyricsProvider : LyricsProvider {
     override val name = "lrc.red"
 

@@ -16,13 +16,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
 
-/**
- * Backup coordinator.
- *
- * Android OS backup is native: Android backs up the real app data selected by the XML backup rules and restores it
- * during installation, before the launcher activity can be opened. The local .backup file is only the portable
- * manual/device-storage format; it is never used as a fake replacement for the OS backup transport.
- */
+/** Coordinates Android-managed backups and app-owned local snapshots. */
 object AutoBackupManager {
     const val BACKUP_FILENAME = "smusic_backup.backup"
     private const val PREFS_NAME = "auto_backup_state"
@@ -196,10 +190,8 @@ object AutoBackupManager {
         }
     }
 
-    /**
-     * Finds the single canonical persistent backup first, while accepting legacy files
-     * from older SMusic versions only as a read-only fallback.
-     */
+    /** Finds the single canonical persistent backup first, while accepting legacy files from older
+     * SMusic versions only as a read-only fallback. */
     fun findStorageBackupFile(context: Context? = null): File? {
         val candidates = listOf(
             getDocumentsBackupFile(),
@@ -258,11 +250,7 @@ object AutoBackupManager {
     fun findAvailableAutoBackup(context: Context): File? =
         getAutoBackupFile(context).takeIf { it.isFile && it.length() > 0L }
 
-    /**
-     * On a fresh install, recover the persistent external snapshot before the first
-     * Activity is created. This is the fallback used on devices where the Android
-     * backup transport does not retain an uninstall/install dataset.
-     */
+    /** Recover the external snapshot before the first Activity when Android restore is unavailable. */
     fun restorePersistentBackupBeforeFirstLaunch(context: Context): Boolean {
         return runCatching {
             val db = context.getDatabasePath(InternalDatabase.DB_NAME)

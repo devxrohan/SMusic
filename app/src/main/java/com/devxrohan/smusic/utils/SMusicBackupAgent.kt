@@ -13,11 +13,7 @@ import android.os.ParcelFileDescriptor
 import timber.log.Timber
 import java.io.File
 
-/**
- * Android OS backup (Google backup / device transfer). The OS carries one file: the complete SMusic snapshot
- * (`smusic_backup.backup`, see backup_rules.xml). After a reinstall the snapshot is restored on first open by
- * [AutoBackupManager.checkAndRestoreOnOpen].
- */
+/** Transfer the complete app snapshot through Android backup and restore it before stores initialize. */
 class SMusicBackupAgent : BackupAgent() {
 
     override fun onBackup(oldState: ParcelFileDescriptor?, data: BackupDataOutput?, newState: ParcelFileDescriptor?) {

@@ -1,6 +1,10 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 @file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 
 package com.devxrohan.smusic.ui.screens.settings
+
+import com.devxrohan.smusic.ui.component.appButtonShapes
 
 import android.annotation.SuppressLint
 import android.content.ClipData
@@ -82,7 +86,7 @@ import com.devxrohan.smusic.LocalPlayerConnection
 import com.devxrohan.smusic.R
 import com.devxrohan.smusic.db.entities.Song
 import com.devxrohan.smusic.extensions.tryOrNull
-import com.devxrohan.smusic.ui.component.IconButton
+import com.devxrohan.smusic.ui.component.AppIconButton as IconButton
 import com.devxrohan.smusic.ui.component.PreferenceEntry
 import com.devxrohan.smusic.ui.component.SettingsGeneralCategory
 import com.devxrohan.smusic.ui.component.SettingsPage
@@ -197,7 +201,7 @@ fun BackupAndRestore(
                         val nameManager = com.devxrohan.smusic.ui.component.NamePreferenceManager(context)
                         val email = nameManager.accountEmail.first()
                         val name = nameManager.userName.first()
-                        
+
                         if (!email.isNullOrBlank()) {
                             val result = viewModel.backupToDrive(context, email, name)
                             uploadStatus = if (result is com.devxrohan.smusic.utils.DriveResult.Success) {
@@ -282,12 +286,20 @@ fun BackupAndRestore(
             }
         }
 
+    var restoreStatus by remember { mutableStateOf(com.devxrohan.smusic.utils.AppBackup.restoreStatus(context)) }
     SettingsPage(
         title = stringResource(R.string.backup_restore),
         navController = navController,
         scrollBehavior = scrollBehavior,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        restoreStatus?.let { message ->
+            SettingsGeneralCategory(title = "Restore status", items = listOf({
+                PreferenceEntry(title = { Text(message) }, trailingContent = {
+                    TextButton(shapes = appButtonShapes(), onClick = { com.devxrohan.smusic.utils.AppBackup.dismissRestoreStatus(context); restoreStatus = null }) { Text("Dismiss") }
+                })
+            }))
+        }
         // Android OS backup. Android restores the real app data automatically during reinstall, before MainActivity.
         SettingsGeneralCategory(
             title = stringResource(R.string.android_os_backup_category),
@@ -638,7 +650,7 @@ private fun MinimalVisitorDataCard(
                 OutlinedButton(
                     onClick = onInfoClick,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
+                    shapes = appButtonShapes(shape = RoundedCornerShape(12.dp)),
                     enabled = !isClearing
                 ) {
                     Icon(
@@ -653,7 +665,7 @@ private fun MinimalVisitorDataCard(
                 FilledTonalButton(
                     onClick = onResetClick,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
+                    shapes = appButtonShapes(shape = RoundedCornerShape(12.dp)),
                     enabled = !isClearing
                 ) {
                     if (isClearing) {
@@ -743,8 +755,7 @@ private fun MinimalUploadStatus(
                     Button(
                         onClick = onCopyClick,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
+                        shapes = appButtonShapes(shape = RoundedCornerShape(12.dp))) {
                         Icon(
                             painter = painterResource(R.drawable.content_copy),
                             contentDescription = null,
@@ -847,7 +858,7 @@ private fun MinimalInfoDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(shapes = appButtonShapes(), onClick = onDismiss) {
                 Text(stringResource(R.string.understood))
             }
         },
@@ -888,13 +899,12 @@ private fun MinimalConfirmDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                shape = RoundedCornerShape(12.dp)
-            ) {
+                shapes = appButtonShapes(shape = RoundedCornerShape(12.dp))) {
                 Text(confirmText)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(shapes = appButtonShapes(), onClick = onDismiss) {
                 Text(stringResource(R.string.cancel))
             }
         },

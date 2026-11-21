@@ -20,26 +20,15 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import kotlin.system.exitProcess
 
-/**
- * One place that knows what a SMusic backup contains and how to put it back.
- *
- * Backup layout (zip):
- *  - datastore/<file>         every DataStore file (settings, user_name_preferences, app_settings, ...)
- *  - shared_prefs/<file>.xml  the user-data SharedPreferences (playlist covers, scoped search history, stats id)
- *  - files/<path>             user files: playlist_images/, lyrics_translations/, pulse/, guest_history_snapshot.tsv
- *  - google_account.json      linked account e-mail
- *  - song.db (+ -wal)         the Room database
- *
- * Restore never touches live data. The zip is first unpacked into a staging folder, validated, and then the app
- * restarts; [applyPendingRestore] moves the staged files into place at the very start of the next process, before
- * the database, DataStore or SharedPreferences are opened. Overwriting those while the app is running (and closing
- * the database under the UI) is what used to crash the app and leave it closed.
- */
+/** Coordinates app-data archives and journaled restore for settings, libraries and playback state. */
 object AppBackup {
+    private const val MANIFEST_FILENAME = "smusic_backup_manifest.json"
+    private const val BACKUP_FORMAT_VERSION = 1
+    private const val MAX_MANIFEST_BYTES = 16 * 1024
+
     private const val STAGING_DIR = "pending_restore"
     private const val READY_MARKER = ".ready"
     private const val PENDING_GOOGLE_EMAIL = "pending_google_email.txt"
@@ -47,6 +36,11 @@ object AppBackup {
     const val SETTINGS_FILENAME = "settings.preferences_pb"
     const val USER_NAME_PREFS_FILENAME = "user_name_preferences.preferences_pb"
     const val GOOGLE_ACCOUNT_FILENAME = "google_account.json"
+    private const val RESTORE_STATUS = "restore_status.txt"
+    fun restoreStatus(context: Context): String? = runCatching { File(context.filesDir, RESTORE_STATUS).takeIf { it.isFile }?.readText() }.getOrNull()
+    fun dismissRestoreStatus(context: Context) { File(context.filesDir, RESTORE_STATUS).delete() }
+    private fun recordRestoreStatus(context: Context, message: String) { runCatching { File(context.filesDir, RESTORE_STATUS).writeText(message) } }
+
 
     private const val DATASTORE_PREFIX = "datastore/"
     private const val PREFS_PREFIX = "shared_prefs/"
@@ -63,18 +57,39 @@ object AppBackup {
     /** Writes a complete backup zip to [rawStream]. Must be called off the main thread. */
     fun writeBackup(context: Context, database: MusicDatabase?, rawStream: OutputStream) {
         // Flush the WAL into the main database file so the copy below is complete.
-        runCatching {
-            val db = database ?: runCatching { com.devxrohan.smusic.App.instance.database }.getOrNull()
-            runBlocking(Dispatchers.IO) { db?.checkpoint() }
-        }.onFailure { Timber.w(it, "Database checkpoint failed during backup") }
+        val db = database ?: com.devxrohan.smusic.App.instance.database
+        val snapshot = File(context.cacheDir, "backup_snapshot_${java.util.UUID.randomUUID()}").apply { check(mkdirs()) }
+        val connection = db.openHelper.writableDatabase
+        try {
+            connection.query("PRAGMA wal_checkpoint(FULL)").use { cursor ->
+                check(cursor.moveToFirst() && cursor.getInt(0) == 0) { "Database is busy; backup was not created" }
+            }
+            connection.beginTransaction()
+            try {
+                val source = context.getDatabasePath(InternalDatabase.DB_NAME)
+                check(source.isFile) { "Database file is missing" }
+                source.copyTo(File(snapshot, InternalDatabase.DB_NAME))
+                File(source.path + "-wal").takeIf { it.isFile && it.length() > 0 }?.copyTo(File(snapshot, InternalDatabase.DB_NAME + "-wal"))
+            } finally { connection.endTransaction() }
 
         // Make sure pending SharedPreferences writes are on disk before the XML is copied.
-        runCatching {
-            PREFS_TO_BACKUP.forEach { context.getSharedPreferences(it, Context.MODE_PRIVATE).edit().commit() }
+        PREFS_TO_BACKUP.forEach {
+            check(context.getSharedPreferences(it, Context.MODE_PRIVATE).edit().commit()) { "Could not flush backup preferences" }
         }
 
         val filesDir = context.filesDir
         ZipOutputStream(rawStream.buffered()).use { zip ->
+            val manifest = JSONObject()
+                .put("formatVersion", BACKUP_FORMAT_VERSION)
+                .put("applicationId", context.packageName)
+                .put("versionCode", com.devxrohan.smusic.BuildConfig.VERSION_CODE)
+                .put("versionName", com.devxrohan.smusic.BuildConfig.VERSION_NAME)
+                .put("createdAt", System.currentTimeMillis())
+                .put("databaseIncluded", true)
+                .put("settingsIncluded", File(filesDir, "datastore/$SETTINGS_FILENAME").isFile)
+            zip.putNextEntry(ZipEntry(MANIFEST_FILENAME))
+            zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
             // DataStore files (all of them, so nothing added later is forgotten)
             (File(filesDir, "datastore").listFiles() ?: emptyArray())
                 .filter { it.isFile && !it.name.endsWith(".tmp") }
@@ -111,49 +126,35 @@ object AppBackup {
             }
 
             // Database
-            val dbFile = context.getDatabasePath(InternalDatabase.DB_NAME)
+            val dbFile = File(snapshot, InternalDatabase.DB_NAME)
             check(dbFile.isFile) { "Database file is missing" }
             addFile(zip, InternalDatabase.DB_NAME, dbFile)
-            val walFile = context.getDatabasePath("${InternalDatabase.DB_NAME}-wal")
+            val walFile = File(snapshot, "${InternalDatabase.DB_NAME}-wal")
             if (walFile.isFile && walFile.length() > 0) addFile(zip, "${InternalDatabase.DB_NAME}-wal", walFile)
         }
+        } finally { snapshot.deleteRecursively() }
     }
 
     private fun addFile(zip: ZipOutputStream, entryName: String, file: File) {
-        runCatching {
-            file.inputStream().buffered().use { input ->
-                zip.putNextEntry(ZipEntry(entryName))
-                input.copyTo(zip)
-                zip.closeEntry()
-            }
-        }.onFailure { Timber.w(it, "Skipping %s in backup", entryName) }
+        file.inputStream().buffered().use { input ->
+            zip.putNextEntry(ZipEntry(entryName))
+            input.copyTo(zip)
+            zip.closeEntry()
+        }
     }
 
     // ───────────────────────────── restore ─────────────────────────────
 
-    /**
-     * Unpacks and validates the backup into the staging folder. Returns true when a restore is staged and the app
-     * should now be restarted with [restartApp]. Live data is not modified.
-     */
+    /** Unpacks and validates the backup into the staging folder. Returns true when a restore is staged
+     * and the app should now be restarted with [restartApp]. Live data is not modified. */
     fun stageRestore(context: Context, openStream: () -> InputStream?): Boolean {
         val staging = File(context.filesDir, STAGING_DIR)
         staging.deleteRecursively()
         staging.mkdirs()
         return try {
-            val stream = openStream() ?: return false
-            ZipInputStream(stream.buffered()).use { zip ->
-                var entry = runCatching { zip.nextEntry }.getOrNull()
-                while (entry != null) {
-                    if (!entry.isDirectory) {
-                        val target = safeChild(staging, entry.name)
-                        if (target != null) {
-                            target.parentFile?.mkdirs()
-                            target.outputStream().use { zip.copyTo(it) }
-                        }
-                    }
-                    entry = runCatching { zip.nextEntry }.getOrNull()
-                }
-            }
+            val stream = openStream() ?: error("Could not open backup")
+            BackupArchive.extract(stream, staging, ::isAllowedEntry)
+            validateManifest(context, staging)
             if (!isValidStaging(staging)) {
                 Timber.w("Restore aborted: not a valid SMusic backup")
                 staging.deleteRecursively()
@@ -169,6 +170,26 @@ object AppBackup {
         }
     }
 
+    /** Backups predating the manifest retain their existing content-validation path. */
+    private fun validateManifest(context: Context, staging: File) {
+        val file = File(staging, MANIFEST_FILENAME)
+        if (!file.exists()) return
+        require(file.isFile && file.length() in 1..MAX_MANIFEST_BYTES.toLong()) { "Invalid backup manifest" }
+        val manifest = JSONObject(file.readText(Charsets.UTF_8))
+        require(manifest.getInt("formatVersion") == BACKUP_FORMAT_VERSION) {
+            "This backup format is not supported by this version of SMusic"
+        }
+        require(manifest.getString("applicationId") == context.packageName) { "This backup belongs to another app" }
+        require(manifest.getLong("createdAt") > 0) { "Invalid backup creation date" }
+        if (manifest.getBoolean("databaseIncluded")) {
+            require(File(staging, InternalDatabase.DB_NAME).isFile) { "Backup database is missing" }
+        }
+        if (manifest.getBoolean("settingsIncluded")) {
+            require(File(staging, DATASTORE_PREFIX + SETTINGS_FILENAME).isFile ||
+                File(staging, SETTINGS_FILENAME).isFile) { "Backup settings are missing" }
+        }
+    }
+
     private fun isValidStaging(staging: File): Boolean {
         val db = File(staging, InternalDatabase.DB_NAME)
         if (db.isFile) {
@@ -181,81 +202,62 @@ object AppBackup {
         return File(staging, DATASTORE_PREFIX + SETTINGS_FILENAME).isFile || File(staging, SETTINGS_FILENAME).isFile
     }
 
-    /**
-     * Moves a staged restore into place. Called from Application.attachBaseContext, i.e. before any ContentProvider,
-     * the database, DataStore or SharedPreferences are touched. Never throws, never runs twice.
-     */
+    /** Apply staged restores before providers and stores initialize; recovery must not abort startup. */
     fun applyPendingRestore(context: Context) {
         val filesDir = context.filesDir
         val staging = File(filesDir, STAGING_DIR)
-        if (!staging.exists()) return
-        val marker = File(staging, READY_MARKER)
-        if (!marker.exists()) { // half-written staging from an interrupted restore
-            staging.deleteRecursively()
-            return
-        }
-        marker.delete() // from here on a crash can never make this run again
+        val transaction = RestoreTransaction(requireNotNull(filesDir.parentFile), File(filesDir, "restore_transaction"))
         try {
-            val dataDir = filesDir.parentFile
-            val dsDir = File(filesDir, "datastore").apply { mkdirs() }
-
-            // DataStore: new layout first, then the legacy single-file entries (older backups).
-            File(staging, "datastore").listFiles()?.forEach { copyTo(it, File(dsDir, it.name)) }
+            val recovery = transaction.recover()
+            if (recovery != RestoreTransaction.Recovery.NONE) {
+                recordRestoreStatus(context, if (recovery == RestoreTransaction.Recovery.ROLLED_BACK) "An interrupted restore was rolled back to your previous data." else "Your backup was restored successfully.")
+                staging.deleteRecursively()
+                return
+            }
+            if (!staging.exists()) return
+            if (!File(staging, READY_MARKER).isFile) { staging.deleteRecursively(); return }
+            validateManifest(context, staging)
+            check(isValidStaging(staging)) { "Staged backup is no longer valid" }
+            val replacements = linkedMapOf<File, File?>()
+            fun replace(source: File, target: File) { if (source.exists()) replacements[target] = source }
+            val ds = File(filesDir, "datastore")
+            File(staging, "datastore").listFiles()?.forEach { replace(it, File(ds, it.name)) }
             listOf(SETTINGS_FILENAME, USER_NAME_PREFS_FILENAME).forEach { name ->
-                val legacy = File(staging, name)
-                if (legacy.isFile && !File(staging, DATASTORE_PREFIX + name).exists()) copyTo(legacy, File(dsDir, name))
+                if (!File(staging, DATASTORE_PREFIX + name).exists()) replace(File(staging, name), File(ds, name))
             }
-
-            // SharedPreferences
-            if (dataDir != null) {
-                val prefsDir = File(dataDir, "shared_prefs").apply { mkdirs() }
-                File(staging, "shared_prefs").listFiles()?.forEach { copyTo(it, File(prefsDir, it.name)) }
-                File(staging, "smusic_global_stats.xml").takeIf { it.isFile }
-                    ?.let { copyTo(it, File(prefsDir, "smusic_global_stats.xml")) } // legacy
+            val prefs = File(filesDir.parentFile, "shared_prefs")
+            File(staging, "shared_prefs").listFiles()?.forEach { replace(it, File(prefs, it.name)) }
+            if (!File(staging, "shared_prefs/smusic_global_stats.xml").exists()) replace(File(staging, "smusic_global_stats.xml"), File(prefs, "smusic_global_stats.xml"))
+            File(staging, "files").listFiles()?.forEach { replace(it, File(filesDir, it.name)) }
+            if (!File(staging, "files/pulse").exists()) File(staging, "pulse_state.json").takeIf { it.isFile }?.let { legacy ->
+                val folder = File(staging, "legacy_pulse").apply { mkdirs() }
+                legacy.copyTo(File(folder, "pulse_state.json"), overwrite = true)
+                replacements[File(filesDir, "pulse")] = folder
             }
-
-            // User files: a staged folder replaces the live one so the result matches the backup.
-            File(staging, "files").listFiles()?.forEach { staged ->
-                val dest = File(filesDir, staged.name)
-                if (staged.isDirectory) {
-                    dest.deleteRecursively()
-                    staged.copyRecursively(dest, overwrite = true)
-                } else {
-                    copyTo(staged, dest)
+            File(staging, InternalDatabase.DB_NAME).takeIf { it.isFile }?.let { db ->
+                val destination = context.getDatabasePath(InternalDatabase.DB_NAME)
+                replacements[destination] = db
+                listOf("-wal", "-shm", "-journal").forEach { suffix ->
+                    replacements[File(destination.path + suffix)] = File(staging, InternalDatabase.DB_NAME + suffix).takeIf { suffix == "-wal" && it.isFile }
                 }
             }
-            File(staging, "pulse_state.json").takeIf { it.isFile }?.let { // legacy
-                File(filesDir, "pulse").deleteRecursively()
-                copyTo(it, File(File(filesDir, "pulse"), "pulse_state.json"))
+            listOf(MusicService.PERSISTENT_QUEUE_FILE, MusicService.PERSISTENT_AUTOMIX_FILE, MusicService.PERSISTENT_PLAYER_STATE_FILE, "persistent_session.data", "persistent_session.data.bak", "persistent_session.data.new").forEach { replacements[File(filesDir, it)] = null }
+            replacements[File(filesDir, PENDING_GOOGLE_EMAIL)] = null
+            File(staging, GOOGLE_ACCOUNT_FILENAME).takeIf { it.isFile }?.let {
+                val email = JSONObject(it.readText()).optString("email").trim()
+                if (email.isNotBlank()) {
+                    val pending = File(staging, "restored_email.txt").apply { writeText(email) }
+                    replacements[File(filesDir, PENDING_GOOGLE_EMAIL)] = pending
+                }
             }
-
-            // Database: remove every old companion file so a stale WAL can never be replayed onto the new data.
-            val stagedDb = File(staging, InternalDatabase.DB_NAME)
-            if (stagedDb.isFile) {
-                val dbFile = context.getDatabasePath(InternalDatabase.DB_NAME)
-                dbFile.parentFile?.mkdirs()
-                listOf("", "-wal", "-shm", "-journal").forEach { File(dbFile.path + it).delete() }
-                copyTo(stagedDb, dbFile)
-                File(staging, "${InternalDatabase.DB_NAME}-wal").takeIf { it.isFile }
-                    ?.let { copyTo(it, File(dbFile.path + "-wal")) }
-            }
-
-            // The saved queue / player state refer to the old database.
-            listOf(
-                MusicService.PERSISTENT_QUEUE_FILE,
-                MusicService.PERSISTENT_AUTOMIX_FILE,
-                MusicService.PERSISTENT_PLAYER_STATE_FILE,
-            ).forEach { File(filesDir, it).delete() }
-
-            // The account e-mail is written through DataStore, which can't be used this early: finishPendingRestore does it.
-            File(staging, GOOGLE_ACCOUNT_FILENAME).takeIf { it.isFile }?.let { f ->
-                val email = runCatching { JSONObject(f.readText()).optString("email").trim() }.getOrDefault("")
-                if (email.isNotBlank()) File(filesDir, PENDING_GOOGLE_EMAIL).writeText(email)
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Applying pending restore failed")
-        } finally {
+            transaction.apply(replacements.map { RestoreTransaction.Change(it.key, it.value) })
+            recordRestoreStatus(context, "Your backup was restored successfully.")
             staging.deleteRecursively()
+        } catch (e: Exception) {
+            // Keep journal/recovery copies on failure. The next startup retries recovery before opening stores.
+            Timber.e(e, "Restore failed; recovery journal retained if recovery is incomplete")
+            recordRestoreStatus(context, if ((File(filesDir, "restore_transaction/journal.properties").exists() || File(filesDir, "restore_transaction/journal.previous").exists())) "Restore recovery is incomplete. Keep app data intact and restart after making storage available." else "Restore could not be completed. Your previous data was kept or recovered.")
+            if (!(File(filesDir, "restore_transaction/journal.properties").exists() || File(filesDir, "restore_transaction/journal.previous").exists())) staging.deleteRecursively()
         }
     }
 
@@ -315,11 +317,17 @@ object AppBackup {
         src.copyTo(dest, overwrite = true)
     }
 
-    /** Resolves a zip entry name inside [root]; null for anything that would escape it (zip-slip). */
-    private fun safeChild(root: File, name: String): File? {
-        val clean = name.replace('\\', '/').trimStart('/')
-        if (clean.isEmpty() || clean.split('/').any { it == ".." }) return null
-        val f = File(root, clean)
-        return if (f.canonicalPath.startsWith(root.canonicalPath + File.separator)) f else null
+    private fun isAllowedEntry(name: String): Boolean {
+        if (name in setOf(MANIFEST_FILENAME, InternalDatabase.DB_NAME, "${InternalDatabase.DB_NAME}-wal",
+                SETTINGS_FILENAME, USER_NAME_PREFS_FILENAME, GOOGLE_ACCOUNT_FILENAME,
+                "smusic_global_stats.xml", "pulse_state.json")) return true
+        if (name.startsWith(DATASTORE_PREFIX)) {
+            val file = name.removePrefix(DATASTORE_PREFIX)
+            return '/' !in file && file.endsWith(".preferences_pb")
+        }
+        if (name.startsWith(PREFS_PREFIX)) {
+            return name.removePrefix(PREFS_PREFIX) in PREFS_TO_BACKUP.map { "$it.xml" }
+        }
+        return FILES_TO_BACKUP.any { name == FILES_PREFIX + it || name.startsWith("$FILES_PREFIX$it/") }
     }
 }

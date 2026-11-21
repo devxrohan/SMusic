@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 @file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 
 package com.devxrohan.smusic.ui.menu
@@ -46,12 +48,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.devxrohan.smusic.ui.component.AppIconButton as IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
+import com.devxrohan.smusic.ui.component.DottedSlider as Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -178,6 +180,14 @@ fun PlayerMenu(
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
+    val sleepTimer = playerConnection.service.sleepTimer
+    var showSleepTimerDialog by rememberSaveable { mutableStateOf(false) }
+    if (showSleepTimerDialog) {
+        com.devxrohan.smusic.ui.player.SleepTimerDialog(
+            timer = sleepTimer,
+            onDismiss = { showSleepTimerDialog = false },
+        )
+    }
     val playerVolume = playerConnection.service.playerVolume.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -359,7 +369,7 @@ fun PlayerMenu(
 
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 16.dp)
@@ -426,6 +436,7 @@ fun PlayerMenu(
                                 },
                                 valueRange = 0f..1f,
                                 modifier = Modifier.weight(1f),
+                                steps = 19,
                                 colors = SliderDefaults.colors(
                                     thumbColor = MaterialTheme.colorScheme.primary,
                                     activeTrackColor = MaterialTheme.colorScheme.primary,
@@ -455,7 +466,7 @@ fun PlayerMenu(
                                 )
                                 onDismiss()
                             }
-                            
+
                             PlayerMenuActionTile(
                                 icon = R.drawable.playlist_add,
                                 title = R.string.add_to_playlist,
@@ -463,7 +474,7 @@ fun PlayerMenu(
                             ) {
                                 showChoosePlaylistDialog = true
                             }
-                            
+
                             PlayerMenuActionTile(
                                 icon = if (download?.state == Download.STATE_COMPLETED) R.drawable.offline else R.drawable.download,
                                 title = if (download?.state == Download.STATE_COMPLETED) R.string.remove_download else R.string.download,
@@ -484,21 +495,31 @@ fun PlayerMenu(
                         }
                     }
 
+        item {
+            com.devxrohan.smusic.ui.component.SpeedDialSongPin(mediaMetadata.id, onDismiss = onDismiss) {
+                database.transaction { insert(mediaMetadata) }
+            }
+        }
                     item {
                         androidx.compose.material3.ListItem(
-                            headlineContent = { Text(stringResource(R.string.pulse_not_for_me)) },
-                            leadingContent = { Icon(painterResource(R.drawable.block), contentDescription = null) },
-                            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    playerConnection.service.pulseEngine.onNotForMe(
-                                        mediaMetadata.id,
-                                        mediaMetadata.artists.mapNotNull { it.id },
-                                    )
-                                }
-                                Toast.makeText(context, R.string.pulse_not_for_me_done, Toast.LENGTH_SHORT).show()
-                                onDismiss()
+                            headlineContent = { Text(stringResource(R.string.sleep_timer)) },
+                            supportingContent = {
+                                if (sleepTimer.tracksRemaining > 0) Text("${sleepTimer.tracksRemaining} tracks remaining")
+                                else if (sleepTimer.pauseWhenSongEnd) Text(stringResource(R.string.end_of_song))
+                                else if (sleepTimer.isActive) Text(stringResource(R.string.sleep_timer_active))
                             },
+                            leadingContent = { Icon(painterResource(R.drawable.bedtime), contentDescription = null) },
+                            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable { showSleepTimerDialog = true },
+                        )
+                    }
+
+                    item {
+                        com.devxrohan.smusic.ui.component.PulseFeedbackActions(
+                            listOf(com.devxrohan.smusic.pulse.PulseFeedbackTrack(
+                                mediaMetadata.id, mediaMetadata.artists.mapNotNull { it.id },
+                                mediaMetadata.artists.filter { it.id != null }.map { it.name }, mediaMetadata.title,
+                            )), onDismiss,
                         )
                     }
 
@@ -633,8 +654,8 @@ fun PlayerMenu(
 @Composable
 private fun PlayerMenuHeader(mediaMetadata: MediaMetadata) {
     Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -650,7 +671,7 @@ private fun PlayerMenuHeader(mediaMetadata: MediaMetadata) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(56.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(com.devxrohan.smusic.ui.component.rememberArtworkFlower())
             )
 
             Column(modifier = Modifier.weight(1f)) {
@@ -752,7 +773,7 @@ internal fun AudioFxStudioSheet(onDismiss: () -> Unit, onOpenEqualizer: () -> Un
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp))
+                Box(Modifier.size(44.dp).clip(com.devxrohan.smusic.ui.component.rememberArtworkFlower())
                     .background(Color(0xFF321522)).border(BorderStroke(1.dp, accent.copy(alpha = .38f)), RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.equalizer), null, tint = accent, modifier = Modifier.size(25.dp))
@@ -796,7 +817,7 @@ internal fun AudioFxStudioSheet(onDismiss: () -> Unit, onOpenEqualizer: () -> Un
                         Switch(checked = state.enabled, enabled = state.available, onCheckedChange = service::setAudioStudioEnabled,
                             colors = androidx.compose.material3.SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = accent))
                     }
-                    AudioFxControlCard(title = stringResource(R.string.ui_bass_boost), value = state.bassStrength.toFloat(), valueLabel = "${state.bassStrength / 10}%", enabled = state.available && state.bassSupported && state.enabled, onValueChange = { service.setAudioStudioBass(it.toInt()) }, accent = accent) 
+                    AudioFxControlCard(title = stringResource(R.string.ui_bass_boost), value = state.bassStrength.toFloat(), valueLabel = "${state.bassStrength / 10}%", enabled = state.available && state.bassSupported && state.enabled, onValueChange = { service.setAudioStudioBass(it.toInt()) }, accent = accent)
                     Text(stringResource(R.string.ui_in_app_equalizer), color = Color(0xFF858895), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                     Text(stringResource(R.string.ui_open_the_multi_band_equalizer_to), color = Color(0xFF9B9DA8), style = MaterialTheme.typography.bodySmall)
                     OutlinedButton(onClick = onOpenEqualizer, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, accent.copy(alpha = .45f))) {

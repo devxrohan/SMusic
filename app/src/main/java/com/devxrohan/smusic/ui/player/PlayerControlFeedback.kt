@@ -1,5 +1,7 @@
 package com.devxrohan.smusic.ui.player
 
+import com.devxrohan.smusic.ui.component.touchHaptic
+
 import androidx.compose.foundation.Indication
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
@@ -21,7 +23,7 @@ internal fun Modifier.playerControlClickable(
     role: Role? = Role.Button,
     onClick: () -> Unit,
 ): Modifier {
-    val feedback = LocalHapticFeedback.current
+    val view = androidx.compose.ui.platform.LocalView.current
     return clickable(
         enabled = enabled,
         interactionSource = interactionSource,
@@ -29,7 +31,7 @@ internal fun Modifier.playerControlClickable(
         onClickLabel = onClickLabel,
         role = role,
     ) {
-        feedback.performHapticFeedback(HapticFeedbackType.ContextClick)
+        view.context.touchHaptic()
         onClick()
     }
 }

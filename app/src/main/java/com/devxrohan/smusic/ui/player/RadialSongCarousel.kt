@@ -26,12 +26,7 @@ import androidx.media3.common.Timeline
 import com.devxrohan.smusic.extensions.metadata
 import kotlin.math.abs
 
-/**
- * RadialSongCarousel — file name kept, visual updated to match the white
- * paper theme.  The dark rotating 3-D effect is replaced with a clean
- * flat horizontal scroll where the centred item is highlighted in ink and
- * neighbours are muted.
- */
+/** Render a flat artwork carousel with centered-item emphasis. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RadialSongCarousel(

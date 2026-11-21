@@ -116,7 +116,7 @@ fun IosStyledPlayer(
     playerConnection: PlayerConnection,
     navController: NavController,
     menuState: MenuState,
-    
+
     nextUpMetadata: MediaMetadata? = null,
     currentFormat: FormatEntity? = null,
     playerVolume: Float,
@@ -302,7 +302,7 @@ private fun V8PlayerControlsContent(
     state: BottomSheetState,
     menuState: MenuState,
     onShowDetailsDialog: () -> Unit,
-    
+
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
     nextUpMetadata: MediaMetadata? = null,

@@ -382,7 +382,7 @@ fun ApplePlayer(
                     }
                 }
             }
-            
+
             // Bottom Bar Icons inside the gradient area
             Spacer(modifier = Modifier.height(16.dp))
             Row(

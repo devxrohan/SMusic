@@ -1,6 +1,7 @@
 package com.devxrohan.smusic.playback
 
 import android.media.audiofx.Visualizer
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -8,7 +9,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import kotlin.math.hypot
@@ -24,7 +29,8 @@ data class AudioVisualizerStats(
     val bassDb: Int = 0,        // Display value (e.g., 0 .. +18)
     val midDb: Int = 0,
     val trebleDb: Int = 0,
-    val isBassPeak: Boolean = false
+    val isBassPeak: Boolean = false,
+    val captured: Boolean = false,
 )
 
 class AudioVisualizerManager(
@@ -35,15 +41,31 @@ class AudioVisualizerManager(
 
     private var visualizer: Visualizer? = null
     private var fallbackJob: Job? = null
+    private var captureWatchdogJob: Job? = null
+    @Volatile private var lastFrameAt: Long? = null
     private var currentSessionId: Int = 0
+
+    private var requestedSessionId = 0
+    private var hasObservers = false
+
+    init {
+        scope.launch(Dispatchers.Main.immediate) {
+            _stats.subscriptionCount.map { it > 0 }.distinctUntilChanged().collect { observed ->
+                hasObservers = observed
+                updateCapture()
+            }
+        }
+    }
+
+    private fun updateCapture() {
+        if (isPlaying && hasObservers) attach(requestedSessionId) else releaseCapture()
+    }
 
     @Volatile
     var isPlaying: Boolean = false
         set(value) {
             field = value
-            if (!value) {
-                decay()
-            }
+            updateCapture()
         }
 
     // Smoothing accumulators
@@ -52,19 +74,26 @@ class AudioVisualizerManager(
     private var smoothTreble = 0f
 
     fun start(audioSessionId: Int) {
+        requestedSessionId = audioSessionId
+        updateCapture()
+    }
+
+    private fun attach(audioSessionId: Int) {
         if (visualizer != null && currentSessionId == audioSessionId && audioSessionId > 0) {
             return
         }
-        if (visualizer == null && audioSessionId <= 0 && fallbackJob?.isActive == true) {
+        if (visualizer == null && currentSessionId == audioSessionId && fallbackJob?.isActive == true) {
             return
         }
 
-        stop()
+        releaseCapture()
         currentSessionId = audioSessionId
 
         if (audioSessionId > 0) {
             try {
-                val vis = Visualizer(audioSessionId).apply {
+                val vis = Visualizer(audioSessionId)
+                visualizer = vis
+                vis.apply {
                     captureSize = Visualizer.getCaptureSizeRange()[1] // Max resolution (usually 1024)
                     setDataCaptureListener(
                         object : Visualizer.OnDataCaptureListener {
@@ -79,11 +108,8 @@ class AudioVisualizerManager(
                                 fft: ByteArray?,
                                 samplingRate: Int
                             ) {
-                                if (fft != null && isPlaying) {
-                                    processFft(fft)
-                                } else {
-                                    decay()
-                                }
+                                if (v !== visualizer || !isPlaying) return
+                                if (fft != null) processFft(fft) else decay()
                             }
                         },
                         Visualizer.getMaxCaptureRate() / 2,
@@ -93,8 +119,18 @@ class AudioVisualizerManager(
                     enabled = true
                 }
                 visualizer = vis
+                captureWatchdogJob = scope.launch {
+                    while (isActive) {
+                        delay(1_500)
+                        if (isPlaying && hasObservers && visualizerCaptureIsStale(lastFrameAt, SystemClock.elapsedRealtime())) {
+                            startFallbackLoop()
+                        }
+                    }
+                }
                 Timber.d("AudioVisualizerManager: Attached native Visualizer to session $audioSessionId")
             } catch (e: Throwable) {
+                runCatching { visualizer?.release() }
+                visualizer = null
                 Timber.w(e, "AudioVisualizerManager: Native Visualizer unavailable, using reactive fallback")
                 startFallbackLoop()
             }
@@ -105,7 +141,8 @@ class AudioVisualizerManager(
 
     private fun processFft(fft: ByteArray) {
         val n = fft.size / 2
-        if (n <= 0) return
+        if (n < 2) return
+        lastFrameAt = SystemClock.elapsedRealtime()
 
         var rawBass = 0f
         var rawMid = 0f
@@ -155,7 +192,8 @@ class AudioVisualizerManager(
             bassDb = (smoothBass * 18).toInt(),
             midDb = (smoothMid * 12).toInt(),
             trebleDb = (smoothTreble * 10).toInt(),
-            isBassPeak = isPeak
+            isBassPeak = isPeak,
+            captured = true,
         )
     }
 
@@ -174,7 +212,8 @@ class AudioVisualizerManager(
             bassDb = (smoothBass * 18).toInt(),
             midDb = (smoothMid * 12).toInt(),
             trebleDb = (smoothTreble * 10).toInt(),
-            isBassPeak = false
+            isBassPeak = false,
+            captured = visualizer != null,
         )
     }
 
@@ -184,6 +223,7 @@ class AudioVisualizerManager(
         fallbackJob = scope.launch(Dispatchers.Default) {
             var step = 0.0
             while (isActive) {
+                if (!visualizerCaptureIsStale(lastFrameAt, SystemClock.elapsedRealtime())) break
                 if (isPlaying) {
                     step += 0.25
                     // Natural musical rhythm simulation
@@ -198,6 +238,8 @@ class AudioVisualizerManager(
 
                     val isPeak = smoothBass > 0.72f
 
+                    coroutineContext.ensureActive()
+                    if (!isPlaying) break
                     _stats.value = AudioVisualizerStats(
                         bass = smoothBass,
                         mid = smoothMid,
@@ -216,6 +258,16 @@ class AudioVisualizerManager(
     }
 
     fun stop() {
+        requestedSessionId = 0
+        isPlaying = false
+        releaseCapture()
+    }
+
+    private fun releaseCapture() {
+        val wasRunning = visualizer != null || fallbackJob != null
+        captureWatchdogJob?.cancel()
+        captureWatchdogJob = null
+        lastFrameAt = null
         fallbackJob?.cancel()
         fallbackJob = null
         currentSessionId = 0
@@ -227,6 +279,10 @@ class AudioVisualizerManager(
         } finally {
             visualizer = null
         }
-        decay()
+        if (wasRunning) Timber.d("AudioVisualizerManager: Capture released")
+        smoothBass = 0f
+        smoothMid = 0f
+        smoothTreble = 0f
+        _stats.value = AudioVisualizerStats()
     }
 }

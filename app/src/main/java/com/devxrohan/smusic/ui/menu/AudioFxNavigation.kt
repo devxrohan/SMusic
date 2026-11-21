@@ -196,7 +196,7 @@ internal fun DjPresetsRow(onSelectPreset: (DjPreset) -> Unit) {
                                 text = preset.title,
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             )
                         }

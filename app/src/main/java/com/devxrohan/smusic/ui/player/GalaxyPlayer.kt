@@ -425,7 +425,7 @@ fun GalaxyPlayer(
                             .size(32.dp)
                             .clickable(enabled = canSkipPrevious, onClick = onPrevious)
                     )
-                    
+
                     Box(
                         modifier = Modifier
                             .size(48.dp)
@@ -619,7 +619,7 @@ private fun GalaxyBrowseCarousel(
         val windowRadius = 3
         val startIndex = (currentWindowIndex - windowRadius).coerceAtLeast(0)
         val endIndex = (currentWindowIndex + windowRadius).coerceAtMost(queueWindows.lastIndex)
-        
+
         val itemsToRender = (startIndex..endIndex).sortedByDescending { kotlin.math.abs(it - animatedIndex) }
 
         val density = LocalDensity.current
@@ -628,15 +628,15 @@ private fun GalaxyBrowseCarousel(
             val item = queueWindows[index]
             val distance = index - animatedIndex
             val absDistance = kotlin.math.abs(distance)
-            
+
             if (absDistance <= 2.5f) {
                 val sign = kotlin.math.sign(distance)
-                
+
                 val translationXBase = with(density) { sign * (86.dp.toPx() * absDistance.coerceAtMost(1f) + 54.dp.toPx() * (absDistance - 1f).coerceAtLeast(0f)) }
                 val rotationYBase = sign * (24f * absDistance.coerceAtMost(1f) + 12f * (absDistance - 1f).coerceAtLeast(0f))
                 val scaleBase = 1f - (0.16f * absDistance)
                 val alphaBase = 1f - (0.24f * absDistance)
-                
+
                 Box(
                     modifier = Modifier.graphicsLayer {
                         translationX = translationXBase * spread
@@ -648,7 +648,7 @@ private fun GalaxyBrowseCarousel(
                 ) {
                     val centerAlpha = (1f - (absDistance * 1.5f)).coerceIn(0f, 1f)
                     val sideAlpha = 1f - centerAlpha
-                    
+
                     if (sideAlpha > 0f) {
                         GalaxySideCover(
                             mediaItem = item,
@@ -667,7 +667,7 @@ private fun GalaxyBrowseCarousel(
                 }
             }
         }
-        
+
         if (queueWindows.isEmpty()) {
              GalaxyCurrentCover(
                 thumbnailUrl = mediaMetadata?.thumbnailUrl,

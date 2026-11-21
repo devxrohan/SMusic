@@ -200,7 +200,6 @@ fun CloudGlowPlayer(
         gradientColors = gradientColors
     )
 }
-
 @Composable
 fun ConcentricGlowRings(
     isPlaying: Boolean,

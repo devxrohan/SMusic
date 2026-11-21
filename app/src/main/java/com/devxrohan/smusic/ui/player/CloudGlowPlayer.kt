@@ -1,5 +1,7 @@
 package com.devxrohan.smusic.ui.player
 
+import androidx.compose.material3.Slider
+
 import com.devxrohan.smusic.ui.component.BottomSheetState
 import com.devxrohan.smusic.ui.component.bottomSheetDraggable
 import androidx.compose.animation.animateColorAsState
@@ -176,7 +178,7 @@ fun CloudGlowPlayerScreen(
                 NeumorphicButton(onClick = onCollapse, size = 44.dp, isDark = isDark) {
                     ChevronLeftIcon(tint = iconColor, modifier = Modifier.size(16.dp))
                 }
-                
+
                 Text(
                     text = stringResource(R.string.ui_playing_now),
                     color = if (isDark) Color(0xFFAAAAAA) else Color(0xFF7A8A9E),
@@ -185,7 +187,7 @@ fun CloudGlowPlayerScreen(
                     letterSpacing = 1.5.sp,
                     fontFamily = SpotifyFontFamily
                 )
-                
+
                 NeumorphicButton(onClick = onOpenMenu, size = 44.dp, isDark = isDark) {
                     Icon(
                         painter = painterResource(R.drawable.more_horiz),
@@ -248,7 +250,7 @@ fun CloudGlowPlayerScreen(
 
             // ── 4. SLIDER PROGRESS & TIMESTAMPS ──────────────────────────────
             val sliderProgress = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-            
+
             // Timestamps
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -267,9 +269,9 @@ fun CloudGlowPlayerScreen(
                     fontFamily = SpotifyFontFamily
                 )
             }
-            
+
             Spacer(Modifier.height(4.dp))
-            
+
             when (sliderStyle) {
                 SliderStyle.DEFAULT -> {
                     Slider(
@@ -458,7 +460,7 @@ private fun DefaultBackground(isDark: Boolean, artworkUrl: String?) {
                     center = Offset(size.width * 0.8f, size.height * 0.25f),
                     radius = size.width * 0.9f
                 )
-                
+
                 // Cloud 2: Soft Pink/Lavender Glow (bottom left)
                 drawCircle(
                     brush = Brush.radialGradient(

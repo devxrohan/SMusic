@@ -4,10 +4,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
-/**
- * NeonPlaybackCore is a legacy component that is not used in the active layout.
- * We keep it as a simple placeholder Box to prevent compile errors on unused references.
- */
+/** NeonPlaybackCore is a legacy component that is not used in the active layout. We keep it as a simple
+ * placeholder Box to prevent compile errors on unused references. */
 @Composable
 fun NeonPlaybackCore(
     isPlaying: Boolean,

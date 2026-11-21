@@ -103,7 +103,7 @@ fun MinimalPlayer(
                             .background(Color.Gray.copy(alpha = 0.5f))
                     )
                 }
-                
+
                 IconButton(onClick = onMenuClick) {
                     Image(
                         painter = painterResource(R.drawable.more_horiz),

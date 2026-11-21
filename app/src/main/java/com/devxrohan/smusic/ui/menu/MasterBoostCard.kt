@@ -76,7 +76,7 @@ internal fun MasterBoostCard(
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 12.sp,
                             letterSpacing = 1.6.sp,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -91,7 +91,7 @@ internal fun MasterBoostCard(
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Black,
                                 fontSize = 9.sp,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onPrimary
                             )
                         )
                     }
@@ -111,7 +111,7 @@ internal fun MasterBoostCard(
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Black,
                     fontSize = 28.sp,
-                    color = if (boostEnabled) MaterialTheme.colorScheme.primary else Color.White
+                    color = if (boostEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
             )
         }

@@ -93,15 +93,13 @@ fun Thumbnail(
     artworkScale: Float = 0.85f,
     useCustomCornerRadius: Boolean = false,
     textColor: Color? = null,
-    // How much space is reserved around the artwork square before it's sized.
-    // Default matches the original hardcoded value so every existing caller
-    // (the normal swipeable player) keeps its current size unchanged; only a
-    // caller that explicitly passes a smaller value gets a bigger square.
+    // Reserve artwork padding before sizing; retain the default inset for existing callers.
     artworkPadding: Dp = PlayerHorizontalPadding,
     // Optional fixed square size for layouts (such as Classic) that must not
     // change artwork dimensions when the available vertical space differs.
     artworkSize: Dp? = null,
     artworkHeight: Dp? = null,
+    useBrowseArtwork: Boolean = false,
 ) {
 
 
@@ -200,21 +198,14 @@ fun Thumbnail(
         } else if (swipedBackward && canSkipPrevious) {
             playerConnection.player.seekToPreviousMediaItem()
         } else if (swipedForward || swipedBackward) {
-            // The carousel moved but there was nothing to skip to right then
-            // (most commonly: the current song was still loading, so
-            // canSkipNext/canSkipPrevious hadn't caught up yet). Snap it back
-            // immediately instead of leaving it showing a song that isn't
-            // the one actually playing.
+            // Reset the carousel when a swipe cannot yet advance the loading player.
             thumbnailLazyGridState.animateScrollToItem(currentMediaIndex)
             return@LaunchedEffect
         } else {
             return@LaunchedEffect
         }
 
-        // The seek call above can still be a no-op (e.g. the player was mid-
-        // transition and ignored it). Verify it actually moved the player;
-        // if it didn't, the carousel must not be left out of sync with what's
-        // really playing.
+        // Verify seek completion and resynchronize the carousel if the player rejected the transition.
         delay(400)
         if (playerConnection.player.currentMediaItemIndex == indexBeforeSeek) {
             thumbnailLazyGridState.animateScrollToItem(currentMediaIndex)
@@ -374,7 +365,9 @@ fun Thumbnail(
                                         placeholder = painterResource(R.drawable.music_note),
                                         error = painterResource(R.drawable.music_note),
                                         model = ImageRequest.Builder(LocalContext.current)
-                                            .data(item.mediaMetadata.artworkUri?.toString()?.highQualityThumbnail())
+                                            .data(if (useBrowseArtwork) {
+                                                com.devxrohan.smusic.utils.cachedArtworkUrl(item.mediaMetadata.artworkUri?.toString())
+                                            } else item.mediaMetadata.artworkUri?.toString()?.highQualityThumbnail())
                                             .build(),
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,

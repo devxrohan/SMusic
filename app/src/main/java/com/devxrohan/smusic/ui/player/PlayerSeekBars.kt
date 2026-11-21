@@ -155,7 +155,6 @@ private fun calculateProgressFromAngle(angle: Float, startAngle: Float, sweepAng
     }
     return ((normalizedAngle - startAngle) / sweepAngle).coerceIn(0f, 1f)
 }
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ClassicSeekBar(

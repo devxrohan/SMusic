@@ -41,7 +41,7 @@ import kotlin.math.sin
 @Composable
 internal fun AudioVisualizerDial(
     title: String,
-    dbValue: Int,
+    captured: Boolean,
     energy: Float,
     isPeak: Boolean,
     accentDefaultColor: Color,
@@ -55,7 +55,7 @@ internal fun AudioVisualizerDial(
         }
         energy > 0.05f -> {
             val t = ((energy - 0.05f) / 0.30f).coerceIn(0f, 1f)
-            lerp(Color.White, MaterialTheme.colorScheme.tertiary, t)
+            lerp(MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.tertiary, t)
         }
         else -> accentDefaultColor
     }
@@ -154,15 +154,15 @@ internal fun AudioVisualizerDial(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = if (dbValue >= 0) "+$dbValue" else "$dbValue",
+                text = "${(energy.coerceIn(0f, 1f) * 100).toInt()}%",
                 style = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Black,
                     fontSize = 20.sp,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             )
             Text(
-                text = "dB",
+                text = if (captured) "ENERGY" else "VISUAL",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 10.sp,

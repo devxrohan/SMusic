@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import com.devxrohan.smusic.ui.component.DottedSlider as Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -70,7 +70,7 @@ internal fun EchoDelaySection(
                     text = stringResource(R.string.ui_stereo_echo_amp_delay),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 Text(
@@ -114,7 +114,7 @@ internal fun EchoDelaySection(
                             text = stringResource(R.string.ui_3d_ping_pong_bounce),
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         )
                         Text(
@@ -262,7 +262,7 @@ internal fun EchoDelaySection(
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 11.sp,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             )
                         }

@@ -93,7 +93,6 @@ internal fun SpotifyStyledSlider(
         }
     }
 }
-
 @Composable
 internal fun SpotifyRoundIconButton(
     icon: Int,

@@ -36,6 +36,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,7 +68,6 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
 
     val boostPercent by service.audioBoostPercent.collectAsState()
     val boostEnabled by service.audioBoostEnabled.collectAsState()
-    val stats by service.visualizerManager.stats.collectAsState()
 
     val echoEnabled by service.echoEnabled.collectAsState()
     val echoDelayMs by service.echoDelayMs.collectAsState()
@@ -90,9 +90,6 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Master, 1: Echo, 2: Mixer, 3: Turntable
 
-    LaunchedEffect(Unit) {
-        service.ensureVisualizer()
-    }
 
     val sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
@@ -157,7 +154,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                             style = MaterialTheme.typography.headlineMedium.copy(
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 21.sp,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         )
                         Spacer(modifier = Modifier.height(2.dp))
@@ -227,7 +224,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                                 text = stringResource(R.string.ui_pure_audio_bypass_active),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                         Spacer(Modifier.height(4.dp))
@@ -253,7 +250,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                         .padding(bottom = 16.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = if (audioFxAndDjEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerLow),
-                    border = BorderStroke(1.dp, if (audioFxAndDjEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.08f))
+                    border = BorderStroke(1.dp, if (audioFxAndDjEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Row(
                         modifier = Modifier
@@ -267,7 +264,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
                                 text = stringResource(R.string.ui_studio_fx_engine),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = if (audioFxAndDjEnabled) "Active • Custom DSP processing enabled" else "Turned Off • All options reset to pure source playback",
@@ -309,45 +306,7 @@ fun InAppAudioFxSheet(onDismiss: () -> Unit) {
             when (selectedTab) {
                 0 -> {
                     // TAB 0: MASTER FX
-                    // Three Reactive Circular Visualizer Dials
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 20.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        AudioVisualizerDial(
-                            title = stringResource(R.string.ui_bass),
-                            dbValue = stats.bassDb,
-                            energy = stats.bass,
-                            isPeak = stats.isBassPeak,
-                            accentDefaultColor = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        AudioVisualizerDial(
-                            title = stringResource(R.string.ui_mid),
-                            dbValue = stats.midDb,
-                            energy = stats.mid,
-                            isPeak = false,
-                            accentDefaultColor = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        AudioVisualizerDial(
-                            title = stringResource(R.string.ui_treble),
-                            dbValue = stats.trebleDb,
-                            energy = stats.treble,
-                            isPeak = false,
-                            accentDefaultColor = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    AudioFrequencyMeters(service)
 
                     // Master Boost Card
                     MasterBoostCard(

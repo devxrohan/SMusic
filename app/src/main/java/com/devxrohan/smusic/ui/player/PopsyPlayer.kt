@@ -1,5 +1,7 @@
 package com.devxrohan.smusic.ui.player
 
+import androidx.compose.material3.Slider
+
 import com.devxrohan.smusic.ui.component.BottomSheetState
 import com.devxrohan.smusic.ui.component.bottomSheetDraggable
 import androidx.compose.foundation.Image
@@ -61,7 +63,7 @@ fun PopsyPlayer(
 ) {
     val popsyPurple = Color(0xFF8B5CF6)
     val bottomBg = Color(0xFFF3F4F6)
-    
+
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val topSectionHeight = screenHeight * 0.65f
 
@@ -206,9 +208,9 @@ fun PopsyPlayer(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                
+
                 Spacer(modifier = Modifier.height(8.dp))
-                
+
                 Text(
                     text = mediaMetadata?.artists?.joinToString { it.name } ?: "Artist",
                     color = Color.White.copy(alpha = 0.8f),
@@ -216,7 +218,7 @@ fun PopsyPlayer(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                
+
                 Spacer(modifier = Modifier.height(54.dp))
             }
         }
@@ -247,9 +249,9 @@ fun PopsyPlayer(
                     modifier = Modifier.size(24.dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.width(24.dp))
-            
+
             // Play/Pause
             Box(
                 modifier = Modifier
@@ -371,7 +373,7 @@ fun PopsyPlayer(
                     fontWeight = FontWeight.Medium
                 )
             }
-            
+
             Slider(
                 value = position.toFloat(),
                 valueRange = 0f..(if (duration == androidx.media3.common.C.TIME_UNSET) 0f else duration.toFloat()),

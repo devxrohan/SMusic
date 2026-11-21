@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import com.devxrohan.smusic.ui.component.DottedSlider as Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -73,7 +73,7 @@ internal fun DjMixerSection(
                     text = stringResource(R.string.ui_dj_filter_sweep),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 Text(
@@ -147,7 +147,7 @@ internal fun DjMixerSection(
                     text = stringResource(R.string.ui_jet_flanger_swoosh),
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 Text(
@@ -205,7 +205,7 @@ internal fun DjMixerSection(
                     text = stringResource(R.string.ui_warm_tape_saturation),
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 Text(
@@ -249,7 +249,7 @@ internal fun DjMixerSection(
                     text = "8D Audio",
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 Text(

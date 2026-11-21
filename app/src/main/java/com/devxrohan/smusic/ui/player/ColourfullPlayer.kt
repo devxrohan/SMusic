@@ -1,5 +1,7 @@
 package com.devxrohan.smusic.ui.player
 
+import androidx.compose.material3.Slider
+
 import com.devxrohan.smusic.ui.component.BottomSheetState
 import com.devxrohan.smusic.ui.component.bottomSheetDraggable
 import android.graphics.drawable.BitmapDrawable
@@ -62,11 +64,11 @@ fun ColourfullPlayer(
     onQueueClick: () -> Unit
 ) {
     val (colorInt, _) = rememberPreference(ColourfullPlayerColorKey, defaultValue = 0xFF4CAF50.toInt())
-    
+
     var autoColor by remember { mutableStateOf<Color?>(null) }
     val context = LocalContext.current
     val thumbnailUrl = mediaMetadata?.thumbnailUrl
-    
+
     LaunchedEffect(colorInt, thumbnailUrl) {
         if (colorInt == 0 && thumbnailUrl != null) {
             val result = context.imageLoader.execute(
@@ -106,7 +108,7 @@ fun ColourfullPlayer(
                         modifier = Modifier.size(28.dp)
                     )
                 }
-                
+
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = stringResource(R.string.ui_playing_now),
@@ -127,7 +129,7 @@ fun ColourfullPlayer(
                         )
                     }
                 }
-                
+
                 IconButton(onClick = onMenuClick) {
                     Image(
                         painter = painterResource(R.drawable.more_horiz),

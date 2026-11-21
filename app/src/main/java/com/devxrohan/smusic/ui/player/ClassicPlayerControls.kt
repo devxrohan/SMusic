@@ -93,7 +93,7 @@ fun ClassicControlsContent(
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.clickable(enabled = mediaMetadata.album != null) {
+            modifier = Modifier.playerControlClickable(enabled = mediaMetadata.album != null) {
                 mediaMetadata.album?.let { navController.navigate("album/${it.id}") }
                 onCollapse()
             }
@@ -149,7 +149,7 @@ fun ClassicControlsContent(
                     .size(52.dp)
                     .clip(CircleShape)
                     .border(1.5.dp, dominantColor.copy(alpha = if (canSkipPrevious) 0.6f else 0.2f), CircleShape)
-                    .clickable(enabled = canSkipPrevious, onClick = onPrevious),
+                    .playerControlClickable(enabled = canSkipPrevious, onClick = onPrevious),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -165,7 +165,7 @@ fun ClassicControlsContent(
                     .size(76.dp)
                     .clip(RoundedCornerShape(24.dp))
                     .background(dominantColor)
-                    .clickable(onClick = onPlayPause),
+                    .playerControlClickable(onClick = onPlayPause),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -181,7 +181,7 @@ fun ClassicControlsContent(
                     .size(52.dp)
                     .clip(CircleShape)
                     .border(1.5.dp, dominantColor.copy(alpha = if (canSkipNext) 0.6f else 0.2f), CircleShape)
-                    .clickable(enabled = canSkipNext, onClick = onNext),
+                    .playerControlClickable(enabled = canSkipNext, onClick = onNext),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -195,16 +195,7 @@ fun ClassicControlsContent(
     }
 }
 
-/**
- * Compact lyric strip for the Classic player. Which animation plays is based
- * purely on whether the current line itself has real word-level timing — not
- * on which lyrics screen style (Karaoke/Classic) happens to be selected, so
- * it behaves the same on both pages: a word-timed line bounces with the
- * karaoke animation, and a line with no word timing pops/fades in as one
- * complete line (see ClassicWholeLineText) instead of just snapping to the
- * new text. The playhead is frame-smoothed so provider timestamps stay
- * responsive.
- */
+/** Animates lyric-line changes independently of punctuation and word-timing updates. */
 @Composable
 internal fun ClassicLyricLineStrip(
     mediaMetadata: MediaMetadata?,
@@ -219,15 +210,10 @@ internal fun ClassicLyricLineStrip(
     val lyricsEntity by playerConnection.currentLyrics.collectAsState(initial = null)
     val lyrics = lyricsEntity?.lyrics
     val isLoading = lyricsEntity == null
+    val lyricsOffsetMs by com.devxrohan.smusic.utils.rememberPreference(com.devxrohan.smusic.constants.LyricsOffsetMsKey, 0f)
+    val syncOffsetMs = com.devxrohan.smusic.lyrics.LyricsUtils.syncOffsetMillis(lyricsOffsetMs)
 
-    // This used to run its own independent lyrics fetch here whenever
-    // lyricsEntity was still null, racing MusicService's own
-    // fetch-on-song-start for the very same song — two independent provider
-    // lookups can legitimately disagree, so this strip could end up showing
-    // (and caching) different lyrics than the full lyrics screen for the
-    // exact same song. It now just asks the single shared fetch path to make
-    // sure a fetch is happening (a no-op if one already is), and otherwise
-    // purely observes lyricsEntity above like every other lyrics screen does.
+    // Consume the shared lyrics stream; provider requests are owned by MusicService.
     LaunchedEffect(mediaMetadata?.id, lyricsEntity) {
         val metadata = mediaMetadata ?: return@LaunchedEffect
         if (lyricsEntity == null) {
@@ -262,7 +248,7 @@ internal fun ClassicLyricLineStrip(
         seekingPosition = sliderPosition,
         isPlaying = isPlaying,
         trackKey = lyricsEntity?.id ?: "classic-lyrics",
-    )
+    ) - syncOffsetMs
 
     if (isLoading) {
         // Keep a real text status in the player while the provider race is
@@ -295,7 +281,7 @@ internal fun ClassicLyricLineStrip(
                 .height(28.dp)
                 // Keep the strip's touch/layout height compact, but allow the
                 // karaoke word's 4dp upward float to draw outside this box.
-                .clickable(
+                .playerControlClickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = onClick,
@@ -337,7 +323,7 @@ internal fun ClassicLyricLineStrip(
             .fillMaxWidth()
             .height(28.dp)
             // Do not clip the word-bounce animation at the strip boundary.
-            .clickable(
+            .playerControlClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
@@ -366,11 +352,7 @@ internal fun ClassicLyricLineStrip(
     }
 }
 
-/**
- * Renders a complete lyric line when no genuine word-level timing is available,
- * or when Classic lyrics screen style is selected. Pops and fades in on every
- * line change instead of cutting straight to the new text.
- */
+/** Animate complete lyric lines when word timing is unavailable or Classic lyrics are selected. */
 @Composable
 private fun ClassicWholeLineText(text: String, modifier: Modifier = Modifier) {
     AnimatedContent(
@@ -435,10 +417,8 @@ private fun rememberClassicLyricPosition(
                 } else {
                     val reported = latestReported
                     if (reported != lastReported) {
-                        // Media3 position callbacks are an anchor, not the
-                        // animation clock. Re-anchor whenever the player gives
-                        // us a new reading, then let the frame clock run between
-                        // readings. This removes the visible 200–500 ms lyric lag.
+                        // Anchor progress to Media3 updates and interpolate with the frame clock between
+                        // callbacks.
                         anchorPosition = reported
                         lastReported = reported
                         anchorNanos = now

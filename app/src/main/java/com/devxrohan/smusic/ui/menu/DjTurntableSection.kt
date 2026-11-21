@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import com.devxrohan.smusic.ui.component.DottedSlider as Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -63,7 +63,7 @@ internal fun DjTurntableSection(
                     text = stringResource(R.string.ui_turntable_amp_tempo),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 Text(
@@ -109,7 +109,7 @@ internal fun DjTurntableSection(
                     text = stringResource(R.string.ui_vinyl_turntable_mode),
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 )
                 Text(
@@ -236,7 +236,7 @@ internal fun DjTurntableSection(
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
-                            color = if (speed == spd) MaterialTheme.colorScheme.primary else Color.White
+                            color = if (speed == spd) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                     )
                 }

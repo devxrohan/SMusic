@@ -1,4 +1,10 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.devxrohan.smusic.ui.screens.settings
+
+import com.devxrohan.smusic.ui.component.DottedSlider as Slider
+
+import com.devxrohan.smusic.ui.component.appButtonShapes
 
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
@@ -53,15 +59,12 @@ fun AppearanceSettings(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
+    val (profileBeat, changeProfileBeat) = rememberPreference(com.devxrohan.smusic.constants.ProfileBeatMotionKey, true)
     val (darkMode, onDarkModeChange) = rememberEnumPreference(
         DarkModeKey,
         defaultValue = DarkMode.AUTO
     )
 
-    val (gridItemSize, onGridItemSizeChange) = rememberEnumPreference(
-        GridItemsSizeKey,
-        defaultValue = GridItemSize.BIG
-    )
 
     val (slimNav, onSlimNavChange) = rememberPreference(SlimNavBarKey, defaultValue = false)
 
@@ -69,6 +72,8 @@ fun AppearanceSettings(
         com.devxrohan.smusic.constants.AppFontKey,
         defaultValue = com.devxrohan.smusic.constants.AppFont.APPLE.key
     )
+    val (textScale, onTextScaleChange) = rememberPreference(com.devxrohan.smusic.constants.AppTextScaleKey, 1f)
+    var textScaleDraft by remember(textScale) { mutableFloatStateOf(textScale) }
     val appFont = remember(appFontKey) { com.devxrohan.smusic.constants.AppFont.fromKey(appFontKey) }
 
     val (themePresetId, onThemePresetIdChange) = rememberPreference(
@@ -138,7 +143,7 @@ fun AppearanceSettings(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showQuickPicksSizeDialog = false }) { Text(stringResource(R.string.done)) }
+                TextButton(shapes = appButtonShapes(), onClick = { showQuickPicksSizeDialog = false }) { Text(stringResource(R.string.done)) }
             }
         )
     }
@@ -232,6 +237,8 @@ fun AppearanceSettings(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                AdditionalAppearanceControls(group = "home", navController = navController)
+
                 SettingsGeneralCategory(
                     title = stringResource(R.string.navigation),
                     items = listOf(
@@ -277,6 +284,8 @@ fun AppearanceSettings(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                AdditionalAppearanceControls(group = "mini")
+
                 SettingsGeneralCategory(
                     title = stringResource(R.string.performance),
                     items = listOf(
@@ -308,15 +317,22 @@ fun AppearanceSettings(
                     title = stringResource(R.string.misc),
                     items = listOf(
                         {
+                            com.devxrohan.smusic.ui.component.SwitchPreference(
+                                title = { Text("Profile artwork motion") },
+                                description = "Move the Home profile artwork with the music beat. Respects Reduce motion.",
+                                checked = profileBeat, onCheckedChange = changeProfileBeat,
+                                icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
+                            )
+                        },
+                        {
                             EnumListPreference(
                                 title = { Text(stringResource(R.string.home_header_style)) },
-                                icon = { Icon(painterResource(R.drawable.auto_awesome), null) },
+                                icon = { Icon(painterResource(R.drawable.home_outlined), null) },
                                 selectedValue = homeHeaderStyle,
                                 onValueSelected = onHomeHeaderStyleChange,
                                 valueText = {
                                     when (it) {
                                         com.devxrohan.smusic.constants.HomeHeaderStyle.SMUSIC -> stringResource(R.string.home_header_style_smusic)
-                                        com.devxrohan.smusic.constants.HomeHeaderStyle.APPLE_LISTEN -> stringResource(R.string.home_header_style_apple_listen)
                                         com.devxrohan.smusic.constants.HomeHeaderStyle.NONE -> stringResource(R.string.home_header_style_none)
                                     }
                                 }
@@ -334,26 +350,21 @@ fun AppearanceSettings(
                         },
                         {
                             EnumListPreference(
-                                title = { Text(stringResource(R.string.grid_cell_size)) },
-                                icon = { Icon(painterResource(R.drawable.grid_view), null) },
-                                selectedValue = gridItemSize,
-                                onValueSelected = onGridItemSizeChange,
-                                valueText = {
-                                    when (it) {
-                                        GridItemSize.SMALL -> stringResource(R.string.small)
-                                        GridItemSize.BIG -> stringResource(R.string.big)
-                                    }
-                                },
-                            )
-                        },
-                        {
-                            EnumListPreference(
                                 title = { Text(stringResource(R.string.app_font)) },
                                 icon = { Icon(painterResource(R.drawable.edit), null) },
                                 selectedValue = appFont,
                                 onValueSelected = { onAppFontKeyChange(it.key) },
                                 valueText = { it.title },
                             )
+                        },
+                        {
+                            androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text("Text size · ${(textScaleDraft * 100).toInt()}%", style = MaterialTheme.typography.titleMedium)
+                                com.devxrohan.smusic.ui.component.DottedSlider(
+                                    value = textScaleDraft, onValueChange = { textScaleDraft = it },
+                                    onValueChangeFinished = { onTextScaleChange(textScaleDraft) },
+                                    valueRange = 0.9f..1.2f, steps = 29)
+                            }
                         }
                     )
                 )

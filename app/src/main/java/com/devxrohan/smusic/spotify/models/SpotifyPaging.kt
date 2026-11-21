@@ -19,4 +19,6 @@ data class SpotifyPaging<T>(
     val next: String? = null,
     val previous: String? = null,
     val href: String? = null,
+    val rawCount: Int = items.size,
+    val totalKnown: Boolean = true,
 )

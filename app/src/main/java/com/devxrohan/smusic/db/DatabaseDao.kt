@@ -904,9 +904,12 @@ interface DatabaseDao {
         songIds: List<String>,
     ): List<String>
 
+    @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_song_map WHERE playlistId = :playlistId")
+    fun nextPlaylistPosition(playlistId: String): Int
+
     @Transaction
     fun addSongToPlaylist(playlist: Playlist, songIds: List<String>) {
-        var position = playlist.songCount
+        var position = nextPlaylistPosition(playlist.id)
         songIds.forEach { id ->
             insert(
                 PlaylistSongMap(
@@ -962,6 +965,9 @@ interface DatabaseDao {
     @Transaction
     @Query("SELECT song.* FROM event JOIN song ON song.id = event.songId GROUP BY song.id ORDER BY MAX(event.timestamp) DESC LIMIT :limit OFFSET :offset")
     fun recentSongs(limit: Int, offset: Int = 0): Flow<List<Song>>
+
+    @Query("SELECT thumbnailUrl FROM song WHERE thumbnailUrl IS NOT NULL AND thumbnailUrl != '' ORDER BY rowid DESC LIMIT :limit")
+    fun latestSongArtwork(limit: Int = 3): Flow<List<String>>
 
     @Transaction
     @Query("SELECT * FROM event ORDER BY rowId ASC LIMIT 1")

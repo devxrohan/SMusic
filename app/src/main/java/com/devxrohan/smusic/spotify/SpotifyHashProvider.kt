@@ -33,6 +33,11 @@ object SpotifyHashProvider {
 
     init {
         loadHardcodedDefaults()
+        for (operation in listOf("addToLibrary", "removeFromLibrary")) {
+            val old = hashes.getValue(operation)
+            hashes[operation] = old.copy(hash = "1ad0d40b3c09660d818b9e770eb1e84745dfbe941df159a64f8772b6fa2bfc3a", previousHash = old.hash)
+        }
+        hashes["searchDesktop"] = hashes.getValue("searchDesktop").let { it.copy(hash = "75bbf6bfcfdf85b8fc828417bfad92b7cd66bf7f556d85670f4da8292373ebec", previousHash = it.hash) }
         hashes["profileAttributes"] = hashes.getValue("profileAttributes").copy(previousHash = "08ffb4730af3746e04a8301396f20875dbbce10c75243803091a9274eacc8ac0")
         hashes["fetchPlaylist"] = hashes.getValue("fetchPlaylist").copy(previousHash = "32b05e92e438438408674f95d0fdad8082865dc32acd55bd97f5113b8579092b")
     }

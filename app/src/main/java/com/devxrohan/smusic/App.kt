@@ -85,6 +85,7 @@ class App : android.app.Application(), ImageLoaderFactory {
         // the data that Android has just restored and was the source of the reinstall/restore race.
         GlobalScope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(8_000)
+            com.devxrohan.smusic.spotify.spotifyServices(this@App).likeDispatcher()
             runCatching { com.devxrohan.smusic.utils.AutoBackupManager.resetRestartAttempts(this@App) }
         }
 

@@ -41,6 +41,7 @@ data class ArtistEntity(
 
     fun toggleLike() = localToggleLike().also {
         CoroutineScope(Dispatchers.IO).launch {
+            runCatching { com.devxrohan.smusic.utils.recordSpotifySavedIntent(com.devxrohan.smusic.App.instance, "artist", id, bookmarkedAt == null) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             writeBackWithRetry {
                 if (channelId == null)
                     YouTube.subscribeChannel(YouTube.getChannelId(id), bookmarkedAt == null)

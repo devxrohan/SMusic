@@ -13,7 +13,7 @@ import com.devxrohan.smusic.spotify.models.SpotifyTrack
 
 /**
  * Utility object for creating search queries from Spotify track data.
- * The actual mapping to Metrolist MediaMetadata is done in the app module
+ * The mapping to app media metadata is performed in the playback resolver
  * where MediaMetadata class is available.
  */
 object SpotifyMapper {

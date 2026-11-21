@@ -59,6 +59,7 @@ fun OnlinePlaylistAdder(
     onProgressStart: (Boolean) -> Unit,
     onPercentageChange: (Int) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val database = LocalDatabase.current
     val coroutineScope = rememberCoroutineScope()
     val viewStateMap = remember { mutableStateMapOf<String, ItemsPage?>() }
@@ -149,6 +150,7 @@ fun OnlinePlaylistAdder(
                                                             .e(e.toString())
                                                     }
                                                     database.addSongToPlaylist(playlist, ids)
+                                                    com.devxrohan.smusic.spotify.spotifyServices(context).playlistEdits().enqueue(playlist.id, ids)
                                                 }
                                                 viewStateMap.clear()
                                                 songsIdx += 1
@@ -275,27 +277,13 @@ fun OnlinePlaylistAdder(
             buttons = {
                 TextButton(
                     onClick = {
-                        showDuplicateDialog = false
-                        onDismiss()
-                        database.transaction {
-                            addSongToPlaylist(
-                                selectedPlaylist!!,
-                                songIds!!.filter {
-                                    !duplicates.contains(it)
-                                }
-                            )
-                        }
-                    }
-                ) {
-                    Text(stringResource(R.string.skip_duplicates))
-                }
-
-                TextButton(
-                    onClick = {
-                        showDuplicateDialog = false
-                        onDismiss()
-                        database.transaction {
-                            addSongToPlaylist(selectedPlaylist!!, songIds!!)
+                        val target = selectedPlaylist!!
+                        val additions = songIds!!
+                        coroutineScope.launch(Dispatchers.IO) {
+                            database.addSongToPlaylist(target, additions)
+                            com.devxrohan.smusic.spotify.spotifyServices(context).playlistEdits().enqueue(target.id, additions)
+                            showDuplicateDialog = false
+                            onDismiss()
                         }
                     }
                 ) {

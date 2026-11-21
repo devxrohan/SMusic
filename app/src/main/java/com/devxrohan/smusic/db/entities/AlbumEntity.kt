@@ -33,6 +33,7 @@ data class AlbumEntity(
 
     fun toggleLike() = localToggleLike().also {
         CoroutineScope(Dispatchers.IO).launch {
+            runCatching { com.devxrohan.smusic.utils.recordSpotifySavedIntent(com.devxrohan.smusic.App.instance, "album", id, bookmarkedAt == null) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             if (playlistId != null) writeBackWithRetry {
                 YouTube.likePlaylist(playlistId, bookmarkedAt == null)
             }

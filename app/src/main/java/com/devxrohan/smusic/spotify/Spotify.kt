@@ -13,6 +13,7 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.request
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -68,6 +69,10 @@ object Spotify {
     var accessToken: String? = null
 
     private const val GQL_URL = "https://api-partner.spotify.com/pathfinder/v2/query"
+
+    internal fun graphQlEndpoint(operation: String): String =
+        if (operation in setOf("addToLibrary", "removeFromLibrary", "searchDesktop", "addToPlaylist"))
+            "https://api-partner.spotify.com/pathfinder/v1/query" else GQL_URL
 
     private fun randomUserAgent(): String {
         val osOptions =
@@ -255,20 +260,30 @@ object Spotify {
                     if (attempt > 0) " [retry $attempt]" else "",
             )
 
+            val mutationSession = if (operationName == "addToLibrary" || operationName == "removeFromLibrary" || operationName == "searchDesktop" || operationName == "addToPlaylist")
+                spotifyServices(com.devxrohan.smusic.App.instance).webSession().headers() else null
             val response =
-                gqlClient.post(GQL_URL) {
+                gqlClient.request(graphQlEndpoint(operationName)) {
+                    method = if (operationName == "searchDesktop") io.ktor.http.HttpMethod.Get else io.ktor.http.HttpMethod.Post
                     header("Authorization", "Bearer $token")
-                    setBody(
-                        TextContent(
-                            body.toString(),
-                            ContentType.Application.Json.withParameter("charset", "UTF-8"),
-                        ),
-                    )
+                    mutationSession?.let {
+                        header("Client-Token", it.token)
+                        header("Spotify-App-Version", it.version)
+                        header("User-Agent", SpotifyWebSession.USER_AGENT)
+                    }
+                    if (operationName == "searchDesktop") {
+                        parameter("operationName", operationName)
+                        parameter("variables", body["variables"].toString())
+                        parameter("extensions", body["extensions"].toString())
+                    } else {
+                        setBody(TextContent(body.toString(), ContentType.Application.Json))
+                    }
                 }
 
             log("D", "GQL POST $operationName -> ${response.status.value}")
 
             if (response.status == HttpStatusCode.Unauthorized) {
+                if (mutationSession != null) spotifyServices(com.devxrohan.smusic.App.instance).webSession().invalidate()
                 throw SpotifyException(401, "Token expired or invalid")
             }
             if (response.status == HttpStatusCode.TooManyRequests) {
@@ -285,7 +300,14 @@ object Spotify {
             }
             if (response.status.value !in 200..299) {
                 val bodyText = response.bodyAsText()
-                log("E", "GQL $operationName FAILED: ${response.status.value} — ${bodyText.take(200)}")
+                if (response.status == HttpStatusCode.BadRequest && bodyText.contains("PersistedQueryNotFound", ignoreCase = true)) {
+                    return GqlResult(json = null, isPersistedQueryNotFound = true)
+                }
+                if (response.status == HttpStatusCode.BadRequest && mutationSession != null && attempt == 0) {
+                    spotifyServices(com.devxrohan.smusic.App.instance).webSession().invalidate()
+                    continue
+                }
+                log("E", "GQL $operationName FAILED: ${response.status.value}")
                 throw SpotifyException(response.status.value, "GraphQL error ${response.status.value}: $bodyText")
             }
 
@@ -701,8 +723,339 @@ object Spotify {
                 total = tracksData.int("totalCount") ?: 0,
                 limit = limit,
                 offset = offset,
+                rawCount = tracksData.arr("items")?.size ?: 0,
+                totalKnown = tracksData.int("totalCount") != null,
             )
         }
 
 
+    suspend fun myArtists(
+        limit: Int = 50,
+        offset: Int = 0,
+    ): Result<SpotifyPaging<SpotifyArtist>> =
+        runCatching {
+            val vars =
+                buildJsonObject {
+                    putJsonArray("filters") { add("Artists") }
+                    put("order", null as String?)
+                    put("textFilter", "")
+                    putJsonArray("features") {
+                        add("LIKED_SONGS")
+                        add("YOUR_EPISODES_V2")
+                        add("PRERELEASES")
+                        add("EVENTS")
+                    }
+                    put("limit", limit)
+                    put("offset", offset)
+                    put("flatten", false)
+                    putJsonArray("expandedFolders") {}
+                    put("folderUri", null as String?)
+                    put("includeFoldersWhenFlattening", true)
+                }
+
+            val response =
+                graphqlPost(
+                    operationName = "libraryV3",
+                    variables = vars,
+                )
+
+            val libraryData =
+                response.obj("data")?.obj("me")?.obj("libraryV3")
+                    ?: throw SpotifyException(500, "Invalid libraryV3 response")
+
+            val totalCount = libraryData.int("totalCount") ?: 0
+            val pagingInfo = libraryData.obj("pagingInfo")
+
+            val artists =
+                libraryData.arr("items")?.mapNotNull { itemElem ->
+                    val wrapper = itemElem.jsonObject.obj("item") ?: return@mapNotNull null
+                    val typeName = wrapper.str("__typename") ?: ""
+                    if (!typeName.contains("Artist", ignoreCase = true)) return@mapNotNull null
+                    val data = wrapper.obj("data") ?: return@mapNotNull null
+
+                    val artistUri = wrapper.str("_uri") ?: data.str("uri") ?: return@mapNotNull null
+                    val artistId = artistUri.substringAfterLast(":")
+
+                    val name =
+                        data.obj("profile")?.str("name")
+                            ?: data.str("name")
+                            ?: return@mapNotNull null
+
+                    val images =
+                        data
+                            .obj("visuals")
+                            ?.obj("avatarImage")
+                            ?.arr("sources")
+                            ?.let { parseGqlImages(it) }
+                            ?: emptyList()
+
+                    SpotifyArtist(
+                        id = artistId,
+                        name = name,
+                        images = images,
+                        uri = artistUri,
+                    )
+                } ?: emptyList()
+
+            SpotifyPaging(
+                items = artists,
+                total = totalCount,
+                limit = pagingInfo?.int("limit") ?: limit,
+                offset = pagingInfo?.int("offset") ?: offset,
+            )
+        }
+
+
+    suspend fun myAlbums(limit: Int = 50, offset: Int = 0): Result<SpotifyPaging<SpotifyAlbum>> = runCatching {
+        val response = graphqlPost("libraryV3", buildJsonObject {
+            putJsonArray("filters") { add("Albums") }
+            put("order", null as String?); put("textFilter", "")
+            putJsonArray("features") { add("LIKED_SONGS"); add("YOUR_EPISODES_V2"); add("PRERELEASES"); add("EVENTS") }
+            put("limit", limit); put("offset", offset); put("flatten", true)
+            putJsonArray("expandedFolders") {}; put("folderUri", null as String?); put("includeFoldersWhenFlattening", true)
+        })
+        val library = response.obj("data")?.obj("me")?.obj("libraryV3")
+            ?: throw SpotifyException(500, "Invalid saved albums response")
+        val albums = library.arr("items").orEmpty().mapNotNull { row ->
+            val wrapper = row.jsonObject.obj("item") ?: return@mapNotNull null
+            val data = wrapper.obj("data") ?: return@mapNotNull null
+            val uri = data.str("uri") ?: wrapper.str("_uri") ?: return@mapNotNull null
+            if (!uri.startsWith("spotify:album:") || data.str("__typename") != "Album") return@mapNotNull null
+            SpotifyAlbum(id = uri.substringAfterLast(':'), name = data.str("name") ?: return@mapNotNull null,
+                images = parseGqlImages(data.obj("coverArt")?.arr("sources")),
+                artists = data.obj("artists")?.arr("items").orEmpty().mapNotNull { parseGqlSimpleArtist(it.jsonObject) }, uri = uri)
+        }
+        SpotifyPaging(items = albums, total = library.int("totalCount") ?: albums.size, limit = limit, offset = offset)
+    }
+    suspend fun search(
+        query: String,
+        types: List<String> = listOf("track"),
+        limit: Int = 20,
+        offset: Int = 0,
+    ): Result<SpotifySearchResult> =
+        runCatching {
+            val vars =
+                buildJsonObject {
+                    put("searchTerm", query)
+                    put("offset", offset)
+                    put("limit", limit)
+                    put("numberOfTopResults", 5)
+                    put("includeAudiobooks", false)
+                    put("includeArtistHasConcertsField", false)
+                    put("includePreReleases", false)
+                    put("includeLocalConcertsField", false)
+                    put("includeAuthors", false)
+                }
+
+            val response =
+                webQuery("searchDesktop", vars)
+
+            val searchData =
+                response.obj("data")?.obj("searchV2")
+                    ?: response.obj("data")?.obj("search")
+                    ?: throw SpotifyException(500, "Invalid searchDesktop response")
+
+            val tracksSection = searchData.obj("tracksV2") ?: searchData.obj("tracks")
+            val trackItems = parseSearchTracks(searchData)
+
+            val albumsSection = searchData.obj("albumsV2")
+            val albumItems =
+                albumsSection?.arr("items")?.mapNotNull { elem ->
+                    val wrapper = elem.jsonObject
+                    if (wrapper.str("__typename") != "AlbumResponseWrapper") return@mapNotNull null
+                    val data = wrapper.obj("data") ?: return@mapNotNull null
+                    if (data.str("__typename") != "Album") return@mapNotNull null
+                    parseGqlSearchAlbum(data)
+                } ?: emptyList()
+
+            val artistsSection = searchData.obj("artists")
+            val artistItems =
+                artistsSection?.arr("items")?.mapNotNull { elem ->
+                    val wrapper = elem.jsonObject
+                    if (wrapper.str("__typename") != "ArtistResponseWrapper") return@mapNotNull null
+                    val data = wrapper.obj("data") ?: return@mapNotNull null
+                    if (data.str("__typename") != "Artist") return@mapNotNull null
+                    parseGqlSearchArtist(data)
+                } ?: emptyList()
+
+            val playlistsSection = searchData.obj("playlists")
+            val playlistItems =
+                playlistsSection?.arr("items")?.mapNotNull { elem ->
+                    val wrapper = elem.jsonObject
+                    if (wrapper.str("__typename") != "PlaylistResponseWrapper") return@mapNotNull null
+                    val data = wrapper.obj("data") ?: return@mapNotNull null
+                    if (data.str("__typename") != "Playlist") return@mapNotNull null
+                    parseGqlSearchPlaylist(data)
+                } ?: emptyList()
+
+            SpotifySearchResult(
+                tracks =
+                    SpotifyPaging(
+                        items = trackItems,
+                        total = tracksSection?.int("totalCount") ?: 0,
+                        limit = limit,
+                        offset = offset,
+                    ),
+                albums =
+                    if (albumItems.isNotEmpty()) {
+                        SpotifyPaging(items = albumItems, total = albumsSection?.int("totalCount") ?: 0, limit = limit, offset = offset)
+                    } else {
+                        null
+                    },
+                artists =
+                    if (artistItems.isNotEmpty()) {
+                        SpotifyPaging(items = artistItems, total = artistsSection?.int("totalCount") ?: 0, limit = limit, offset = offset)
+                    } else {
+                        null
+                    },
+                playlists =
+                    if (playlistItems.isNotEmpty()) {
+                        SpotifyPaging(
+                            items = playlistItems,
+                            total = playlistsSection?.int("totalCount") ?: 0,
+                            limit = limit,
+                            offset = offset,
+                        )
+                    } else {
+                        null
+                    },
+            )
+        }
+
+    internal fun parseSearchTracks(searchData: JsonObject): List<SpotifyTrack> {
+        val tracksSection = searchData.obj("tracksV2") ?: searchData.obj("tracks")
+        return tracksSection?.arr("items")?.mapNotNull { elem ->
+                    val row = elem.jsonObject
+                    val wrapper = row.obj("item")
+                    val data = row.obj("track") ?: wrapper?.obj("data") ?: row.obj("data")
+                        ?: return@mapNotNull null
+                    val type = data.str("__typename")
+                    if (type != null && type != "Track") return@mapNotNull null
+                    val wrapperUri = wrapper?.str("_uri") ?: wrapper?.str("uri")
+                    parseGqlTrack(data, uriOverride = wrapperUri)
+                } ?: emptyList()
+    }
+
+    private fun parseGqlSearchAlbum(data: JsonObject): SpotifyAlbum {
+        val uri = data.str("uri") ?: ""
+        return SpotifyAlbum(
+            id = uri.substringAfterLast(":"),
+            name = data.str("name") ?: "",
+            albumType = data.str("type")?.lowercase(),
+            artists =
+                data.obj("artists")?.arr("items")?.mapNotNull {
+                    parseGqlSimpleArtist(it.jsonObject)
+                } ?: emptyList(),
+            images = parseGqlImages(data.obj("coverArt")?.arr("sources")),
+            releaseDate = data.obj("date")?.int("year")?.toString(),
+            uri = uri.ifEmpty { null },
+        )
+    }
+
+    private fun parseGqlSearchArtist(data: JsonObject): SpotifyArtist {
+        val uri = data.str("uri") ?: ""
+        return SpotifyArtist(
+            id = uri.substringAfterLast(":"),
+            name = data.obj("profile")?.str("name") ?: "",
+            images = parseGqlImages(data.obj("visuals")?.obj("avatarImage")?.arr("sources")),
+            uri = uri.ifEmpty { null },
+        )
+    }
+
+    private fun parseGqlSearchPlaylist(data: JsonObject): SpotifyPlaylist {
+        val uri = data.str("uri") ?: ""
+        val ownerData = data.obj("ownerV2")?.obj("data")
+        val ownerUri = ownerData?.str("uri") ?: ""
+
+        return SpotifyPlaylist(
+            id = uri.substringAfterLast(":"),
+            name = data.str("name") ?: "",
+            description = data.str("description"),
+            images = parseGqlPlaylistImages(data.obj("images")),
+            owner =
+                SpotifyPlaylistOwner(
+                    id = ownerUri.substringAfterLast(":"),
+                    displayName = ownerData?.str("name"),
+                    uri = ownerUri.ifEmpty { null },
+                ),
+            uri = uri.ifEmpty { null },
+        )
+    }
+
+    suspend fun addTracksToPlaylist(playlistId: String, trackUris: List<String>): Result<Unit> = runCatching {
+        require(playlistId.matches(Regex("[A-Za-z0-9]+")) && trackUris.size in 1..100)
+        webQuery("addToPlaylist", playlistAdditionVariables(playlistId, trackUris))
+        Unit
+    }
+
+    internal fun playlistAdditionVariables(playlistId: String, trackUris: List<String>) = buildJsonObject {
+        put("playlistUri", "spotify:playlist:$playlistId")
+        putJsonArray("playlistItemUris") { trackUris.forEach { add(it) } }
+        putJsonObject("newPosition") { put("moveType", "BOTTOM_OF_PLAYLIST"); put("fromUid", JsonNull) }
+    }
+
+    suspend fun addToLibrary(uris: List<String>): Result<Unit> =
+        runCatching {
+            val vars =
+                buildJsonObject {
+                    putJsonArray("libraryItemUris") {
+                        uris.forEach { add(it) }
+                    }
+                }
+            libraryMutation("addToLibrary", vars)
+            log("D", "addToLibrary: added ${uris.size} items")
+        }
+
+    /**
+     * Removes tracks/albums/playlists from the user's Spotify library (unlike).
+     * @param uris Full Spotify URIs, e.g. `["spotify:track:abc123"]`.
+     */
+    suspend fun removeFromLibrary(uris: List<String>): Result<Unit> =
+        runCatching {
+            val vars =
+                buildJsonObject {
+                    putJsonArray("libraryItemUris") {
+                        uris.forEach { add(it) }
+                    }
+                }
+            libraryMutation("removeFromLibrary", vars)
+            log("D", "removeFromLibrary: removed ${uris.size} items")
+        }
+
+
+    private suspend fun libraryMutation(operation: String, variables: JsonObject) { webQuery(operation, variables) }
+
+    private suspend fun webQuery(operation: String, variables: JsonObject): JsonObject {
+        return try { graphqlPost(operation, variables) }
+        catch (error: SpotifyException) {
+            if (error.statusCode != 412 || !spotifyServices(com.devxrohan.smusic.App.instance).webSession().refreshMutationHashes()) throw error
+            graphqlPost(operation, variables)
+        }
+    }
+
+    internal suspend fun writeRest(endpoint: String, method: String, body: JsonObject): JsonObject {
+        val token = accessToken ?: throw SpotifyException(401, "Spotify is not connected")
+        val response = restClient.request(endpoint) {
+            this.method = io.ktor.http.HttpMethod.parse(method)
+            header("Authorization", "Bearer $token")
+            setBody(TextContent(json.encodeToString(JsonObject.serializer(), body), ContentType.Application.Json))
+        }
+        if (response.status.value !in 200..299) throw SpotifyException(response.status.value, "Spotify could not apply this change (HTTP ${response.status.value}).")
+        val text = response.bodyAsText()
+        return if (text.isBlank()) buildJsonObject {} else json.parseToJsonElement(text).jsonObject
+    }
+
+    internal suspend fun createPrivatePlaylist(name: String): String {
+        val response = writeRest("me/playlists", "POST", SpotifyExportPolicy.privatePlaylistBody(name))
+        return response.str("id") ?: throw SpotifyException(500, "Spotify did not return a playlist ID")
+    }
+
+    internal suspend fun updateOwnedPlaylist(id: String, name: String, uris: List<String>) {
+        require(id.matches(Regex("[A-Za-z0-9]+")))
+        writeRest("playlists/$id", "PUT", buildJsonObject { put("name", name) })
+        val batches = uris.chunked(100).ifEmpty { listOf(emptyList()) }
+        batches.forEachIndexed { index, batch ->
+            writeRest("playlists/$id/items", if (index == 0) "PUT" else "POST", buildJsonObject { putJsonArray("uris") { batch.forEach { add(it) } } })
+        }
+    }
 }

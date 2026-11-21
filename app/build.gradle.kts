@@ -46,8 +46,8 @@ android {
         applicationId = "com.devxrohan.smusic"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "2.1.1"
+        versionCode = providers.gradleProperty("smusicTestVersionCode").orNull?.toInt() ?: 7
+        versionName = providers.gradleProperty("smusicTestVersionName").orNull ?: "2.2.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GOOGLE_API_KEY", googleApiKey.asBuildConfigString())
         buildConfigField("String", "STATS_API_KEY", statsApiKey.asBuildConfigString())

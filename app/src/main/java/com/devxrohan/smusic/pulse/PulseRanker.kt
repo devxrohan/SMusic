@@ -181,6 +181,7 @@ internal object PulseRanker {
         state: PulseState, inputs: List<PulseCandidate>, surface: PulseSurface, now: Long,
         lastSongId: String? = null,
         seedArtistIds: List<String> = emptyList(),
+        preserveProviderCandidates: Boolean = false,
     ): List<Int> {
         if (inputs.isEmpty()) return emptyList()
         val w = weights(surface)
@@ -199,7 +200,7 @@ internal object PulseRanker {
         // For recommendation surfaces, prefer candidates that have an explainable connection
         // to the user's taste/seed. Keep a graceful fallback when the source returns too few
         // explainable candidates so Home/Radio never becomes empty because metadata is sparse.
-        val order = if (surface != PulseSurface.KEEP_LISTENING) {
+        val order = if (surface != PulseSurface.KEEP_LISTENING && !preserveProviderCandidates) {
             val rel = relevanceScores(state, inputs, surface, now, seedArtistIds)
             val threshold = if (surface == PulseSurface.RADIO) PulseParams.MIN_RELEVANCE else 0.08
             val relevant = baseOrder.filter { rel[it] >= threshold }

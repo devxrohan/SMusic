@@ -661,6 +661,7 @@ class PulseEngine @Inject constructor(
         artistIdsOf: (T) -> List<String>,
         seedId: String? = null,
         seedArtistIds: List<String> = emptyList(),
+        preserveSeedProximity: Boolean = false,
     ): List<T> = safe(items) {
         if (!guestModeActive()) return@safe items
         mutex.withLock {
@@ -668,6 +669,15 @@ class PulseEngine @Inject constructor(
             val now = System.currentTimeMillis()
             if (items.size < 3) return@withLock items.filter { item -> idOf(item) == seedId || (artistIdsOf(item).none { s.isHidden(it, now) } && s.notForMeSongs[idOf(item)]?.let { now - it < PulseParams.NOT_FOR_ME_MS } != true) }
             val body = items.filter { idOf(it) != seedId }.distinctBy { idOf(it) }
+            if (preserveSeedProximity) {
+                val ranked = PulseRadioOrder.rankNearby(body) { nearby ->
+                    val candidates = nearby.map { PulseCandidate(idOf(it), PulseKind.SONG, artistIdsOf(it)) }
+                    PulseRanker.rank(s, candidates, PulseSurface.RADIO, now,
+                        lastSongId = seedId, seedArtistIds = seedArtistIds,
+                        preserveProviderCandidates = true).map { nearby[it] }
+                }
+                return@withLock items.filter { idOf(it) == seedId }.take(1) + ranked
+            }
             val cands = body.map { PulseCandidate(idOf(it), PulseKind.SONG, artistIdsOf(it)) }
             val scored = PulseRanker.relevanceScores(s, cands, PulseSurface.RADIO, now, seedArtistIds).mapIndexed { index, value -> index to value }
             val relevantIndexes = scored.filter { it.second >= PulseParams.MIN_RELEVANCE }.map { it.first }.toSet()

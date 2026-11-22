@@ -12,8 +12,6 @@ import com.devxrohan.smusic.innertube.models.WatchEndpoint
 import com.devxrohan.smusic.models.MediaMetadata
 import com.devxrohan.smusic.pulse.PulseEngine
 import com.devxrohan.smusic.utils.get
-import kotlinx.coroutines.Dispatchers.IO
-import kotlinx.coroutines.withContext
 
 /** Preserve provider pagination and expand seed-aware radio only when Similar Content is enabled. */
 class PulseRadioQueue(
@@ -25,11 +23,8 @@ class PulseRadioQueue(
     private val inner = YouTubeQueue.radio(seed)
     private val seedArtists = seed.artists.mapNotNull { it.id }
     private val expandedIds = linkedSetOf(seed.id)
-    private val expansionSeeds = ArrayDeque<String>()
-    private val queriedSeeds = mutableSetOf<String>()
     private var authenticated = false
-    private var expansionRounds = 0
-    private val maxExpansionRounds = 12
+    private var seedExpansionComplete = false
     override val preloadItem: MediaMetadata? = seed
 
     private fun similarContentEnabled(): Boolean = settings?.get(SimilarContent, true) ?: pulse.similarContentEnabled()
@@ -40,57 +35,38 @@ class PulseRadioQueue(
         val status = if (raw.items.any { it.mediaId == seed.id }) raw
             else raw.copy(items = listOf(seed.toMediaItem()) + raw.items, mediaItemIndex = 0)
         status.items.forEach { expandedIds.add(it.mediaId) }
-        if (similarContentEnabled()) {
-            status.items.asSequence()
-                .map { it.mediaId }
-                .filter { it.isNotBlank() && it != seed.id }
-                .take(10)
-                .forEach { expansionSeeds.addLast(it) }
-        }
-        val items = smart(status.items, keepOrderIfNoSeed = false)
+        val items = smart(status.items)
         val index = if (items === status.items) status.mediaItemIndex else items.indexOfFirst { it.mediaId == seed.id }.coerceAtLeast(0)
         return status.copy(items = items, mediaItemIndex = index)
     }
 
     override fun hasNextPage(): Boolean = inner.hasNextPage() ||
-        (similarContentEnabled() && expansionRounds < maxExpansionRounds && expansionSeeds.isNotEmpty())
+        (similarContentEnabled() && !seedExpansionComplete)
 
     override suspend fun nextPage(): List<MediaItem> {
         val provider = if (inner.hasNextPage()) {
             runCatching { inner.nextPage() }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else emptyList() }
         } else emptyList()
         provider.forEach { expandedIds.add(it.mediaId) }
-        if (provider.isNotEmpty()) {
-            provider.asSequence().map { it.mediaId }.filter { it.isNotBlank() }
-                .take(6).forEach { if (!queriedSeeds.contains(it)) expansionSeeds.addLast(it) }
-        }
-        return smart(provider, keepOrderIfNoSeed = true)
+        return smart(provider)
     }
 
     private suspend fun smart(
         items: List<MediaItem>,
-        keepOrderIfNoSeed: Boolean,
     ): List<MediaItem> = runCatching {
         val music = items.filter { mi ->
             mi.mediaId == seed.id || (mi.metadata?.duration ?: -1).let { it <= 0 || it in 30..900 }
         }.ifEmpty { items }
 
         val candidatePool = ArrayList<MediaItem>(music)
-        if (similarContentEnabled() && expansionRounds < maxExpansionRounds) {
-            // One/two seed-specific expansions per queue page keep network use bounded while
-            // providing a real continuation after the provider's short initial page.
-            repeat(2) {
-                if (expansionRounds >= maxExpansionRounds) return@repeat
-                val nextSeed = if (expansionSeeds.isEmpty()) return@repeat else expansionSeeds.removeFirst()
-                if (!queriedSeeds.add(nextSeed)) return@repeat
-                expansionRounds++
-                val endpoint = YouTube.next(WatchEndpoint(videoId = nextSeed)).getOrNull()?.relatedEndpoint
-                val related = endpoint?.let { YouTube.related(it, authenticated = authenticated).getOrNull()?.songs.orEmpty() }.orEmpty()
-                related.take(20).map { it.toMediaItem() }.forEach { item ->
-                    if (expandedIds.add(item.mediaId)) {
-                        candidatePool.add(item)
-                        if (expansionSeeds.size < 24 && item.mediaId != seed.id) expansionSeeds.addLast(item.mediaId)
-                    }
+        // Exhaust the seed's radio before using its related shelf; never walk recommendations of recommendations.
+        if (music.isEmpty() && !inner.hasNextPage() && similarContentEnabled() && !seedExpansionComplete) {
+            seedExpansionComplete = true
+            val endpoint = YouTube.next(WatchEndpoint(videoId = seed.id)).getOrNull()?.relatedEndpoint
+            val related = endpoint?.let { YouTube.related(it, authenticated = authenticated).getOrNull()?.songs.orEmpty() }.orEmpty()
+            related.take(20).map { it.toMediaItem() }.forEach { item ->
+                if (expandedIds.add(item.mediaId)) {
+                    candidatePool.add(item)
                 }
             }
         }
@@ -100,11 +76,10 @@ class PulseRadioQueue(
             items = candidatePool.distinctBy { it.mediaId },
             idOf = { it.mediaId },
             artistIdsOf = { mi -> mi.metadata?.artists?.mapNotNull { it.id }.orEmpty() },
-            seedId = seed.id.takeIf { candidatePool.any { it.mediaId == seed.id } },
+            seedId = seed.id,
             seedArtistIds = seedArtists,
+            preserveSeedProximity = true,
         )
-        if (ranked === candidatePool && keepOrderIfNoSeed) {
-            candidatePool.distinctBy { it.mediaId }
-        } else ranked
+        ranked
     }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else items }
 }

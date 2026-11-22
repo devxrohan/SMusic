@@ -72,8 +72,9 @@ class PulseRadioQueue(
         }
 
         if (candidatePool.isEmpty()) return@runCatching emptyList<MediaItem>()
+        val languageMatched = pulse.filterRadioLanguages(seed, candidatePool.distinctBy { it.mediaId }) { it.metadata }
         val ranked = pulse.rankForRadio(
-            items = candidatePool.distinctBy { it.mediaId },
+            items = languageMatched,
             idOf = { it.mediaId },
             artistIdsOf = { mi -> mi.metadata?.artists?.mapNotNull { it.id }.orEmpty() },
             seedId = seed.id,

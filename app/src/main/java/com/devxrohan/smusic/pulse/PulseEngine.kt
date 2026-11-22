@@ -71,6 +71,13 @@ class PulseEngine @Inject constructor(
     private val mutex = Mutex()
     private var state: PulseState? = null
     private val file get() = PulseStorage.file(context.filesDir)
+    private val radioLanguages by lazy { com.devxrohan.smusic.pulse.language.PulseRadioLanguages(context, database) }
+
+    internal suspend fun <T> filterRadioLanguages(
+        seed: com.devxrohan.smusic.models.MediaMetadata,
+        items: List<T>,
+        trackOf: (T) -> com.devxrohan.smusic.models.MediaMetadata?,
+    ): List<T> = radioLanguages.filter(seed, items, trackOf)
 
     /** Pulse always LEARNS (one profile, guest or account). What it is allowed to reorder depends on [accountPrimary]. */
     @Suppress("RedundantSuspendModifier")

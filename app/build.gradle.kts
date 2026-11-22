@@ -162,6 +162,7 @@ configurations.all {
 }
 
 dependencies {
+    implementation("com.google.mlkit:language-id:17.0.6")
     testImplementation(libs.junit)
     // Firebase Cloud Messaging (push messages to all users, see tools/README.md)
     implementation(platform("com.google.firebase:firebase-bom:35.0.0"))

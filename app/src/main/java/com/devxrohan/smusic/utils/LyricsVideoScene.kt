@@ -1,9 +1,4 @@
-/*
- * Instant-photo and halo geometry/motion adapted from Opentune PlayerDesigns.kt.
- * Copyright Opentune contributors. GPL-3.0.
- * Source: https://github.com/justshivv/Opentune/blob/09713602090e232014ad264b154a9d9edead1763/app/src/main/java/com/opentune/ui/player/PlayerDesigns.kt
- * Adapted from Compose DrawScope to Android Canvas for deterministic video export.
- */
+/* GPL-3.0; copyright and upstream attribution are recorded in README.md. */
 package com.devxrohan.smusic.utils
 
 import android.graphics.*

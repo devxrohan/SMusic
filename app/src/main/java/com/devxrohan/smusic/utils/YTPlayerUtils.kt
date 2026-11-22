@@ -1,8 +1,4 @@
-/*
- * SMusic Project (2026)
- * Arturo254 (github.com/Arturo254)
- * Licensed Under GPL-3.0 | see git history for contributors
- */
+/* GPL-3.0; copyright and upstream attribution are recorded in README.md. */
 
 
 
@@ -223,8 +219,7 @@ object YTPlayerUtils {
         if (accountSettings != null) {
             YouTube.cookie = if (isLoggedIn) activeCookie else null
         }
-        val sessionId = if (isLoggedIn) YouTube.dataSyncId else YouTube.visitorData
-        Timber.tag(logTag).v("Session authentication status: ${if (isLoggedIn) "Logged in" else "Not logged in"} (sessionId=${sessionId.orEmpty()})")
+        Timber.tag(logTag).v("Playback uses account session: $isLoggedIn")
 
         var format: PlayerResponse.StreamingData.Format? = null
         var streamUrl: String? = null

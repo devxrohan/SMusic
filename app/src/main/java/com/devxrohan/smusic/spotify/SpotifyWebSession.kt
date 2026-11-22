@@ -14,7 +14,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Web-player client-token flow adapted from the supplied Stash 0.9.125 source (GPL-3.0). */
+/** Obtains the web-player client token required for authenticated library writes. */
 @Singleton
 class SpotifyWebSession @Inject constructor(
     @ApplicationContext private val context: Context,

@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Local-first, conflated immediate delivery and persisted retry, adapted from Stash's like coordinator (GPL-3.0). */
+/** Conflates local changes for immediate delivery with persisted retries. */
 @Singleton
 class SpotifyLikeDispatcher @Inject constructor(
     @ApplicationContext private val context: Context,

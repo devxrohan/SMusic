@@ -6,7 +6,9 @@
 
 **Stream, download, and enjoy music — free, ad-free, and yours to customize.**
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[Download SMusic](https://github.com/devxrohan/SMusic/releases) · [Explore Pulse](#pulse) · [Build from source](#building-from-source)
+
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.txt)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84.svg)](#)
 [![Min SDK](https://img.shields.io/badge/minSdk-24-orange.svg)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF.svg)](#)
@@ -18,6 +20,7 @@
 ## Table of Contents
 
 - [About](#about)
+- [Pulse](#pulse)
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Tech Stack](#tech-stack)
@@ -32,8 +35,8 @@
 
 > [!NOTE]
 > ### 💡 Note Regarding Repository History & Initial Commit
-> This repository was made public **after the project had already been fully developed locally**. 
-> As a result, the initial public commit contains the complete existing codebase and shows a large number of additions (~136k). 
+> This repository was made public **after the project had already been fully developed locally**.
+> As a result, the initial public commit contains the complete existing codebase and shows a large number of additions (~136k).
 > All subsequent updates, fixes, and active development are properly tracked through individual commits moving forward.
 
 ---
@@ -44,6 +47,26 @@ SMusic is a free, open-source Android music app that streams from YouTube Music,
 
 You can use it fully signed out — or sign in with your own YouTube account for a personalized Home feed, synced recommendations, and account-scoped search history. No subscription, no ads, ever.
 
+
+## Pulse
+
+**Pulse is the recommendation engine at the heart of SMusic.** It shapes personalized sections on Home, helps choose and order tracks for radio, and gives you a taste profile you can inspect and tune. It combines what you listen to with what you explicitly tell it you want to hear.
+
+| Signal | How Pulse uses it |
+| --- | --- |
+| Listening history and time played | Learns which tracks and artists you return to and how much of a song you actually listen to. |
+| Likes, downloads, and followed artists | Uses the music you deliberately keep to build a clearer picture of your taste. |
+| Artists you choose and direct feedback | Uses **More like this** to strengthen a signal and **Do not recommend** to steer suggestions away from unwanted tracks. You can review feedback and adjust priorities in Pulse. |
+| The song that starts your radio | Uses the seed to keep the queue close to what you started with. When cached lyrics provide enough evidence, Pulse can use their language to help avoid unrelated language jumps. |
+
+### Make it yours
+
+- **Start a radio from a track you like.** The current song gives Pulse a starting point for the session.
+- **Choose artists in Pulse.** Add artists you want to hear more often, even if you haven't listened to them much in SMusic yet.
+- **Adjust variety and repeat cooldown.** Variety controls how much room Pulse gives to different artists. The cooldown helps keep recently played songs from coming back too soon.
+- **Review your feedback.** Check which tracks and artists are influencing your recommendations and change those choices as your taste changes.
+
+Pulse is a work in progress. It has less to go on when your library and listening history are new, and incomplete metadata or a limited recommendation pool can still produce misses. Listening and feedback give it better signals over time.
 
 ## Features
 
@@ -60,10 +83,6 @@ You can use it fully signed out — or sign in with your own YouTube account for
 - Sign in with your own YouTube account (secure in-app WebView login — your credentials never pass through SMusic's own servers)
 - Guest mode and signed-in mode are kept fully separate: your search history, recommendations, and Home feed never mix between them
 - Account-aware Home feed pulled from your actual YouTube Music activity
-
-### Pulse — Personalized Recommendations
-- A ranking engine that learns from what you actually listen to and surfaces it back to you on Home
-- Clusters your taste across genres/artists and blends it with YouTube Music's own feed for signed-in users
 
 ### AI Studio
 - AI-generated playlists built from your own listening history, saved straight to your library as "Recommended by AI"
@@ -82,7 +101,7 @@ You can use it fully signed out — or sign in with your own YouTube account for
 - Browse your library and control playback from your car's head unit
 
 ### Backup & Restore
-- Full backup of your library, playlists, and settings to the cloud, with one-tap restore
+- Full backup of your library, playlists, and settings to local files, with restore support
 - Optional automatic background backups
 
 ### Offline
@@ -172,14 +191,15 @@ You can use it fully signed out — or sign in with your own YouTube account for
 ### Requirements
 
 - Android Studio (latest stable)
-- JDK 17+
+- JDK 21 for Gradle and the app’s JVM target
 - Android SDK — `compileSdk 36`, `minSdk 24`, `targetSdk 35`
 
 ### Setup
 
 1. **Clone the repo:**
    ```bash
-   git clone https://github.com/<your-username>/SMusic.git
+   git clone https://github.com/devxrohan/SMusic.git
+   cd SMusic
    ```
 
 2. **Create `local.properties`** in the project root (this file is git-ignored — it never gets pushed):
@@ -198,9 +218,18 @@ You can use it fully signed out — or sign in with your own YouTube account for
 
 3. **AI Studio (optional)** — to use AI playlist recommendations and lyrics translation, add your own API key(s) from inside the app (Settings → AI), not in `local.properties`. SMusic supports OpenRouter for recommendations and DeepL for translation; nothing AI-related runs until you add a key yourself.
 
-4. **Open the project in Android Studio** and let Gradle sync.
+4. **Open the project in Android Studio** and select JDK 21 as the Gradle JDK.
 
-5. **Build and run** on a device or emulator.
+5. **Configure Firebase for a fresh checkout.** The app applies the Google Services Gradle plugin. Place your Firebase configuration at `app/google-services.json`, with the Android package matching the build variant: `com.devxrohan.smusic.debug` for debug or `com.devxrohan.smusic` for release. The configuration file is local to your checkout.
+
+6. **Build and run** on a device or emulator using Android Studio, or build from the repository root:
+
+   | System | Command |
+   | --- | --- |
+   | Windows | `gradlew.bat :app:assembleDebug` |
+   | macOS / Linux | `./gradlew :app:assembleDebug` |
+
+   The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 To build a *signed* release APK, you'll also need your own `keystore.properties` (also git-ignored) with your signing details:
 ```properties
@@ -252,7 +281,7 @@ SMusic is built on top of the Android and Kotlin open-source ecosystem. Thanks t
 - [Material Color Utilities](https://github.com/material-foundation/material-color-utilities) (Google) — dynamic color science, bundled as a module
 - [ShazamKit](https://developer.apple.com/shazamkit/) (Apple) — music recognition
 - [OpenRouter](https://openrouter.ai/) & [DeepL](https://www.deepl.com/) — power AI Studio when you add your own API key
-- Google Identity Services, Credential Manager & Drive API — sign-in and backup
+- Google Identity Services and Credential Manager — sign-in
 - [Firebase](https://firebase.google.com/) Cloud Messaging — release announcements
 - Discord Gateway API — Rich Presence integration
 
@@ -268,7 +297,7 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for the full text.
+This project is licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE.txt) for the full text.
 
 > Copyleft: any derivative work built from this project must also be open-sourced under GPL-3.0.
 

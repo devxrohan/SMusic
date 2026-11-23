@@ -61,7 +61,7 @@ class PlayerConnection(
     }
 
     val service = binder.service
-    val player = service.player
+    val player get() = service.player
 
     // Estados básicos del reproductor
     private val _playbackState = MutableStateFlow(player.playbackState)
@@ -169,6 +169,26 @@ class PlayerConnection(
     private var lastMediaItemIndex: Int = player.currentMediaItemIndex
     private var lastPosition: Long = 0L
 
+    private val widgetListener = object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) {
+                handlePlayerEvents(player, events)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                Log.d(TAG, "Playback state changed to: $playbackState")
+                updateConnectionState(playbackState)
+            }
+        }
+    internal fun onPlayerPromoted(previous: Player) {
+        previous.removeListener(this)
+        previous.removeListener(widgetListener)
+        player.addListener(this)
+        player.addListener(widgetListener)
+        initializeStates()
+        updateConnectionState(player.playbackState)
+        scheduleWidgetUpdate()
+    }
+
     init {
         Log.d(TAG, "Initializing PlayerConnection")
 
@@ -178,17 +198,7 @@ class PlayerConnection(
 
         instance = this
 
-        // Listener adicional para actualizaciones del widget
-        player.addListener(object : Player.Listener {
-            override fun onEvents(player: Player, events: Player.Events) {
-                handlePlayerEvents(player, events)
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                Log.d(TAG, "Playback state changed to: $playbackState")
-                updateConnectionState(playbackState)
-            }
-        })
+        player.addListener(widgetListener)
 
         Log.d(TAG, "PlayerConnection initialized successfully")
     }
@@ -663,6 +673,7 @@ class PlayerConnection(
 
         try {
             player.removeListener(this)
+            player.removeListener(widgetListener)
         } catch (e: Exception) {
             Log.e(TAG, "Error removing player listener", e)
         }

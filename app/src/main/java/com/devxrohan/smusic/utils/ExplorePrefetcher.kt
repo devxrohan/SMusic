@@ -31,6 +31,7 @@ object ExplorePrefetcher {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private val identityGate = Mutex()
+    private val metadataGate = Mutex()
     private var identityWaited = false
     private val urgent = ArrayDeque<MoodAndGenres.Item>() // on screen right now
     private val queued = HashSet<String>()
@@ -63,7 +64,13 @@ object ExplorePrefetcher {
 
     fun setVisible(value: Boolean) {
         visible = value
-        if (value) pump()
+        if (value) {
+            scope.launch { load(force = false) }
+            pump()
+        } else synchronized(lock) {
+            urgent.forEach { queued.remove(keyOf(it.endpoint)) }
+            urgent.clear()
+        }
     }
 
     fun retry() {
@@ -89,7 +96,7 @@ object ExplorePrefetcher {
         pump()
     }
 
-    private suspend fun load(force: Boolean) {
+    private suspend fun load(force: Boolean) = metadataGate.withLock {
         val cache = if (force) null else readCache()
         if (cache != null) {
             artwork.value = cache.artwork
@@ -97,7 +104,7 @@ object ExplorePrefetcher {
         }
 
         val upToDate = cache != null && System.currentTimeMillis() - cache.savedAt < LIST_TTL_MS
-        if (upToDate) return
+        if (upToDate || (!visible && !force)) return@withLock
 
         awaitNetworkIdentity()
         val fetched = YouTube.moodAndGenres().onFailure { reportException(it) }.getOrNull()

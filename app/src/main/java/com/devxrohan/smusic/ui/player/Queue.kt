@@ -428,11 +428,7 @@ fun Queue(
                                                         if (index == currentWindowIndex) {
                                                             playerConnection.player.togglePlayPause()
                                                         } else {
-                                                            playerConnection.player.seekToDefaultPosition(
-                                                                window.firstPeriodIndex,
-                                                            )
-                                                            playerConnection.player.playWhenReady =
-                                                                true
+                                                            playerConnection.service.playQueuedItem(window.firstPeriodIndex)
                                                         }
                                                     }
                                                 },

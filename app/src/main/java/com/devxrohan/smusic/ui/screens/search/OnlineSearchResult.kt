@@ -424,7 +424,11 @@ fun OnlineSearchResult(
                                     playerConnection.playQueue(
                                         YouTubeQueue(
                                             WatchEndpoint(videoId = item.id),
-                                            item.toMediaMetadata()
+                                            item.toMediaMetadata().let { metadata ->
+                                                if (searchFilter == FILTER_VIDEO && metadata.musicVideoType == null)
+                                                    metadata.copy(musicVideoType = "MUSIC_VIDEO_TYPE_OMV")
+                                                else metadata
+                                            }
                                         )
                                     )
                                 }

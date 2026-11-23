@@ -195,6 +195,11 @@ fun SwitchPreference(
     onCheckedChange: (Boolean) -> Unit,
     isEnabled: Boolean = true,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val change: (Boolean) -> Unit = { next ->
+        onCheckedChange(next)
+        context.touchHaptic()
+    }
     PreferenceEntry(
         modifier = modifier,
         title = title,
@@ -203,11 +208,11 @@ fun SwitchPreference(
         trailingContent = {
             Switch(
                 checked = checked,
-                onCheckedChange = onCheckedChange,
+                onCheckedChange = change,
                 enabled = isEnabled,
             )
         },
-        onClick = { onCheckedChange(!checked) },
+        onClick = { change(!checked) },
         isEnabled = isEnabled
     )
 }

@@ -2,7 +2,6 @@
 
 package com.devxrohan.smusic.ui.player
 
-import com.devxrohan.smusic.ui.component.touchHaptic
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Spring
@@ -430,7 +429,6 @@ fun ClassicPlayerScreen(
                 isPlaying = isPlaying,
                 colors = classicSliderColors,
                 onSeek = { fraction ->
-                    classicView.context.touchHaptic(tick = true)
 
                     val newPosition = (fraction.coerceIn(0f, 1f) * duration.coerceAtLeast(0L)).toLong()
                     classicPendingSeekPosition = newPosition

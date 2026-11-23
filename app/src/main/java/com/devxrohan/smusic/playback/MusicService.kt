@@ -356,9 +356,9 @@ class MusicService :
     private var studioSessionId: Int = C.AUDIO_SESSION_ID_UNSET
     val equalizerState = MutableStateFlow(EqualizerUiState())
     val audioStudioState = MutableStateFlow(AudioStudioUiState())
-    val spatialAudioProcessor = SpatialAudioProcessor()
-    val eightDAudioProcessor = EightDAudioProcessor()
-    val djAudioProcessor = DjAudioProcessor()
+    var spatialAudioProcessor = SpatialAudioProcessor()
+    var eightDAudioProcessor = EightDAudioProcessor()
+    var djAudioProcessor = DjAudioProcessor()
     val echoEnabled = MutableStateFlow(false)
     val echoDelayMs = MutableStateFlow(280)
     val echoFeedback = MutableStateFlow(0.40f)
@@ -387,9 +387,9 @@ class MusicService :
     val visualizerManager by lazy { AudioVisualizerManager(scope) }
     private var audioBoostEnhancer: LoudnessEnhancer? = null
     private var audioBoostSessionId: Int = C.AUDIO_SESSION_ID_UNSET
-    private var transitionFadeJob: Job? = null
-    private var incomingFadeJob: Job? = null
-    private var audioTransitionGeneration = 0L
+    private lateinit var overlapCrossfade: OverlapCrossfade
+    private lateinit var musicOnlyQueue: MusicOnlyQueueController
+    private val musicOnlyResolver by lazy { MusicOnlyResolver { id -> downloadCache.isCached(id, 0, 1) } }
     private var lastPlaybackSpeed = 1.0f
     private var discordRpc: com.devxrohan.smusic.utils.DiscordRPC? = null
     private var discordUpdateJob: kotlinx.coroutines.Job? = null
@@ -417,10 +417,11 @@ class MusicService :
                     setSmallIcon(R.mipmap.ic_launcher_monochrome)
                 },
         )
+        val sharedMediaSources = createMediaSourceFactory()
         player =
             ExoPlayer
                 .Builder(this)
-                .setMediaSourceFactory(createMediaSourceFactory())
+                .setMediaSourceFactory(sharedMediaSources)
                 .setRenderersFactory(createRenderersFactory())
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)
@@ -440,6 +441,52 @@ class MusicService :
                     addListener(sleepTimer)
                     addAnalyticsListener(PlaybackStatsListener(false, this@MusicService))
                 }
+        var preparedEffects: CrossfadeRenderersFactory? = null
+        overlapCrossfade = OverlapCrossfade(player, scope,
+            createDeck = {
+                val renderers = CrossfadeRenderersFactory(this, djAudioProcessor, spatialAudioProcessor, eightDAudioProcessor)
+                preparedEffects = renderers
+                ExoPlayer.Builder(this).setMediaSourceFactory(sharedMediaSources)
+                    .setRenderersFactory(renderers)
+                    .setAudioAttributes(player.audioAttributes, false).setHandleAudioBecomingNoisy(true).build().apply {
+                        setAudioSessionId(player.audioSessionId)
+                        skipSilenceEnabled = player.skipSilenceEnabled
+                        addAnalyticsListener(PlaybackStatsListener(false, this@MusicService))
+                    }
+            },
+            seconds = { if (dataStore.get(com.devxrohan.smusic.constants.CrossfadeEnabledKey, false)) dataStore.get(CrossfadeDurationKey, 6).coerceIn(1, 12) else 0 },
+            volume = { playerVolume.value },
+            allowed = { hasAudioFocus && !sleepTimer.isActive },
+            skipSilence = { dataStore.get(SkipSilenceKey, false) },
+            promote = { previous, incoming ->
+                previous.removeListener(this)
+                previous.removeListener(sleepTimer)
+                musicOnlyQueue.close()
+                player = incoming
+                preparedEffects?.let {
+                    djAudioProcessor = it.tailDj
+                    spatialAudioProcessor = it.tailSpatial
+                    eightDAudioProcessor = it.tailOrbit
+                }
+                preparedEffects = null
+                sleepTimer.player = incoming
+                incoming.addListener(sleepTimer)
+                incoming.addListener(this)
+                mediaSession.setPlayer(incoming)
+                PlayerConnection.instance?.takeIf { it.service === this }?.onPlayerPromoted(previous)
+                musicOnlyQueue = MusicOnlyQueueController(incoming, scope,
+                    enabled = { dataStore.get(com.devxrohan.smusic.constants.PreferMusicOnlyKey, false) },
+                    resolver = musicOnlyResolver)
+                incoming.addListener(musicOnlyQueue)
+                musicOnlyQueue.refresh()
+                onMediaItemTransition(incoming.currentMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+                previous.release()
+            },
+        )
+        player.addListener(overlapCrossfade)
+        musicOnlyQueue = MusicOnlyQueueController(player, scope,
+            enabled = { dataStore.get(com.devxrohan.smusic.constants.PreferMusicOnlyKey, false) }, resolver = musicOnlyResolver)
+        player.addListener(musicOnlyQueue)
         loadAudioFxPreferences()
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -493,39 +540,14 @@ class MusicService :
         }
 
         playerVolume.collectLatest(scope) {
-            incomingFadeJob?.cancel()
+            overlapCrossfade.abort()
             player.volume = it
         }
-
-        // Sequential crossfade-style transitions: fade the outgoing track near its end,
-        // then ramp the incoming track back to the user's chosen volume. This is a
-        // device/source-safe fade, not overlapping dual-deck DJ mixing.
-        transitionFadeJob?.cancel()
-        transitionFadeJob = scope.launch {
-            var outgoingFaded = false
-            while (isActive) {
-                try {
-                    val durationSeconds = dataStore.get(CrossfadeDurationKey, 0).coerceIn(0, 8)
-                    if (durationSeconds == 0) incomingFadeJob?.cancel()
-                    if (incomingFadeJob?.isActive != true) {
-                        val windowMs = durationSeconds * 1000L
-                        val duration = player.duration
-                        val remaining = duration - player.currentPosition
-                        val factor = if (windowMs > 0 && player.isPlaying && duration > 0 && duration != C.TIME_UNSET && remaining in 1..windowMs)
-                            (remaining.toFloat() / windowMs).coerceIn(0f, 1f) else 1f
-                        if (factor < 1f) {
-                            player.volume = playerVolume.value * factor
-                            outgoingFaded = true
-                        } else if (outgoingFaded) {
-                            // Seeking away from the end, pausing, or disabling fade restores chosen volume.
-                            player.volume = playerVolume.value
-                            outgoingFaded = false
-                        }
-                    }
-                } catch (_: Exception) { }
-                delay(100)
+        dataStore.data.map { (if (it[com.devxrohan.smusic.constants.CrossfadeEnabledKey] == true) it[CrossfadeDurationKey] ?: 6 else 0) to (it[com.devxrohan.smusic.constants.PreferMusicOnlyKey] ?: false) }
+            .distinctUntilChanged().collect(scope) {
+                overlapCrossfade.refresh()
+                musicOnlyQueue.refresh()
             }
-        }
 
         playerVolume.debounce(1000).collect(scope) { volume ->
             dataStore.edit { settings ->
@@ -549,9 +571,7 @@ class MusicService :
             .debounce(300)
             .distinctUntilChanged()
             .collect(scope) { (token, enabled) ->
-                if (discordRpc?.isRpcRunning() == true) {
-                    discordRpc?.closeRPC()
-                }
+                discordRpc?.closeRPC()
                 discordRpc = null
                 if (!token.isNullOrEmpty() && enabled) {
                     discordRpc = com.devxrohan.smusic.utils.DiscordRPC(this, token)
@@ -607,8 +627,8 @@ class MusicService :
         dataStore.data
             .map { it[SkipSilenceKey] ?: false }
             .distinctUntilChanged()
-            .collectLatest(scope) {
-                player.skipSilenceEnabled = it
+            .collect(scope) {
+                overlapCrossfade.refreshSilenceGate()
             }
 
         combine(
@@ -683,6 +703,7 @@ class MusicService :
     }
 
     private fun handleAudioFocusChange(focusChange: Int) {
+        if (focusChange != AudioManager.AUDIOFOCUS_GAIN && ::overlapCrossfade.isInitialized) overlapCrossfade.abort()
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 hasAudioFocus = true
@@ -902,14 +923,36 @@ class MusicService :
         }
     }
 
+    private var queueSelectionJob: Job? = null
+
+    fun playQueuedItem(index: Int) {
+        if (index !in 0 until player.mediaItemCount) return
+        queueSelectionJob?.cancel()
+        val active = player
+        val original = active.getMediaItemAt(index)
+        val previousIndex = active.currentMediaItemIndex
+        queueSelectionJob = scope.launch {
+            val key = com.devxrohan.smusic.constants.PreferMusicOnlyKey
+            val answer = if (dataStore.get(key, false)) musicOnlyResolver.resolve(original) else original
+            if (player !== active || active.currentMediaItemIndex != previousIndex ||
+                index >= active.mediaItemCount || active.getMediaItemAt(index) !== original) return@launch
+            if (answer.mediaId != original.mediaId && dataStore.get(key, false)) {
+                active.replaceMediaItem(index, answer)
+            }
+            active.seekToDefaultPosition(index)
+            active.play()
+        }
+    }
+
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
         onLoaded: (() -> Unit)? = null,
     ) {
         val radioSeed = (queue as? YouTubeQueue)?.radioSeed
-        val effectiveQueue = if (radioSeed != null)
+        var effectiveQueue = if (radioSeed != null)
             com.devxrohan.smusic.playback.queues.PulseRadioQueue(radioSeed, pulseEngine, database, dataStore) else queue
+        queueSelectionJob?.cancel()
         queueLoadJob?.cancel()
         val loadGeneration = ++queueLoadGeneration
         queueHeardIds.clear()
@@ -920,30 +963,61 @@ class MusicService :
         queueTitle = null
         val isPermanentShuffle = dataStore.get(PermanentShuffleKey, false)
         player.shuffleModeEnabled = isPermanentShuffle
-        if (effectiveQueue.preloadItem != null) {
+        val selectionSeed = (queue as? YouTubeQueue)?.selectionSeed ?: effectiveQueue.preloadItem
+        val resolveSelection = selectionSeed != null &&
+            dataStore.get(com.devxrohan.smusic.constants.PreferMusicOnlyKey, false)
+        val usePreload = resolveSelection || effectiveQueue.preloadItem != null
+        if (resolveSelection && selectionSeed != null) {
+            player.stop()
+            player.setMediaItem(selectionSeed.toMediaItem())
+            player.playWhenReady = playWhenReady
+        }
+        if (usePreload && !resolveSelection) {
             player.setMediaItem(effectiveQueue.preloadItem!!.toMediaItem())
             player.prepare()
             player.playWhenReady = playWhenReady
         }
         queueLoadJob = scope.launch(SilentHandler) {
-            val initialStatus =
+            if (selectionSeed != null && resolveSelection) {
+                val audioSeed = musicOnlyResolver.resolve(selectionSeed.toMediaItem()).metadata
+                if (loadGeneration != queueLoadGeneration) return@launch
+                val selected = audioSeed?.takeIf {
+                    dataStore.get(com.devxrohan.smusic.constants.PreferMusicOnlyKey, false)
+                } ?: selectionSeed
+                if (selected.id != selectionSeed.id) player.setMediaItem(selected.toMediaItem())
+                player.prepare()
+                if (audioSeed != null && audioSeed.id != selectionSeed.id &&
+                    dataStore.get(com.devxrohan.smusic.constants.PreferMusicOnlyKey, false)) {
+                    effectiveQueue = com.devxrohan.smusic.playback.queues.PulseRadioQueue(audioSeed, pulseEngine, database, dataStore)
+                    currentQueue = effectiveQueue
+                }
+            }
+            var initialStatus =
                 withContext(Dispatchers.IO) {
                     effectiveQueue.getInitialStatus().filterExplicit(dataStore.get(HideExplicitKey, false))
                 }
+            if (!usePreload && dataStore.get(com.devxrohan.smusic.constants.PreferMusicOnlyKey, false) && initialStatus.items.isNotEmpty() && initialStatus.position == 0L) {
+                val index = initialStatus.mediaItemIndex.coerceIn(initialStatus.items.indices)
+                val original = initialStatus.items[index]
+                val resolved = musicOnlyResolver.resolve(original)
+                if (dataStore.get(com.devxrohan.smusic.constants.PreferMusicOnlyKey, false))
+                    initialStatus = initialStatus.copy(items = initialStatus.items.toMutableList().apply { set(index, resolved) })
+            }
             if (loadGeneration != queueLoadGeneration || currentQueue !== effectiveQueue) return@launch
-            if (effectiveQueue.preloadItem != null && player.playbackState == STATE_IDLE) return@launch
+            if (usePreload && player.playbackState == STATE_IDLE) return@launch
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
             }
             if (initialStatus.items.isEmpty()) return@launch
-            if (effectiveQueue.preloadItem != null) {
+            if (usePreload) {
+                val seedIndex = initialStatus.items.indexOfFirst { it.mediaId == player.currentMediaItem?.mediaId }
                 player.addMediaItems(
                     0,
-                    initialStatus.items.subList(0, initialStatus.mediaItemIndex)
+                    initialStatus.items.subList(0, seedIndex.coerceAtLeast(0))
                 )
                 player.addMediaItems(
                     initialStatus.items.subList(
-                        initialStatus.mediaItemIndex + 1,
+                        seedIndex + 1,
                         initialStatus.items.size
                     )
                 )
@@ -1495,7 +1569,7 @@ class MusicService :
         val enabled = dataStore.get(AudioStudioEnabledKey, false)
         val bass = dataStore.get(AudioStudioBassKey, 0).coerceIn(0, 1000)
         val space = dataStore.get(AudioStudioVirtualizerKey, 0).coerceIn(0, 1000)
-        val reverb = dataStore.get(AudioStudioReverbKey, 0).coerceIn(0, 6)
+        val reverb = dataStore.get(AudioStudioReverbKey, 0).coerceIn(0, 12)
         var bassSupported = false
         var spaceSupported = false
         var reverbSupported = false
@@ -1568,7 +1642,7 @@ class MusicService :
 
     fun setAudioStudioReverb(preset: Int) {
         setupAudioStudioEffects()
-        val value = preset.coerceIn(0, 6)
+        val value = preset.coerceIn(0, 12)
         runCatching {
             presetReverb?.preset = value.toShort()
             presetReverb?.enabled = audioStudioState.value.enabled && value > 0
@@ -1764,26 +1838,6 @@ class MusicService :
         setupLoudnessEnhancer()
         setupEqualizer()
         setupAudioStudioEffects()
-        val fadeGeneration = ++audioTransitionGeneration
-        incomingFadeJob?.cancel()
-        player.volume = playerVolume.value
-        val fadeSeconds = dataStore.get(CrossfadeDurationKey, 0).coerceIn(0, 8)
-        if (fadeSeconds > 0 && player.isPlaying) {
-            player.volume = 0f
-            incomingFadeJob = scope.launch {
-                try {
-                    val steps = 8
-                    repeat(steps) { step ->
-                        delay(75L)
-                        if (fadeGeneration != audioTransitionGeneration || !player.isPlaying) return@launch
-                        player.volume = playerVolume.value * ((step + 1).toFloat() / steps)
-                    }
-                } finally {
-                    if (scope.isActive && fadeGeneration == audioTransitionGeneration) player.volume = playerVolume.value
-                }
-            }
-        }
-
         // Resetear errores consecutivos cuando hay transición exitosa
         consecutivePlaybackErr = 0
 
@@ -2456,7 +2510,8 @@ class MusicService :
         audioBoostEnhancer = null
         audioBoostSessionId = C.AUDIO_SESSION_ID_UNSET
         runCatching { visualizerManager.stop() }
-        transitionFadeJob?.cancel()
+        if (::overlapCrossfade.isInitialized) overlapCrossfade.close()
+        if (::musicOnlyQueue.isInitialized) musicOnlyQueue.close()
         mediaController?.release()
         mediaController = null
         mediaSession.release()

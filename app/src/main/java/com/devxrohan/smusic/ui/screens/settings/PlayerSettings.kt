@@ -72,6 +72,7 @@ fun PlayerSettings(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
+    val (touchHaptics, changeTouchHaptics) = rememberPreference(TouchHapticsEnabledKey, true)
     val (audioQuality, onAudioQualityChange) = rememberEnumPreference(
         AudioQualityKey,
         defaultValue = AudioQuality.AUTO
@@ -368,6 +369,9 @@ fun PlayerSettings(
                         }
                     }
                 )},
+
+                { HapticFeedbackSettings(touchHaptics, changeTouchHaptics) },
+                { PlaybackTransitionSettings() },
 
                 {SwitchPreference(
                     title = { Text(stringResource(R.string.permanent_shuffle)) },

@@ -8,6 +8,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 
+val PulseMatchLanguageKey = booleanPreferencesKey("pulseMatchLanguage")
+val TouchHapticsStrengthKey = intPreferencesKey("touchHapticsStrength")
+val TouchHapticsEnabledKey = booleanPreferencesKey("touchHapticsEnabled")
+
 val CustomizationProfilesKey = stringPreferencesKey("customizationProfilesV1")
 
 val DarkModeKey = stringPreferencesKey("darkMode")
@@ -413,7 +417,6 @@ val AccountPhotoUrlKey = stringPreferencesKey("account_photo_url")
 val InnerTubeCookieKey = stringPreferencesKey("innerTubeCookie")
 /** Deprecated: the Guest/YouTube split was removed (one unified profile). Kept only so old installs can clean it up. */
 val AccountModeKey = stringPreferencesKey("accountMode")
-val LastBackupTimestampKey = longPreferencesKey("last_backup_timestamp")
 val AccountNameKey = stringPreferencesKey("accountName")
 val AccountEmailKey = stringPreferencesKey("accountEmail")
 val AccountChannelHandleKey = stringPreferencesKey("accountChannelHandle")
@@ -661,3 +664,7 @@ val ProfileBeatMotionKey = booleanPreferencesKey("profileBeatMotion")
 
 val HomeSpeedDialVisibleKey = booleanPreferencesKey("homeSpeedDialVisible")
 val AppTextScaleKey = floatPreferencesKey("appTextScale")
+
+val PreferMusicOnlyKey = booleanPreferencesKey("preferMusicOnlyVersion")
+
+val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")

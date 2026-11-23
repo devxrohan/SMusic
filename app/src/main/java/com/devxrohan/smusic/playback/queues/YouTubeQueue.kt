@@ -17,6 +17,7 @@ class YouTubeQueue(
     override val preloadItem: MediaMetadata? = null,
 ) : Queue {
     internal val radioSeed: MediaMetadata? = preloadItem?.takeIf { endpoint.playlistId == null }
+    internal val selectionSeed get() = preloadItem
     private var continuation: String? = null
     private var relatedEndpoint: BrowseEndpoint? = null
     private var accountExpansionComplete = false

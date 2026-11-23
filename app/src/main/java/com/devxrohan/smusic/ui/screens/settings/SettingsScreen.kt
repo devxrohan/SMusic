@@ -674,7 +674,7 @@ fun SettingsScreen(
     val searchTerms = mapOf(
         "settings/appearance" to "home layout editor presets drag reorder theme fonts mini player navigation progress swipe",
         "settings/lyrics" to "lyrics karaoke alignment sync offset size spacing colour color gradient providers",
-        "settings/player" to "audio playback equalizer sleep timer classic artwork",
+        "settings/player" to "audio playback equalizer sleep timer classic artwork touch feedback haptic vibration strength intensity",
         "settings/privacy" to "pause recognition history clear listening search",
         "settings/backup_restore" to "backup restore customization recovery",
     )

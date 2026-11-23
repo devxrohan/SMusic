@@ -436,8 +436,11 @@ fun MiniPlayer(
                                     )
                             )
 
+                            if (playbackState == Player.STATE_BUFFERING) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                            }
                             androidx.compose.animation.AnimatedVisibility(
-                                visible = playbackState == Player.STATE_ENDED || !isPlaying,
+                                visible = playbackState != Player.STATE_BUFFERING && (playbackState == Player.STATE_ENDED || !isPlaying),
                                 enter = fadeIn(),
                                 exit = fadeOut()
                             ) {
@@ -817,7 +820,9 @@ fun ModernMiniPlayer(
                         )
                     }
 
-                    if (playbackState == Player.STATE_ENDED || !isPlaying) {
+                    if (playbackState == Player.STATE_BUFFERING) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                    } else if (playbackState == Player.STATE_ENDED || !isPlaying) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()

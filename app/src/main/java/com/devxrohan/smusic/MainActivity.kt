@@ -1017,6 +1017,7 @@ class MainActivity : ComponentActivity() {
                             val insetBg = if (playerBottomSheetState.progress > 0f) Color.Transparent else baseBg
 
                             CompositionLocalProvider(
+                                androidx.compose.ui.platform.LocalHapticFeedback provides com.devxrohan.smusic.ui.component.rememberAppHaptics(),
                                 LocalDatabase provides database,
                                 LocalContentColor provides contentColorFor(MaterialTheme.colorScheme.surface),
                                 LocalPlayerConnection provides playerConnection,

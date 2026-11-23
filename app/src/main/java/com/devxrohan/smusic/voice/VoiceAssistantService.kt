@@ -100,7 +100,6 @@ class VoiceAssistantService : Service() {
         instance = this
         _isServiceRunning.value = true
 
-        acquireWakeLock()
         createNotificationChannel()
         startAsForeground()
         bindMusicService()
@@ -140,8 +139,10 @@ class VoiceAssistantService : Service() {
             if (!hasMic) {
                 Timber.w("RECORD_AUDIO not granted; voice assistant idle")
                 updateNotificationText("Microphone permission needed")
+                stopSelf()
                 return@launch
             }
+            acquireWakeLock()
             val directCommands = dataStore.get(VoiceAssistantDirectCommandsKey, true)
             voiceAssistantManager.start(requireWakeWord = !directCommands)
 

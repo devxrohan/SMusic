@@ -181,8 +181,9 @@ fun SMusicLyricsScreen(
     val textBackgroundColor = Color.White
     val icBackgroundColor = Color.Black
 
-    LaunchedEffect(playbackState, mediaMetadata.id) {
-        if (playbackState == STATE_READY || playbackState == STATE_BUFFERING) {
+    val progressUiActive = com.devxrohan.smusic.ui.component.rememberUiResumed()
+    LaunchedEffect(playbackState, mediaMetadata.id, progressUiActive) {
+        if (progressUiActive && (playbackState == STATE_READY || playbackState == STATE_BUFFERING)) {
             while (isActive) {
                 val currentPos = player.currentPosition
                 if (currentPos >= 0) {

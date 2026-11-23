@@ -518,7 +518,7 @@ fun PlayerMenu(
                         com.devxrohan.smusic.ui.component.PulseFeedbackActions(
                             listOf(com.devxrohan.smusic.pulse.PulseFeedbackTrack(
                                 mediaMetadata.id, mediaMetadata.artists.mapNotNull { it.id },
-                                mediaMetadata.artists.filter { it.id != null }.map { it.name }, mediaMetadata.title,
+                                mediaMetadata.artists.filter { it.id != null }.map { it.name }, mediaMetadata.title, mediaMetadata.thumbnailUrl,
                             )), onDismiss,
                         )
                     }
@@ -749,8 +749,11 @@ internal fun AudioFxStudioSheet(onDismiss: () -> Unit, onOpenEqualizer: () -> Un
     val service = connection.service
     val state by service.audioStudioState.collectAsState()
     val context = LocalContext.current
+    val (crossfadeEnabled, setCrossfadeEnabled) = com.devxrohan.smusic.utils.rememberPreference(
+        com.devxrohan.smusic.constants.CrossfadeEnabledKey, false
+    )
     val (crossfade, onCrossfadeChange) = com.devxrohan.smusic.utils.rememberPreference(
-        com.devxrohan.smusic.constants.CrossfadeDurationKey, 0
+        com.devxrohan.smusic.constants.CrossfadeDurationKey, 6
     )
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val accent = Color(0xFFFF2A6D)
@@ -788,7 +791,7 @@ internal fun AudioFxStudioSheet(onDismiss: () -> Unit, onOpenEqualizer: () -> Un
                     service.setAudioStudioBass(0)
                     service.setAudioStudioSpace(0)
                     service.setAudioStudioReverb(0)
-                    onCrossfadeChange(0)
+                    setCrossfadeEnabled(false)
                 }) { Text(stringResource(R.string.ui_reset), color = accent, fontWeight = FontWeight.Bold) }
             }
             Text(
@@ -851,20 +854,23 @@ internal fun AudioFxStudioSheet(onDismiss: () -> Unit, onOpenEqualizer: () -> Un
                 }
                 else -> {
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(stringResource(R.string.ui_track_transition_fade), color = Color.White, fontWeight = FontWeight.SemiBold)
-                        Text(stringResource(R.string.ui_fade_out_the_ending_of_a), color = Color(0xFF9B9DA8), style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.crossfade_title), color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.crossfade_description), color = Color(0xFF9B9DA8), style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(0, 2, 4, 6, 8).forEach { seconds ->
+                            listOf(0, 2, 4, 6, 9, 12).forEach { seconds ->
                                 androidx.compose.material3.FilterChip(
-                                    selected = crossfade == seconds,
-                                    onClick = { onCrossfadeChange(seconds) },
+                                    selected = if (seconds == 0) !crossfadeEnabled else crossfadeEnabled && crossfade == seconds,
+                                    onClick = {
+                                        if (seconds > 0) onCrossfadeChange(seconds)
+                                        setCrossfadeEnabled(seconds > 0)
+                                    },
                                     label = { Text(if (seconds == 0) "Off" else "${seconds}s") },
                                     colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(selectedContainerColor = accent.copy(alpha = .22f), selectedLabelColor = Color.White),
                                 )
                             }
                         }
                     }
-                    Text(stringResource(R.string.ui_transition_fade_is_a_track_boundary), color = Color(0xFF858895), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.crossfade_timer_note), color = Color(0xFF858895), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

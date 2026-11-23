@@ -59,9 +59,8 @@ fun AudioQualityTag(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val isLocal = mediaMetadata?.id?.startsWith("local:") == true ||
-        currentFormat?.playbackUrl?.startsWith("content://") == true ||
-        currentFormat?.playbackUrl?.startsWith("file://") == true
+    val isLocal = com.devxrohan.smusic.utils.PlaybackSource.isLocal(mediaMetadata?.id,
+        currentFormat?.takeIf { it.id == mediaMetadata?.id }?.playbackUrl)
 
     val isJioSaavn = !isLocal && (
         mediaMetadata?.id?.startsWith("JS:") == true ||
@@ -94,7 +93,7 @@ fun AudioQualityTag(
 
     val label = when {
         isLocal -> {
-            if (bitrateKbps != null) "Local • ${bitrateKbps}k" else "Local"
+            "Local"
         }
         isJioSaavn -> {
             if (currentFormat != null || mediaMetadata?.id?.startsWith("JS:") == true) {
@@ -160,9 +159,8 @@ fun AudioPipelineDialog(
     val playerConnection = LocalPlayerConnection.current
     val bypassAllAudioEffects by (playerConnection?.service?.bypassAllAudioEffects?.collectAsState() ?: remember { mutableStateOf(false) })
 
-    val isLocal = mediaMetadata?.id?.startsWith("local:") == true ||
-        currentFormat?.playbackUrl?.startsWith("content://") == true ||
-        currentFormat?.playbackUrl?.startsWith("file://") == true
+    val isLocal = com.devxrohan.smusic.utils.PlaybackSource.isLocal(mediaMetadata?.id,
+        currentFormat?.takeIf { it.id == mediaMetadata?.id }?.playbackUrl)
 
     val isJioSaavn = !isLocal && (
         mediaMetadata?.id?.startsWith("JS:") == true ||

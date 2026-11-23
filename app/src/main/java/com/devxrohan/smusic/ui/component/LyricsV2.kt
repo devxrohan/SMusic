@@ -317,15 +317,16 @@ fun LyricsV2(
     var currentLineIndex by remember { mutableIntStateOf(0) }
 
     // Frame-accurate position loop
-    LaunchedEffect(entriesWithWords, isSynced, syncOffsetMs) {
-        if (!isSynced || entriesWithWords.isEmpty()) return@LaunchedEffect
+    val progressUiActive = rememberUiResumed()
+    LaunchedEffect(entriesWithWords, isSynced, syncOffsetMs, progressUiActive) {
+        if (!progressUiActive || !isSynced || entriesWithWords.isEmpty()) return@LaunchedEffect
         while (isActive) {
             val sliderPos = sliderPositionProvider()
             val pos = sliderPos ?: player.currentPosition
 
             currentPositionMs = pos - syncOffsetMs
             currentLineIndex = findCurrentLineIndex(entriesWithWords, currentPositionMs, 0L)
-            delay(16L) // ~60fps polling
+            delay(if (player.isPlaying) 16L else 100L)
         }
     }
 

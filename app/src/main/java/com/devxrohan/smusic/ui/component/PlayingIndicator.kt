@@ -45,7 +45,9 @@ fun PlayingIndicator(
             }
         }
 
-    LaunchedEffect(Unit) {
+    val uiActive = rememberUiResumed()
+    LaunchedEffect(uiActive) {
+        if (!uiActive) return@LaunchedEffect
         delay(300)
         animatables.forEach { animatable ->
             launch {

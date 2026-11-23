@@ -436,8 +436,9 @@ fun Lyrics(
         }
     }
 
-    LaunchedEffect(playbackState) {
-        if (isFullscreen && playbackState == Player.STATE_READY) {
+    val progressUiActive = rememberUiResumed()
+    LaunchedEffect(playbackState, isFullscreen, progressUiActive) {
+        if (progressUiActive && isFullscreen && playbackState == Player.STATE_READY) {
             while (isActive) {
                 delay(100)
                 position = playerConnection.player.currentPosition
@@ -477,7 +478,8 @@ fun Lyrics(
         }
     }
 
-    LaunchedEffect(lyrics, isSynced, syncOffsetMs) {
+    LaunchedEffect(lyrics, isSynced, syncOffsetMs, progressUiActive) {
+        if (!progressUiActive) return@LaunchedEffect
         if (lyrics.isNullOrEmpty() || !isSynced) {
             currentLineIndex = -1
             return@LaunchedEffect

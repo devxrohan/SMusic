@@ -600,8 +600,9 @@ fun BottomSheetPlayer(
             .background(textButtonColor)
     }
 
-    LaunchedEffect(playbackState) {
-        if (playbackState == STATE_READY) {
+    val progressUiActive = com.devxrohan.smusic.ui.component.rememberUiResumed()
+    LaunchedEffect(playbackState, progressUiActive) {
+        if (progressUiActive && playbackState == STATE_READY) {
             while (isActive) {
                 delay(100)
                 position = playerConnection.player.currentPosition

@@ -19,7 +19,8 @@ class PulseRefreshWorker(
         try {
             PulseEngine(applicationContext, database).backfillIfNeeded()
             Result.success()
-        } catch (t: Throwable) {
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled
+        } catch (t: Exception) {
             Timber.w(t, "Pulse background refresh failed")
             Result.retry()
         } finally {

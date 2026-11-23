@@ -17,9 +17,10 @@ import com.devxrohan.smusic.ui.component.MusicArtwork
 
 @Composable
 internal fun PulseArtistRotation(artists: List<PulseArtistInsight>, onArtist: (String) -> Unit) {
-    LazyColumn(Modifier.fillMaxWidth().height((artists.size.coerceAtMost(4) * 76).dp)) {
+    val rowHeight = (48f * androidx.compose.ui.platform.LocalDensity.current.fontScale).coerceAtLeast(76f).dp
+    LazyColumn(Modifier.fillMaxWidth().height((rowHeight * artists.size.coerceAtMost(4)).coerceAtMost(420.dp))) {
         itemsIndexed(artists, key = { _, artist -> artist.id }, contentType = { _, _ -> "artist" }) { index, artist ->
-            Row(Modifier.fillMaxWidth().height(76.dp).clip(MaterialTheme.shapes.medium)
+            Row(Modifier.fillMaxWidth().height(rowHeight).clip(MaterialTheme.shapes.medium)
                 .clickable { onArtist(artist.id) }.padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {

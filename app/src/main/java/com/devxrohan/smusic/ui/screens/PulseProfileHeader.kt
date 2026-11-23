@@ -26,16 +26,15 @@ internal fun PulseProfileHeader(
     summary: PulseSummary?,
     loaded: Boolean,
     busy: Boolean,
-    artworks: List<String>,
     onExplore: () -> Unit,
     onPlay: (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val plays = summary?.totalPlays ?: 0
-    val topArtist = summary?.topArtists?.firstOrNull()
+    val topArtist = summary?.listeningArtist
     val artist = topArtist?.name
-    val artwork = if (topArtist != null) topArtist.thumbnail else artworks.firstOrNull { it.isNotBlank() }
-    val largeText = LocalDensity.current.fontScale >= 1.5f
+    val artwork = topArtist?.thumbnail
+    val largeText = LocalDensity.current.fontScale >= 1.3f
     val discovery = when (summary?.discoveryMode) {
         "FAMILIAR" -> stringResource(R.string.pulse_discovery_familiar)
         "BALANCED" -> stringResource(R.string.pulse_discovery_balanced)
@@ -77,24 +76,19 @@ internal fun PulseProfileHeader(
                     }
                 }
             }
-            if (onPlay == null) {
-                FilledTonalButton(onClick = onExplore, shapes = appButtonShapes(),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Text(stringResource(R.string.pulse_browse_action))
-                }
-            } else if (largeText) {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PulsePlaybackAction(onPlay, loaded && !busy, Modifier.fillMaxWidth())
-                    TextButton(shapes = appButtonShapes(), onClick = onExplore, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text(stringResource(R.string.pulse_browse_action))
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val stacked = largeText || maxWidth < 360.dp
+                if (onPlay == null) {
+                    PulseExploreAction(onExplore, Modifier.fillMaxWidth())
+                } else if (stacked) {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PulsePlaybackAction(onPlay, loaded && !busy, Modifier.fillMaxWidth())
+                        PulseExploreAction(onExplore, Modifier.fillMaxWidth())
                     }
-                }
-            } else {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    PulsePlaybackAction(onPlay, loaded && !busy, Modifier.weight(1f))
-                    TextButton(shapes = appButtonShapes(), onClick = onExplore, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Text(stringResource(R.string.pulse_browse_action))
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PulsePlaybackAction(onPlay, loaded && !busy, Modifier.weight(1f))
+                        PulseExploreAction(onExplore, Modifier.weight(1f))
                     }
                 }
             }
@@ -112,5 +106,13 @@ private fun PulsePlaybackAction(onPlay: () -> Unit, enabled: Boolean, modifier: 
         Icon(painterResource(R.drawable.play), null, Modifier.size(24.dp))
         Spacer(Modifier.width(8.dp))
         Text(stringResource(R.string.pulse_play_action))
+    }
+}
+
+@Composable
+private fun PulseExploreAction(onExplore: () -> Unit, modifier: Modifier) {
+    Button(onClick = onExplore, shapes = appButtonShapes(ButtonDefaults.MediumContainerHeight),
+        modifier = modifier.heightIn(min = 56.dp)) {
+        Text(stringResource(R.string.pulse_browse_action))
     }
 }

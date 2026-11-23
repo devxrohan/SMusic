@@ -44,7 +44,11 @@ fun PulseScreen(navController: NavController, viewModel: PulseViewModel = hiltVi
     val loaded by viewModel.loaded.collectAsState()
     val busy by viewModel.busy.collectAsState()
     val error by viewModel.error.collectAsState()
-    val blocked by viewModel.blocked.collectAsState()
+    val controls by viewModel.controls.collectAsStateWithLifecycle()
+    val artistResults by viewModel.artistResults.collectAsStateWithLifecycle()
+    val artistSearchBusy by viewModel.artistSearchBusy.collectAsStateWithLifecycle()
+    val artistSearchError by viewModel.artistSearchError.collectAsStateWithLifecycle()
+    var artistPicker by rememberSaveable { mutableStateOf(false) }
     var discoveryPicker by remember { mutableStateOf(false) }
     var rebuildConfirmation by remember { mutableStateOf(false) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -56,19 +60,20 @@ fun PulseScreen(navController: NavController, viewModel: PulseViewModel = hiltVi
         ))
     }
 
+    val windowWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+    val sidePadding = 16.dp + ((windowWidth - 840).coerceAtLeast(0) / 2).dp
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Pulse", fontWeight = FontWeight.Bold) }, navigationIcon = {
+        TopAppBar(title = { Text("Pulse", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = {
             IconButton(onClick = { navController.navigateUp() }) { Icon(painterResource(R.drawable.arrow_back), "Back") }
         }, actions = {
             IconButton(onClick = { navController.navigate("stats") }) { Icon(painterResource(R.drawable.settings_statistics_rounded), "Listening stats") }
         })
     }) { insets ->
         LazyColumn(Modifier.fillMaxSize().padding(top = insets.calculateTopPadding()),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() + 24.dp),
+            contentPadding = PaddingValues(start = sidePadding, end = sidePadding, bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item(key = "profile") {
                 PulseProfileHeader(summary, loaded, busy,
-                    artworks = (summary?.topArtists.orEmpty().mapNotNull { it.thumbnail } + recommendations.mapNotNull { it.thumbnailUrl } + listOfNotNull(nowPlaying?.thumbnailUrl)).distinct(),
                     onExplore = { navController.navigate("home") { launchSingleTop = true } },
                     onPlay = if (player != null && pulseSeed != null) {
                         { playRecommendation(pulseSeed) }
@@ -149,14 +154,27 @@ fun PulseScreen(navController: NavController, viewModel: PulseViewModel = hiltVi
                             }
                             Icon(painterResource(R.drawable.expand_more), "Change discovery balance")
                         }
+                        FilledTonalButton(shapes = appButtonShapes(), onClick = { artistPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Choose artists you like")
+                        }
                         PulseTuningControls(s.artistVariety, s.recentCooldownHours, !busy, viewModel::setRecommendationTuning)
                     }
                 }
-                if (blocked.isNotEmpty()) item {
-                    PulsePanel("Hidden artists") {
-                        blocked.forEach { artist ->
-                            ListItem(headlineContent = { Text(artist.name, maxLines = 2) }, trailingContent = { TextButton(shapes = appButtonShapes(), enabled = !busy, onClick = { viewModel.unblock(artist.id) }) { Text("Unhide") } }, colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
-                        }
+                item {
+                    PulsePanel("Feedback & priorities") {
+                        PulseFeedbackPanel(controls, s.confidence, s.drift, !busy,
+                            viewModel::feedback, viewModel::clearFeedback, viewModel::block, viewModel::unblock,
+                            viewModel::removeArtist, onOpen = { entry ->
+                                if (entry.track == null) navController.navigate("artist/${entry.id}")
+                                else player?.let { connection ->
+                                    val track = entry.track
+                                    connection.playQueue(com.devxrohan.smusic.playback.queues.PulseRadioQueue(
+                                        com.devxrohan.smusic.models.MediaMetadata(entry.id, entry.title,
+                                            track.artistIds.mapIndexed { index, id -> com.devxrohan.smusic.models.MediaMetadata.Artist(id,
+                                                track.artistNames.getOrNull(index).orEmpty()) },
+                                            duration = -1, thumbnailUrl = entry.thumbnailUrl), connection.service.pulseEngine, database))
+                                }
+                            }, resolveArtwork = viewModel::resolveControlArtwork)
                     }
                 }
                 item {
@@ -169,6 +187,12 @@ fun PulseScreen(navController: NavController, viewModel: PulseViewModel = hiltVi
             }
         }
     }
+    if (artistPicker) PulseArtistPicker(artistResults, artistSearchBusy, busy, artistSearchError ?: error,
+        controls.entries.filter { it.kind == PulseControlKind.CHOSEN }.map { it.id }.toSet(),
+        controls.entries.filter { it.kind == PulseControlKind.ARTIST }.map { it.id }.toSet(),
+        viewModel::searchArtists, viewModel::chooseArtist, viewModel::removeArtist,
+        onOpen = { artistPicker = false; viewModel.stopArtistSearch(); navController.navigate("artist/$it") },
+        onDismiss = { artistPicker = false; viewModel.stopArtistSearch() })
     if (discoveryPicker) com.devxrohan.smusic.ui.screens.settings.SettingsChoiceDialog("Discovery balance", summary?.discoveryMode ?: "AUTO",
         listOf("AUTO" to "Automatic · learns from you", "FAMILIAR" to "Familiar favourites", "BALANCED" to "Balanced discovery", "ADVENTUROUS" to "More discovery"), { discoveryPicker = false }) { viewModel.setDiscoveryMode(it); discoveryPicker = false }
     if (rebuildConfirmation) AlertDialog(onDismissRequest = { rebuildConfirmation = false }, title = { Text("Relearn your taste?") },

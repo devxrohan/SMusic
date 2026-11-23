@@ -124,6 +124,8 @@ class PulseState {
     val exposure: MutableMap<String, Exposure> = HashMap()
     /** Soft suppression with timestamp (ms). Reversible. */
     val notForMeSongs: MutableMap<String, Long> = HashMap()
+    val artistPreferences: MutableMap<String, PulseArtistChoice> = HashMap()
+    val feedbackTracks: MutableMap<String, PulseFeedbackTrack> = HashMap()
     val positiveFeedback: MutableMap<String, PulsePreference> = HashMap()
     val dislikedArtists: MutableMap<String, Long> = HashMap()
     /** Explicit user block only. */

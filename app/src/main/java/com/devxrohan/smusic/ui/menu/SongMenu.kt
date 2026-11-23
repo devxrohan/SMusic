@@ -429,7 +429,7 @@ fun SongMenu(
         item {
             com.devxrohan.smusic.ui.component.PulseFeedbackActions(
                 listOf(com.devxrohan.smusic.pulse.PulseFeedbackTrack(
-                    song.id, song.artists.map { it.id }, song.artists.map { it.name }, song.title,
+                    song.id, song.artists.map { it.id }, song.artists.map { it.name }, song.title, song.thumbnailUrl,
                 )), onDismiss,
             )
         }

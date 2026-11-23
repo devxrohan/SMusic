@@ -33,7 +33,7 @@ internal fun ListeningOverview(
     motionEnabled: Boolean = true,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val largeText = LocalDensity.current.fontScale >= 1.5f
+    val largeText = LocalDensity.current.fontScale >= 1.3f || androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 400
     val artwork = artworks.firstOrNull { it.isNotBlank() }
     DashboardEntrance {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {

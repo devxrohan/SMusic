@@ -19,13 +19,15 @@ import com.devxrohan.smusic.ui.component.MusicArtwork
 /** The leading entry gets editorial emphasis; every rank retains its actual counts and duration. */
 @Composable
 internal fun StatsRankingRow(rank: Int, title: String, subtitle: String, image: String?, shape: Shape) {
+    val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 360 ||
+        androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.3f
     val lead = rank == 1
     Row(Modifier.fillMaxWidth().padding(vertical = if (lead) 12.dp else 4.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(rank.toString().padStart(2, '0'), style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(24.dp))
+            color = MaterialTheme.colorScheme.primary, modifier = Modifier.widthIn(min = 24.dp))
         MusicArtwork(image, artist = shape == CircleShape,
-            modifier = Modifier.size(if (lead) 80.dp else 48.dp).clip(shape))
+            modifier = Modifier.size(if (lead && !compact) 80.dp else 48.dp).clip(shape))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (lead) 8.dp else 4.dp)) {
             Text(title, style = if (lead) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyLarge,
                 fontWeight = if (lead) FontWeight.SemiBold else FontWeight.Medium,

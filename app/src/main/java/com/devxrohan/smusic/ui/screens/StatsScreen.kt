@@ -68,16 +68,18 @@ fun StatsScreen(navController: NavController, viewModel: StatsViewModel = hiltVi
     val totalPlays = songStats.sumOf { it.songCountListened }
     val periodNames = listOf("Weeks", "Months", "Years", "Time range")
 
+    val windowWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+    val sidePadding = (if (windowWidth < 360) 16 else 24).dp + ((windowWidth - 840).coerceAtLeast(0) / 2).dp
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Listening stats") },
+            title = { Text("Listening stats", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = { navController.navigateUp() }) { Icon(painterResource(R.drawable.arrow_back), "Back") } },
         )
     }, containerColor = scheme.background) { insets ->
         LazyColumn(
             Modifier.fillMaxSize().padding(top = insets.calculateTopPadding()),
             state = listState,
-            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() + 24.dp),
+            contentPadding = PaddingValues(start = sidePadding, end = sidePadding, bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             item(key = "overview") {

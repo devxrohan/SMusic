@@ -25,7 +25,7 @@ internal fun PulseRotationShelf(songs: List<Song>, playingId: String?, onPlay: (
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(songs.chunked(2), key = { it.first().id }, contentType = { "song-pair" }) { page ->
                 Column(Modifier.width(pageWidth), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val rowHeight = if (largeText) 112.dp else 92.dp
+                    val rowHeight = (76f * androidx.compose.ui.platform.LocalDensity.current.fontScale).coerceAtLeast(92f).dp
                     page.forEach { song ->
                         androidx.compose.material3.Surface(onClick = { onPlay(song) },
                             shape = MaterialTheme.shapes.large,

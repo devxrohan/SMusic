@@ -54,9 +54,13 @@ class PulseRadioQueue(
     private suspend fun smart(
         items: List<MediaItem>,
     ): List<MediaItem> = runCatching {
-        val music = items.filter { mi ->
+        val onlyAudio = settings?.get(com.devxrohan.smusic.constants.PreferMusicOnlyKey, false) == true
+        val music = items.filterNot { item ->
+            onlyAudio && item.mediaId != seed.id &&
+                item.metadata?.musicVideoType in listOf("MUSIC_VIDEO_TYPE_OMV", "MUSIC_VIDEO_TYPE_UGC")
+        }.filter { mi ->
             mi.mediaId == seed.id || (mi.metadata?.duration ?: -1).let { it <= 0 || it in 30..900 }
-        }.ifEmpty { items }
+        }
 
         val candidatePool = ArrayList<MediaItem>(music)
         // Exhaust the seed's radio before using its related shelf; never walk recommendations of recommendations.

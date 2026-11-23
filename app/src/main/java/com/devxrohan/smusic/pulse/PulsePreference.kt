@@ -3,8 +3,10 @@ package com.devxrohan.smusic.pulse
 import kotlin.math.exp
 
 data class PulsePreference(val timestamp: Long, val artistIds: List<String>, val title: String = "")
+data class PulseArtistChoice(val name: String, val thumbnail: String? = null, val timestamp: Long = 0L)
+
 data class PulseFeedbackTrack(
-    val id: String, val artistIds: List<String>, val artistNames: List<String> = emptyList(), val title: String = "",
+    val id: String, val artistIds: List<String>, val artistNames: List<String> = emptyList(), val title: String = "", val thumbnailUrl: String? = null,
 )
 
 internal data class PulsePreferenceWeights(val songs: Map<String, Double>, val artists: Map<String, Double>) {
@@ -51,11 +53,27 @@ internal object PulsePreferences {
                 if (!state.isHidden(id, now)) result[id] = maxOf(result[id] ?: 0.0, strength)
             }
         }
+        state.artistPreferences.keys.forEach { id ->
+            if (!state.isHidden(id, now)) result[id] = maxOf(result[id] ?: 0.0, .9)
+        }
         return result
     }
 
+    fun selectArtist(state: PulseState, id: String, choice: PulseArtistChoice?) {
+        require(id.isNotBlank())
+        if (choice == null) state.artistPreferences.remove(id)
+        else {
+            require(choice.name.isNotBlank())
+            require(id in state.artistPreferences || state.artistPreferences.size < MAX_ENTRIES) { "Artist preference limit reached" }
+            state.artistPreferences[id] = choice
+            state.artists.getOrPut(id) { ArtistAffinity() }.name = choice.name
+        }
+        state.graphVersion++
+    }
+
     fun hasActive(state: PulseState, now: Long): Boolean =
-        state.positiveFeedback.values.any { weight(it.timestamp, now) > 0.0 && it.artistIds.none { id -> state.isHidden(id, now) } }
+        state.artistPreferences.keys.any { !state.isHidden(it, now) } ||
+            state.positiveFeedback.values.any { weight(it.timestamp, now) > 0.0 && it.artistIds.none { id -> state.isHidden(id, now) } }
 
     fun weights(state: PulseState, now: Long): PulsePreferenceWeights {
         val songs = state.positiveFeedback.mapValues { weight(it.value.timestamp, now) }.filterValues { it > 0.0 }

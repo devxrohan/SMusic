@@ -556,11 +556,13 @@ class HomeViewModel @Inject constructor(
     /** Fetches the raw "Similar to" rows. All anchors run in parallel with a per-request time limit. */
     private suspend fun fetchSimilarCandidates(fromTimeStamp: Long, accountMode: Boolean): List<SimilarRecommendation> = coroutineScope {
         val gate = Semaphore(6)
+        val preferredArtists = attempt { pulseEngine.preferredArtistAnchors() }.getOrDefault(emptyList())
+        val preferredIds = preferredArtists.mapTo(HashSet()) { it.id }
         val artistCandidates = attempt {
             val played = database.mostPlayedArtists(fromTimeStamp, limit = 30).first().filter { it.artist.isYouTubeArtist }
             // Account connected: the artists the user follows on YouTube (synced) are anchors too.
             val followed = if (accountMode) database.artistsBookmarkedByCreateDateAsc().first().filter { it.artist.isYouTubeArtist } else emptyList()
-            (played + followed).distinctBy { it.id }
+            (preferredArtists + played + followed).distinctBy { it.id }
         }.getOrDefault(emptyList())
         // Shuffle first so a refresh can pick different anchors, then let Pulse rank them.
         val artistAnchors = attempt { pulseEngine.similarAnchors(artistCandidates.shuffled(homeRandom), 5) }
@@ -581,7 +583,7 @@ class HomeViewModel @Inject constructor(
                             page.sections.forEach { section ->
                                 items += section.items.filter { it is SongItem || it is AlbumItem || it is ArtistItem }
                                     .filterNot { item ->
-                                        when (item) {
+                                        if (artist.id in preferredIds) false else when (item) {
                                             is ArtistItem -> item.id == artist.id
                                             is SongItem -> item.artists.any { it.id == artist.id }
                                             is AlbumItem -> item.artists.orEmpty().any { it.id == artist.id }

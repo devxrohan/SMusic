@@ -58,6 +58,7 @@ data class PulseSummary(
     val discoveryMode: String = "AUTO",
     val artistVariety: Double = 0.5,
     val recentCooldownHours: Double = 6.0,
+    val listeningArtist: PulseArtistInsight? = null,
 )
 
 /** Learns from playback and history, persists taste signals and ranks supported recommendation rows. */
@@ -77,7 +78,8 @@ class PulseEngine @Inject constructor(
         seed: com.devxrohan.smusic.models.MediaMetadata,
         items: List<T>,
         trackOf: (T) -> com.devxrohan.smusic.models.MediaMetadata?,
-    ): List<T> = radioLanguages.filter(seed, items, trackOf)
+    ): List<T> = if (context.dataStore.data.first()[com.devxrohan.smusic.constants.PulseMatchLanguageKey] != false)
+        radioLanguages.filter(seed, items, trackOf) else items
 
     /** Pulse always LEARNS (one profile, guest or account). What it is allowed to reorder depends on [accountPrimary]. */
     @Suppress("RedundantSuspendModifier")
@@ -198,6 +200,9 @@ class PulseEngine @Inject constructor(
                 fresh.dismissedPlaylists.addAll(s.dismissedPlaylists)           // explicit user choices survive a rebuild
                 fresh.notForMeSongs.putAll(s.notForMeSongs)
                 fresh.positiveFeedback.putAll(s.positiveFeedback)
+                fresh.feedbackTracks.putAll(s.feedbackTracks)
+                fresh.artistPreferences.putAll(s.artistPreferences)
+                s.artistPreferences.forEach { (id, choice) -> fresh.artists.getOrPut(id) { ArtistAffinity() }.name = choice.name }
                 s.positiveFeedback.values.flatMap { it.artistIds }.distinct().forEach { id ->
                     s.artists[id]?.let { fresh.artists[id] = ArtistAffinity(name = it.name) }
                 }
@@ -218,6 +223,9 @@ class PulseEngine @Inject constructor(
             // Historical plays must not clear a later explicit Not for me choice.
             rebuilt.notForMeSongs.putAll(s.notForMeSongs)
             rebuilt.positiveFeedback.putAll(s.positiveFeedback)
+            rebuilt.feedbackTracks.putAll(s.feedbackTracks)
+            rebuilt.artistPreferences.putAll(s.artistPreferences)
+            s.artistPreferences.forEach { (id, choice) -> rebuilt.artists.getOrPut(id) { ArtistAffinity() }.name = choice.name }
             rebuilt.backfillVersion = PulseParams.BACKFILL_VERSION
             state = rebuilt
             withContext(Dispatchers.IO) { persist(rebuilt) }
@@ -297,9 +305,11 @@ class PulseEngine @Inject constructor(
                     val updated = PulseStorage.fromJson(PulseStorage.toJson(ensureLoaded()))
                     val now = System.currentTimeMillis()
                     valid.forEach { track ->
+                        updated.feedbackTracks[track.id] = track
                         if (positive) PulsePreferences.apply(updated, track, now)
                         else PulseLearn.applyNotForMe(updated, track.id, track.artistIds.filter(String::isNotBlank), now)
                     }
+                    updated.feedbackTracks.keys.retainAll(updated.notForMeSongs.keys + updated.positiveFeedback.keys)
                     persist(updated)
                     state = updated
                     true
@@ -345,6 +355,8 @@ class PulseEngine @Inject constructor(
                 return PulseArtistInsight(id, s.artists[id]?.name.orEmpty().ifBlank { artist?.artist?.name ?: id }, score, artist?.artist?.thumbnailUrl)
             }
             PulseSummary(
+                listeningArtist = PulseControlPolicy.listeningArtistId(s, System.currentTimeMillis())
+                    ?.let { insight(it, s.artists.getValue(it).score) },
                 stage = s.stage(),
                 totalPlays = s.totalPlays,
                 discoveryAppetite = s.recommendationAppetite(),
@@ -786,6 +798,44 @@ class PulseEngine @Inject constructor(
             val cands = albums.map { PulseCandidate(it.id, PulseKind.ALBUM, artistIdsOf(it)) }
             PulseRanker.rank(s, cands, PulseSurface.SHELF, now).map { albums[it] }
         }
+    }
+
+    suspend fun preferredArtistAnchors(): List<Artist> = mutex.withLock {
+        val current = ensureLoaded()
+        val now = System.currentTimeMillis()
+        current.artistPreferences.filterKeys { !current.isHidden(it, now) }.map { (id, choice) ->
+            Artist(com.devxrohan.smusic.db.entities.ArtistEntity(id = id, name = choice.name, thumbnailUrl = choice.thumbnail))
+        }
+    }
+
+    suspend fun setArtistPreference(id: String, choice: PulseArtistChoice?) = mutex.withLock {
+        val updated = PulseStorage.fromJson(PulseStorage.toJson(ensureLoaded()))
+        PulsePreferences.selectArtist(updated, id, choice)
+        withContext(Dispatchers.IO) { persist(updated) }
+        state = updated
+        tuningRevision.value++
+    }
+
+    suspend fun controls(): PulseControls = withContext(Dispatchers.IO) {
+        val localSongs = database.allSongs().first().associateBy { it.id }
+        mutex.withLock { PulseControlPolicy.snapshot(ensureLoaded(), localSongs.mapValues { (_, song) ->
+            PulseFeedbackTrack(song.id, song.artists.map { it.id }, song.artists.map { it.name }, song.song.title, song.thumbnailUrl)
+        }, System.currentTimeMillis()) }.let { snapshot ->
+            val artwork = localSongs.values.flatMap { it.artists }.associate { it.id to it.thumbnailUrl }
+            snapshot.copy(entries = snapshot.entries.map { entry ->
+                if (entry.track != null || !entry.thumbnailUrl.isNullOrBlank()) entry
+                else entry.copy(thumbnailUrl = artwork[entry.id])
+            })
+        }
+    }
+
+    suspend fun clearFeedback(songId: String) = mutex.withLock {
+        val loaded = ensureLoaded()
+        val updated = PulseStorage.fromJson(PulseStorage.toJson(loaded))
+        PulseControlPolicy.clearFeedback(updated, songId, System.currentTimeMillis())
+        withContext(Dispatchers.IO) { persist(updated) }
+        state = updated
+        tuningRevision.value++
     }
 
     /** Explicitly blocked artists, for the Pulse screen. */

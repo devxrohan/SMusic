@@ -390,7 +390,7 @@ fun SelectionMediaMetadataMenu(
     val pulseFeedback = com.devxrohan.smusic.ui.component.rememberPulseFeedback(
         songSelection.map { song -> com.devxrohan.smusic.pulse.PulseFeedbackTrack(
             song.id, song.artists.mapNotNull { it.id },
-            song.artists.filter { it.id != null }.map { it.name }, song.title,
+            song.artists.filter { it.id != null }.map { it.name }, song.title, song.thumbnailUrl,
         ) }, onDismiss = { clearAction(); onDismiss() },
     )
 

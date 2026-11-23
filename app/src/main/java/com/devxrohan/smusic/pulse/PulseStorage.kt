@@ -79,6 +79,16 @@ object PulseStorage {
                 objectValue.put(id, JSONArray().put(preference.timestamp).put(JSONArray(preference.artistIds)).put(preference.title))
             }
         })
+        put("feedbackTracks", JSONObject().also { entries ->
+            s.feedbackTracks.filterKeys { it in s.notForMeSongs || it in s.positiveFeedback }.forEach { (id, track) ->
+                entries.put(id, JSONArray().put(track.title).put(JSONArray(track.artistIds)).put(JSONArray(track.artistNames)).put(track.thumbnailUrl.orEmpty()))
+            }
+        })
+        put("artistPreferences", JSONObject().also { entries ->
+            s.artistPreferences.forEach { (id, choice) ->
+                entries.put(id, JSONArray().put(choice.name).put(choice.thumbnail.orEmpty()).put(choice.timestamp))
+            }
+        })
         put("notForMe", longMap(s.notForMeSongs))
         put("disliked", longMap(s.dislikedArtists))
         put("blocked", JSONArray(s.blockedArtists.toList()))
@@ -158,6 +168,22 @@ object PulseStorage {
                 val timestamp = entry.optLong(0)
                 val artists = entry.optJSONArray(1)?.let { a -> List(a.length()) { a.optString(it) }.filter(String::isNotBlank).distinct() }.orEmpty()
                 if (id.isNotBlank() && timestamp > 0) s.positiveFeedback[id] = PulsePreference(timestamp, artists, entry.optString(2))
+            }
+        }
+        o.optJSONObject("feedbackTracks")?.let { entries ->
+            entries.keys().forEach { id ->
+                val entry = entries.optJSONArray(id) ?: return@forEach
+                fun strings(index: Int): List<String> = entry.optJSONArray(index)?.let { a ->
+                    (0 until a.length()).map { a.optString(it) }.filter(String::isNotBlank)
+                }.orEmpty()
+                s.feedbackTracks[id] = PulseFeedbackTrack(id, strings(1), strings(2), entry.optString(0), entry.optString(3).takeIf(String::isNotBlank))
+            }
+        }
+        o.optJSONObject("artistPreferences")?.let { entries ->
+            entries.keys().asSequence().take(500).forEach { id ->
+                val choice = entries.optJSONArray(id) ?: return@forEach
+                if (id.isNotBlank() && choice.optString(0).isNotBlank()) s.artistPreferences[id] =
+                    PulseArtistChoice(choice.optString(0), choice.optString(1).takeIf(String::isNotBlank), choice.optLong(2))
             }
         }
         readLongs(o.optJSONObject("notForMe"), s.notForMeSongs)

@@ -18,6 +18,7 @@ internal fun PulseTuningControls(variety: Double, cooldownHours: Double, enabled
     onChange: (Double, Double) -> Unit) {
     var varietyValue by remember(variety) { mutableFloatStateOf(variety.toFloat()) }
     var cooldownValue by remember(cooldownHours) { mutableFloatStateOf(cooldownHours.toFloat()) }
+    val (matchLanguage, changeMatchLanguage) = rememberPreference(com.devxrohan.smusic.constants.PulseMatchLanguageKey, true)
     val (avoidRepeats, changeAvoidRepeats) = rememberPreference(AvoidQueueRepeatsKey, true)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -37,6 +38,10 @@ internal fun PulseTuningControls(variety: Double, cooldownHours: Double, enabled
         DottedSlider(value = cooldownValue, onValueChange = { cooldownValue = it }, enabled = enabled,
             valueRange = 0f..48f, steps = 7,
             onValueChangeFinished = { onChange(varietyValue.toDouble(), cooldownValue.toDouble()) })
+        SwitchPreference(title = { Text("Match the radio language") },
+            description = "Avoid confident language mismatches using saved lyrics. Unknown languages remain eligible; no extra requests.",
+            icon = { Icon(painterResource(R.drawable.discover_tune), null) },
+            checked = matchLanguage, onCheckedChange = changeMatchLanguage)
         SwitchPreference(title = { Text("Avoid queue repeats") },
             description = "Do not automatically add songs already queued or heard in this queue.",
             icon = { Icon(painterResource(R.drawable.queue_music), null) },

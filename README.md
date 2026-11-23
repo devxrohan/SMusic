@@ -149,15 +149,22 @@ Pulse is a work in progress. It has less to go on when your library and listenin
 <table>
   <tr>
     <td align="center"><img src="docs/screenshots/home.jpg" width="260"/><br/><sub>Home</sub></td>
-    <td align="center"><img src="docs/screenshots/now-playing.jpg" width="260"/><br/><sub>Now Playing</sub></td>
+    <td align="center"><img src="docs/screenshots/now-playing.jpg" width="260" alt="Classic player with album artwork and playback controls"/><br/><sub>Now Playing</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/lyrics.jpg" width="260"/><br/><sub>Lyrics</sub></td>
+    <td align="center"><img src="docs/screenshots/lyrics.jpg" width="260" alt="Synced lyrics with the current line highlighted"/><br/><sub>Lyrics</sub></td>
     <td align="center"><img src="docs/screenshots/search.jpg" width="260"/><br/><sub>Search</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/import-playlists.jpg" width="260"/><br/><sub>Import Playlists</sub></td>
     <td align="center"><img src="docs/screenshots/update-check.jpg" width="260"/><br/><sub>Update Check</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/settings.jpg" width="260" alt="SMusic settings categories"/><br/><sub>Settings</sub></td>
+    <td align="center"><img src="docs/screenshots/library.jpg" width="260" alt="SMusic library categories"/><br/><sub>Library</sub></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="docs/screenshots/listening-stats.jpg" width="260" alt="Listening time, play counts, and top songs"/><br/><sub>Listening Stats</sub></td>
   </tr>
 </table>
 

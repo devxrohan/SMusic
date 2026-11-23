@@ -167,7 +167,6 @@ dependencies {
     // Firebase Cloud Messaging (push messages to all users, see tools/README.md)
     implementation(platform("com.google.firebase:firebase-bom:35.0.0"))
     implementation("com.google.firebase:firebase-messaging")
-    implementation("dev.chrisbanes.haze:haze:0.7.3")
     implementation(libs.guava)
     implementation(libs.coroutines.guava)
     implementation(libs.concurrent.futures)
@@ -213,11 +212,8 @@ dependencies {
     implementation(libs.glance.appwidget)
     implementation(libs.glance.material3)
     implementation(libs.graphics.shapes)
-    implementation(libs.work.runtime.ktx)
     implementation(libs.constraintlayout)
     implementation(libs.constraintlayout.compose)
-    implementation(libs.itextg)
-    implementation(libs.mpandroidchart)
     implementation(libs.foundation)
     implementation(libs.ui.graphics)
     ksp(libs.room.compiler)
@@ -230,20 +226,11 @@ dependencies {
     implementation("com.github.skydoves:cloudy:0.2.7")
     kapt(libs.hilt.compiler)
 
-    // Google Auth & Drive API
+    // Google account sign-in
     implementation("androidx.credentials:credentials:1.3.0-rc01")
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0-rc01")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation("com.google.android.gms:play-services-auth:21.0.0")
-    implementation("com.google.api-client:google-api-client-android:1.33.0") {
-        exclude(group = "org.apache.httpcomponents")
-    }
-    implementation("com.google.apis:google-api-services-drive:v3-rev20220815-2.0.0") {
-        exclude(group = "org.apache.httpcomponents")
-    }
-    implementation("com.google.auth:google-auth-library-oauth2-http:1.16.0") {
-        exclude(group = "org.apache.httpcomponents")
-    }
 
     implementation(projects.innertube)
     implementation(projects.kugou)

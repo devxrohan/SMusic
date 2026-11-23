@@ -15,34 +15,26 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.devxrohan.smusic.MainActivity
 import com.devxrohan.smusic.R
-import com.devxrohan.smusic.db.InternalDatabase
 import com.devxrohan.smusic.db.MusicDatabase
 import com.devxrohan.smusic.db.entities.ArtistEntity
 import com.devxrohan.smusic.db.entities.Song
 import com.devxrohan.smusic.db.entities.SongEntity
 import com.devxrohan.smusic.extensions.div
 import com.devxrohan.smusic.extensions.tryOrNull
-import com.devxrohan.smusic.extensions.zipInputStream
 import com.devxrohan.smusic.extensions.zipOutputStream
 import com.devxrohan.smusic.playback.MusicService
 import com.devxrohan.smusic.playback.MusicService.Companion.PERSISTENT_QUEUE_FILE
-import com.devxrohan.smusic.ui.component.NamePreferenceManager
 import com.devxrohan.smusic.utils.AppBackup
 import com.devxrohan.smusic.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import javax.inject.Inject
-import kotlin.system.exitProcess
 
 @HiltViewModel
 class BackupRestoreViewModel @Inject constructor(
@@ -112,7 +104,6 @@ class BackupRestoreViewModel @Inject constructor(
                     } else {
                         false
                     }
-                    val cloudSuccess = AutoBackupManager.uploadToCloud(context, AutoBackupManager.getAutoBackupFile(context))
                     _lastOsBackupTime.value = System.currentTimeMillis()
                     updateBackupSize(context)
                     withContext(Dispatchers.Main) {
@@ -121,7 +112,7 @@ class BackupRestoreViewModel @Inject constructor(
                         }
                         Toast.makeText(
                             context,
-                            if (cloudSuccess || storageSaved) R.string.backup_cloud_saved else R.string.backup_now_success,
+                            R.string.backup_now_success,
                             Toast.LENGTH_SHORT
                         ).show()
                         onComplete?.invoke(true)
@@ -149,11 +140,7 @@ class BackupRestoreViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             _isRestoring.value = true
             try {
-                var success = AutoBackupManager.restoreAutoBackup(context, shouldRestart = true)
-                if (!success) {
-                    // No local snapshot: try the device's cloud backup
-                    success = AutoBackupManager.checkAndRestoreDeviceCloudBackup(context)
-                }
+                val success = AutoBackupManager.restoreAutoBackup(context, shouldRestart = true)
                 if (!success) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, R.string.backup_no_snapshot, Toast.LENGTH_LONG).show()
@@ -169,7 +156,6 @@ class BackupRestoreViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 AutoBackupManager.deleteBackup(context)
-                AutoBackupManager.deleteFromCloud(context)
                 _lastOsBackupTime.value = 0L
                 updateBackupSize(context)
                 withContext(Dispatchers.Main) {
@@ -247,57 +233,6 @@ class BackupRestoreViewModel @Inject constructor(
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 android.os.Process.killProcess(android.os.Process.myPid())
             }, 180L)
-        }
-    }
-
-    suspend fun backupToDrive(context: Context, email: String, name: String = "SMusic User"): com.devxrohan.smusic.utils.DriveResult<Boolean> {
-        return try {
-            val tempFile = java.io.File(context.cacheDir, "temp_backup.zip")
-            tempFile.outputStream().use { fileOut ->
-                AppBackup.writeBackup(context, database, fileOut)
-            }
-
-            val backupClient = com.devxrohan.smusic.utils.CloudBackupClient()
-            
-            // Note: CloudBackupClient handles the details.json internally as part of uploadBackup
-            val success = backupClient.uploadBackup(
-                email = email,
-                name = name,
-                backupFile = tempFile
-            )
-
-            if (success) {
-                com.devxrohan.smusic.utils.DriveResult.Success(true)
-            } else {
-                com.devxrohan.smusic.utils.DriveResult.Error(Exception("Cloud backup upload failed"))
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            com.devxrohan.smusic.utils.DriveResult.Error(e)
-        }
-    }
-
-    suspend fun restoreFromDrive(context: Context, email: String): com.devxrohan.smusic.utils.DriveResult<Boolean> {
-        return try {
-            val tempFile = java.io.File(context.cacheDir, "temp_restore.zip")
-            val backupClient = com.devxrohan.smusic.utils.CloudBackupClient()
-            
-            val success = backupClient.downloadBackup(email, tempFile)
-            if (!success) {
-                return com.devxrohan.smusic.utils.DriveResult.Error(Exception("Backup not found in cloud"))
-            }
-
-            val staged = AppBackup.stageRestore(context) { tempFile.inputStream() }
-            tempFile.delete()
-            if (!staged) {
-                return com.devxrohan.smusic.utils.DriveResult.Error(Exception("The cloud backup is not a valid SMusic backup"))
-            }
-            // Close only; the staged restore is applied when the user opens the app again.
-            withContext(Dispatchers.Main) { closeAppAfterRestore(context) }
-            com.devxrohan.smusic.utils.DriveResult.Success(true)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            com.devxrohan.smusic.utils.DriveResult.Error(e)
         }
     }
 

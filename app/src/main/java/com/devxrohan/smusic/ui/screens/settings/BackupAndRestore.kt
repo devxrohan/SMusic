@@ -6,24 +6,16 @@ package com.devxrohan.smusic.ui.screens.settings
 
 import com.devxrohan.smusic.ui.component.appButtonShapes
 
-import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import com.devxrohan.smusic.utils.AutoBackupManager
-import android.provider.OpenableColumns
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,13 +28,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,23 +40,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,27 +74,16 @@ import com.devxrohan.smusic.ui.component.SettingsGeneralCategory
 import com.devxrohan.smusic.ui.component.SettingsPage
 import com.devxrohan.smusic.ui.component.SwitchPreference
 import com.devxrohan.smusic.ui.menu.OnlinePlaylistAdder
-import com.devxrohan.smusic.ui.utils.backToMain
 import com.devxrohan.smusic.ui.utils.formatFileSize
 import com.devxrohan.smusic.viewmodels.BackupRestoreViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody
-import okio.BufferedSink
-import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import java.util.UUID
-import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoilApi::class, ExperimentalMaterial3Api::class)
-@SuppressLint("LogNotTimber")
 @Composable
 fun BackupAndRestore(
     navController: NavController,
@@ -125,7 +96,6 @@ fun BackupAndRestore(
     val playerCache = LocalPlayerConnection.current?.service?.playerCache
 
     // Statuses
-    var uploadStatus by remember { mutableStateOf<UploadStatus?>(null) }
     var showVisitorDataDialog by remember { mutableStateOf(false) }
     var showVisitorDataResetDialog by remember { mutableStateOf(false) }
     var importedTitle by remember { mutableStateOf("") }
@@ -134,8 +104,6 @@ fun BackupAndRestore(
     var isProgressStarted by remember { mutableStateOf(false) }
     var progressPercentage by remember { mutableIntStateOf(0) }
 
-    // Automatic cloud backup removed — always disabled now.
-    val enableCloudUpload = false
 
     // Device / Android OS backup state
     LaunchedEffect(Unit) { viewModel.loadOsBackupState(context) }
@@ -193,27 +161,6 @@ fun BackupAndRestore(
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
             if (uri != null) {
                 viewModel.backup(context, uri)
-
-                // MODIFIED: Only upload to the cloud if the user has enabled it.
-                if (enableCloudUpload) {
-                    coroutineScope.launch {
-                        uploadStatus = UploadStatus.Uploading
-                        val nameManager = com.devxrohan.smusic.ui.component.NamePreferenceManager(context)
-                        val email = nameManager.accountEmail.first()
-                        val name = nameManager.userName.first()
-
-                        if (!email.isNullOrBlank()) {
-                            val result = viewModel.backupToDrive(context, email, name)
-                            uploadStatus = if (result is com.devxrohan.smusic.utils.DriveResult.Success) {
-                                UploadStatus.Success("Cloud Database")
-                            } else {
-                                UploadStatus.Failure
-                            }
-                        } else {
-                            uploadStatus = UploadStatus.Failure
-                        }
-                    }
-                }
             }
         }
 
@@ -375,8 +322,7 @@ fun BackupAndRestore(
                 {PreferenceEntry(
                     title = { Text(stringResource(R.string.backup)) },
                     icon = { Icon(painterResource(R.drawable.backup), null) },
-                    description = stringResource(if (enableCloudUpload) R.string.backup_with_cloud else R.string.backup_description),
-                    isEnabled = uploadStatus !is UploadStatus.Uploading,
+                    description = stringResource(R.string.backup_description),
                     onClick = {
                         val formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
                         backupLauncher.launch(
@@ -390,7 +336,6 @@ fun BackupAndRestore(
                     title = { Text(stringResource(R.string.restore)) },
                     icon = { Icon(painterResource(R.drawable.restore), null) },
                     description = stringResource(R.string.restore_description),
-                    isEnabled = uploadStatus !is UploadStatus.Uploading,
                     onClick = {
                         restoreLauncher.launch(arrayOf("application/octet-stream"))
                     }
@@ -412,13 +357,7 @@ fun BackupAndRestore(
                         restoreCacheLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                     }
                 )},
-                {AnimatedVisibility(
-                    visible = uploadStatus != null,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {MinimalUploadStatus(uploadStatus) {
-                    copyToClipboard(context, (uploadStatus as UploadStatus.Success).fileUrl)
-                }}}
+
             )
         )
 
@@ -689,116 +628,6 @@ private fun MinimalVisitorDataCard(
 }
 
 @Composable
-private fun MinimalUploadStatus(
-    uploadStatus: UploadStatus?,
-    onCopyClick: () -> Unit
-) {
-    when (uploadStatus) {
-        is UploadStatus.Uploading -> {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Text(
-                        text = stringResource(R.string.uploading_backup),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-        }
-
-        is UploadStatus.Success -> {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.check_circle),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.backup_success),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Text(
-                        text = uploadStatus.fileUrl,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-
-                    Button(
-                        onClick = onCopyClick,
-                        modifier = Modifier.fillMaxWidth(),
-                        shapes = appButtonShapes(shape = RoundedCornerShape(12.dp))) {
-                        Icon(
-                            painter = painterResource(R.drawable.content_copy),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.copy_link))
-                    }
-                }
-            }
-        }
-
-        is UploadStatus.Failure -> {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.errorContainer
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.error),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.backup_upload_error),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
-            }
-        }
-
-        null -> {}
-    }
-}
-
-@Composable
 private fun MinimalLoadingOverlay(progress: Int) {
     Box(
         modifier = Modifier
@@ -910,21 +739,4 @@ private fun MinimalConfirmDialog(
         },
         shape = RoundedCornerShape(24.dp)
     )
-}
-
-@SuppressLint("LogNotTimber")
-fun copyToClipboard(context: Context, text: String) {
-    try {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Backup URL", text)
-        clipboard.setPrimaryClip(clip)
-    } catch (e: Exception) {
-        Log.e("BackupRestore", "Error copying to clipboard: ${e.message}")
-    }
-}
-
-sealed class UploadStatus {
-    data object Uploading : UploadStatus()
-    data class Success(val fileUrl: String) : UploadStatus()
-    data object Failure : UploadStatus()
 }

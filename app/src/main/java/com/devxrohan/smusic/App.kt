@@ -117,12 +117,7 @@ class App : android.app.Application(), ImageLoaderFactory {
                     GlobalScope.launch(Dispatchers.IO) {
                         runCatching {
                             val manager = com.devxrohan.smusic.utils.AutoBackupManager
-                            if (manager.createAutoBackup(this@App, database, notifyBackupManager = true) &&
-                                getSharedPreferences("backup_settings", Context.MODE_PRIVATE)
-                                    .getBoolean("enable_cloud_upload", true)
-                            ) {
-                                manager.uploadToCloud(this@App, manager.getAutoBackupFile(this@App))
-                            }
+                            manager.createAutoBackupIfDue(this@App, database)
                         }
                     }
                 }
@@ -205,48 +200,8 @@ class App : android.app.Application(), ImageLoaderFactory {
             YouTube.useLoginForBrowse = true
         }
 
-        GlobalScope.launch(Dispatchers.IO) {
-            runCatching {
-                val email = namePreferenceManager.accountEmail.first().ifBlank {
-                    dataStore[AccountEmailKey] ?: ""
-                }
-                val name = namePreferenceManager.userName.first().ifBlank { "SMusic User" }
-
-                val automaticCloudBackupEnabled = getSharedPreferences("backup_settings", Context.MODE_PRIVATE)
-                    .getBoolean("enable_cloud_upload", true)
-
-                if (automaticCloudBackupEnabled && email.isNotBlank()) {
-                    Timber.i("App launch: Starting automatic cloud backup upload for $email")
-                    val backupViewModel = com.devxrohan.smusic.viewmodels.BackupRestoreViewModel(com.devxrohan.smusic.db.InternalDatabase.newInstance(this@App))
-                    val result = backupViewModel.backupToDrive(this@App, email, name)
-                    if (result is com.devxrohan.smusic.utils.DriveResult.Success) {
-                        dataStore.edit { preferences ->
-                            preferences[com.devxrohan.smusic.constants.LastBackupTimestampKey] = System.currentTimeMillis()
-                        }
-                        Timber.i("App launch: Cloud backup upload completed successfully for $email")
-                    } else {
-                        Timber.e("App launch: Cloud backup upload failed for $email")
-                    }
-
-                    // Schedule periodic 24-hour backup worker
-                    val workRequest = androidx.work.PeriodicWorkRequestBuilder<com.devxrohan.smusic.worker.DailyBackupWorker>(1, java.util.concurrent.TimeUnit.DAYS)
-                        .setConstraints(
-                            androidx.work.Constraints.Builder()
-                                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
-                                .build()
-                        )
-                        .build()
-
-                    androidx.work.WorkManager.getInstance(this@App).enqueueUniquePeriodicWork(
-                        "DailyBackupWorker",
-                        androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-                        workRequest
-                    )
-                }
-            }.onFailure { e ->
-                Timber.e(e, "App launch: Error during automatic cloud backup")
-            }
-        }
+        // Retire upload jobs registered by older versions.
+        runCatching { androidx.work.WorkManager.getInstance(this).cancelUniqueWork("DailyBackupWorker") }
 
         runCatching {
             val pulseRequest = androidx.work.PeriodicWorkRequestBuilder<com.devxrohan.smusic.worker.PulseRefreshWorker>(6, java.util.concurrent.TimeUnit.HOURS)

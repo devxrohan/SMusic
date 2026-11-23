@@ -8,6 +8,12 @@ import java.util.zip.ZipFile
 
 /** Validate a complete archive before the caller marks a restore ready. No live files are touched. */
 internal object BackupArchive {
+    private val applicationIds = setOf("com.devxrohan.smusic", "com.devxrohan.smusic.debug")
+
+    /** Release and debug builds share the same backup format and database schema. */
+    fun isCompatibleApplication(source: String, target: String): Boolean =
+        source in applicationIds && target in applicationIds
+
     private const val MAX_BYTES = 1024L * 1024 * 1024
     private const val MAX_ENTRIES = 50_000
 

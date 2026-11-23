@@ -179,7 +179,7 @@ object AppBackup {
         require(manifest.getInt("formatVersion") == BACKUP_FORMAT_VERSION) {
             "This backup format is not supported by this version of SMusic"
         }
-        require(manifest.getString("applicationId") == context.packageName) { "This backup belongs to another app" }
+        require(BackupArchive.isCompatibleApplication(manifest.getString("applicationId"), context.packageName)) { "This backup belongs to another app" }
         require(manifest.getLong("createdAt") > 0) { "Invalid backup creation date" }
         if (manifest.getBoolean("databaseIncluded")) {
             require(File(staging, InternalDatabase.DB_NAME).isFile) { "Backup database is missing" }

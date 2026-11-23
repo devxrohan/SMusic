@@ -32,13 +32,6 @@ object AutoBackupManager {
 
     fun getAutoBackupFile(context: Context): File = File(context.filesDir, BACKUP_FILENAME)
 
-    fun getDeviceId(context: Context): String =
-        runCatching { Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) }
-            .getOrNull()?.takeIf { it.isNotBlank() } ?: "unknown_device"
-
-    fun getDeviceCloudFilePath(context: Context): String =
-        "smusic/devices/${getDeviceId(context)}/$BACKUP_FILENAME"
-
     /** Approximate amount of user data covered by the native OS backup. */
     fun getBackupSize(context: Context): Long {
         var total = 0L
@@ -74,7 +67,7 @@ object AutoBackupManager {
     fun hasBackableData(context: Context): Boolean = getBackupSize(context) > 0L
 
     /** Creates the portable snapshot and requests an Android OS backup pass. */
-    fun createAutoBackup(context: Context, database: MusicDatabase?, notifyBackupManager: Boolean = true): Boolean {
+    @Synchronized fun createAutoBackup(context: Context, database: MusicDatabase?, notifyBackupManager: Boolean = true): Boolean {
         return try {
             if (!hasBackableData(context)) return false
             val target = getAutoBackupFile(context)
@@ -91,7 +84,6 @@ object AutoBackupManager {
             }
             setLastBackupTime(context, System.currentTimeMillis())
             // Keep the persistent external copy synchronized with every OS backup request.
-            // This is deliberately independent of the optional cloud upload.
             if (isAutoBackupToStorageEnabled(context) && hasStoragePermission(context)) {
                 saveBackupToStorage(context, database)
             }
@@ -102,6 +94,15 @@ object AutoBackupManager {
             reportException(e)
             false
         }
+    }
+
+    @Synchronized
+    fun createAutoBackupIfDue(context: Context, database: MusicDatabase?): Boolean {
+        val storageTime = if (isAutoBackupToStorageEnabled(context) && hasStoragePermission(context))
+            getDocumentsBackupFile().takeIf { it.isFile }?.lastModified() ?: 0L else 0L
+        val lastAutomaticSnapshot = maxOf(getLastBackupTime(context), storageTime)
+        if (!AutomaticBackupSchedule.due(lastAutomaticSnapshot, System.currentTimeMillis(), AutomaticBackupSchedule.LOCAL_INTERVAL)) return false
+        return createAutoBackup(context, database, notifyBackupManager = true)
     }
 
     fun requestAndroidOsBackup(context: Context) {
@@ -152,7 +153,7 @@ object AutoBackupManager {
     }
 
     /** Writes exactly one canonical external backup; no Downloads copy and no timestamped auto-backup files. */
-    fun saveBackupToStorage(context: Context, database: MusicDatabase?): Boolean {
+    @Synchronized fun saveBackupToStorage(context: Context, database: MusicDatabase?): Boolean {
         return try {
             if (!hasBackableData(context)) return false
             val dir = getDocumentsBackupDir().apply { mkdirs() }
@@ -181,12 +182,14 @@ object AutoBackupManager {
         }
     }
 
-    fun performAutoBackupToStorageIfEnabled(context: Context, database: MusicDatabase?) {
+    @Synchronized fun performAutoBackupToStorageIfEnabled(context: Context, database: MusicDatabase?) {
         // Storage backup is enabled by default. If the user has not granted the special
         // all-files access yet, the normal Android backup flow still works; the next
         // successful storage write will create the persistent external copy.
         if (isAutoBackupToStorageEnabled(context) && hasStoragePermission(context)) {
-            saveBackupToStorage(context, database)
+            val existing = getDocumentsBackupFile()
+            if (!existing.isFile || AutomaticBackupSchedule.due(existing.lastModified(), System.currentTimeMillis(), AutomaticBackupSchedule.LOCAL_INTERVAL))
+                saveBackupToStorage(context, database)
         }
     }
 
@@ -265,23 +268,6 @@ object AutoBackupManager {
             Timber.w(it, "AutoBackupManager: startup persistent restore failed")
         }.getOrDefault(false)
     }
-
-    // ───────────────────────────── cloud ─────────────────────────────
-
-    suspend fun uploadToCloud(context: Context, backupFile: File): Boolean = withContext(Dispatchers.IO) {
-        if (!backupFile.isFile || backupFile.length() == 0L) return@withContext false
-        runCatching { CloudBackupClient().uploadFile(getDeviceCloudFilePath(context), backupFile) }.getOrDefault(false)
-    }
-
-    suspend fun downloadFromCloud(context: Context, destinationFile: File): Boolean = withContext(Dispatchers.IO) {
-        runCatching { CloudBackupClient().downloadFile(getDeviceCloudFilePath(context), destinationFile) }.getOrDefault(false)
-    }
-
-    suspend fun deleteFromCloud(context: Context): Boolean = withContext(Dispatchers.IO) {
-        runCatching { CloudBackupClient().deleteFile(getDeviceCloudFilePath(context)) }.getOrDefault(false)
-    }
-
-    suspend fun checkAndRestoreDeviceCloudBackup(context: Context): Boolean = false
 
     fun deleteBackup(context: Context): Boolean =
         runCatching { getAutoBackupFile(context).delete() }.getOrDefault(false)

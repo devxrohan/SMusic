@@ -10,6 +10,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackupArchiveTest {
+    @Test fun releaseAndDebugBackupsAreCompatibleInBothDirections() {
+        val release = "com.devxrohan.smusic"
+        val debug = "$release.debug"
+        assertTrue(BackupArchive.isCompatibleApplication(release, debug))
+        assertTrue(BackupArchive.isCompatibleApplication(debug, release))
+        assertTrue(BackupArchive.isCompatibleApplication(release, release))
+        assertTrue(BackupArchive.isCompatibleApplication(debug, debug))
+    }
+
+    @Test fun unrelatedAndLookalikePackageIdsAreRejected() {
+        listOf("other.app", "com.devxrohan.smusic.fake", "com.devxrohan.smusic.debug.fake", "").forEach { id ->
+            assertFalse(BackupArchive.isCompatibleApplication(id, "com.devxrohan.smusic.debug"))
+            assertFalse(BackupArchive.isCompatibleApplication("com.devxrohan.smusic", id))
+        }
+    }
+
     private fun archive(name: String): ByteArray = ByteArrayOutputStream().also { output ->
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry(name))

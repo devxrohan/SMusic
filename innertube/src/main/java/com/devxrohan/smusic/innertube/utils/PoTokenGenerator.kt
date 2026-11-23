@@ -1,4 +1,3 @@
-/* GPL-3.0; copyright and upstream attribution are recorded in README.md. */
 
 package com.devxrohan.smusic.innertube.utils
 

@@ -1,4 +1,3 @@
-/* GPL-3.0; copyright and upstream attribution are recorded in README.md. */
 // Adapted for SMusic on 2026-11-21; preserves the upstream account protocol.
 
 package com.devxrohan.smusic.spotify

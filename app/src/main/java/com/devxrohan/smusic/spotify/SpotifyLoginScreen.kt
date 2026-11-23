@@ -1,4 +1,3 @@
-/* GPL-3.0; copyright and upstream attribution are recorded in README.md. */
 
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 

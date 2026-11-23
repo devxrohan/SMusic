@@ -1,15 +1,3 @@
-/*
- *
- *  ******************************************************************
- *  *  * Copyright (C) 2022
- *  *  * DiscordRpcClient.kt is part of Kizzy
- *  *  *  and can not be copied and/or distributed without the express
- *  *  * permission of yzziK(Vaibhav)
- *  *  *****************************************************************
- *
- *
- */
-
 package com.devxrohan.smusic.discordrpc.rpc
 
 import com.devxrohan.smusic.discordrpc.gateway.DiscordWebSocket
@@ -29,7 +17,7 @@ import org.json.JSONObject
  * Modified by Zion Huang
  */
 open class DiscordRpcClient(token: String) {
-    private val kizzyRepository = DiscordRpcRepository()
+    private val rpcRepository = DiscordRpcRepository()
     private val discordWebSocket = DiscordWebSocket(token)
 
     fun closeRPC() {
@@ -85,8 +73,8 @@ open class DiscordRpcClient(token: String) {
                     statusDisplayType = statusDisplayType.value,
                     timestamps = Timestamps(startTime, endTime),
                     assets = Assets(
-                        largeImage = largeImage?.resolveImage(kizzyRepository),
-                        smallImage = smallImage?.resolveImage(kizzyRepository),
+                        largeImage = largeImage?.resolveImage(rpcRepository),
+                        smallImage = smallImage?.resolveImage(rpcRepository),
                         largeText = largeText,
                         smallText = smallText
                     ),

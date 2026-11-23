@@ -38,10 +38,10 @@ class DiscordRPC(
             details = songTitleWithRate,
             state = song.artists.joinToString { it.name },
             detailsUrl = songUrl,
-            largeImage = song.song.thumbnailUrl?.let { RpcImage.ExternalImage(it) },
-            smallImage = song.artists.firstOrNull()?.thumbnailUrl?.let { RpcImage.ExternalImage(it) },
+            largeImage = DiscordCoverUrl.forSong(song.song.id, song.song.thumbnailUrl)?.let { RpcImage.ExternalImage(it) },
+            smallImage = null,
             largeText = song.album?.title,
-            smallText = song.artists.firstOrNull()?.name,
+            smallText = null,
             buttons = listOf(
                 "Listen on YouTube Music" to songUrl,
                 "Visit SMusic" to WEBSITE_URL,

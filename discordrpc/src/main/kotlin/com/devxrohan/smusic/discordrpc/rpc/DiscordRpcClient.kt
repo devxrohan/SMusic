@@ -17,11 +17,12 @@ import org.json.JSONObject
  * Modified by Zion Huang
  */
 open class DiscordRpcClient(token: String) {
-    private val rpcRepository = DiscordRpcRepository()
+    private val rpcRepository = DiscordRpcRepository(token)
     private val discordWebSocket = DiscordWebSocket(token)
 
     fun closeRPC() {
         discordWebSocket.close()
+        rpcRepository.close()
     }
 
     fun isRpcRunning(): Boolean {
@@ -73,14 +74,14 @@ open class DiscordRpcClient(token: String) {
                     statusDisplayType = statusDisplayType.value,
                     timestamps = Timestamps(startTime, endTime),
                     assets = Assets(
-                        largeImage = largeImage?.resolveImage(rpcRepository),
-                        smallImage = smallImage?.resolveImage(rpcRepository),
+                        largeImage = largeImage?.resolveImage(rpcRepository, applicationId),
+                        smallImage = smallImage?.resolveImage(rpcRepository, applicationId),
                         largeText = largeText,
                         smallText = smallText
                     ),
                     buttons = buttons?.map { it.first },
                     metadata = Metadata(buttonUrls = buttons?.map { it.second }),
-                    applicationId = applicationId.takeIf { !buttons.isNullOrEmpty() },
+                    applicationId = applicationId,
                     url = streamUrl
                 )
             ),

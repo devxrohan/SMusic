@@ -22,9 +22,16 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 
 object SaveToStorageUtil {
     private const val TAG = "SaveToStorageUtil"
@@ -34,9 +41,10 @@ object SaveToStorageUtil {
     // Downloads must outlive Compose bottom sheets/menus, which are dismissed immediately.
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val httpClient = OkHttpClient.Builder()
-        .proxy(YouTube.proxy)
-        .build()
+    private val exportGate = Semaphore(1)
+    private val pending = ConcurrentHashMap<String, Deferred<Result<String>>>()
+    private val baseHttpClient = OkHttpClient.Builder().build()
+    private val httpClient get() = baseHttpClient.newBuilder().proxy(YouTube.streamProxy).build()
 
     private fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -139,6 +147,7 @@ object SaveToStorageUtil {
                     ).onSuccess {
                         savedCount++
                     }
+                } catch (cancelled: CancellationException) { throw cancelled
                 } catch (e: Exception) {
                     Timber.tag(TAG).e(e, "Error saving song ${mediaMetadata.title} in playlist")
                 }
@@ -179,182 +188,129 @@ object SaveToStorageUtil {
         relativeFolder: String,
         notificationId: Int = 20000 + (mediaMetadata.id.hashCode() and 0x7FFF),
         subText: String? = null,
+    ): Result<String> {
+        val key = "$relativeFolder|${mediaMetadata.id}"
+        val candidate = backgroundScope.async(start = CoroutineStart.LAZY) {
+            exportGate.withPermit { performSave(context.applicationContext, mediaMetadata, relativeFolder, notificationId, subText) }
+        }
+        val active = pending.putIfAbsent(key, candidate)
+        if (active != null) { candidate.cancel(); return active.await() }
+        candidate.invokeOnCompletion { pending.remove(key, candidate) }
+        candidate.start()
+        return candidate.await()
+    }
+
+    private suspend fun performSave(
+        context: Context,
+        mediaMetadata: MediaMetadata,
+        relativeFolder: String,
+        notificationId: Int,
+        subText: String?,
     ): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            Timber.tag(TAG).d("Starting save for: ${mediaMetadata.title} into $relativeFolder")
+        val workspace = File(context.cacheDir, "audio-export-${java.util.UUID.randomUUID()}")
+        val source = File(workspace, "source.m4a")
+        val remuxed = File(workspace, "remuxed.m4a")
+        val tagged = File(workspace, "tagged.m4a")
+        try {
+            check(workspace.mkdirs()) { "Could not create export workspace" }
             showProgressNotification(context, notificationId, mediaMetadata.title, 0, subText)
-
-            // 1. Resolve stream URL and format using robust playerResponseForPlayback with fallbacks
-            val appContext = context.applicationContext
-            val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val playbackData = YTPlayerUtils.playerResponseForPlayback(
-                videoId = mediaMetadata.id,
-                playlistId = null,
-                audioQuality = AudioQuality.HIGH,
-                connectivityManager = connectivityManager
-            ).getOrThrow()
-
-            val format = playbackData.format
-            val streamUrl = playbackData.streamUrl
-
-            Timber.tag(TAG).d("Stream URL resolved, format: ${format.mimeType}, bitrate: ${format.bitrate}")
-
-            // 2. Determine file extension from mime type
-            val extension = when {
-                format.mimeType.contains("opus") || format.mimeType.contains("webm") -> "opus"
-                format.mimeType.contains("mp4") || format.mimeType.contains("m4a") -> "m4a"
-                else -> "m4a"
-            }
-
-            // 3. Sanitise file name
-            val sanitisedTitle = mediaMetadata.title
-                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-                .take(200)
-            val artistName = mediaMetadata.artists.joinToString(", ") { it.name }
-                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-                .take(100)
-            val fileName = "${sanitisedTitle} - ${artistName}.$extension"
-
-            // 4. Download the stream with live progress updates
-            // Request the media range explicitly and use normal browser headers. This avoids
-            // YouTube's occasional throttled/partial responses for direct storage downloads.
-            val downloadUrl = if (!streamUrl.contains("range=")) {
-                val length = format.contentLength?.takeIf { it > 0L } ?: 15_000_000L
-                "$streamUrl&range=0-$length"
-            } else {
-                streamUrl
-            }
-            val request = Request.Builder()
-                .url(downloadUrl)
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val playback = YTPlayerUtils.playerResponseForPlayback(mediaMetadata.id, audioQuality = AudioQuality.HIGH,
+                connectivityManager = connectivity, avoidCodecs = setOf("opus", "vorbis")).getOrThrow()
+            require(playback.format.mimeType.contains("mp4")) { "A compatible AAC download is unavailable" }
+            val length = playback.format.contentLength?.takeIf { it > 0 }
+            val url = if (length != null && !playback.streamUrl.contains("range="))
+                "${playback.streamUrl}&range=0-${length - 1}" else playback.streamUrl
+            val request = Request.Builder().url(url)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .header("Accept", "*/*")
-                .header("Connection", "keep-alive")
-                .build()
-            val response = httpClient.newCall(request).execute()
-            response.use { resp ->
-                if (!resp.isSuccessful) {
-                    throw Exception("Download failed: HTTP ${resp.code}")
-                }
-                val body = resp.body ?: throw Exception("Response body is null")
-                val contentLength = body.contentLength()
-                val inputStream = body.byteStream()
-                // Avoid huge eager allocations when the server omits or misreports length.
-                val outputBuffer = ByteArrayOutputStream(
-                    if (contentLength in 1..(32L * 1024 * 1024)) contentLength.toInt() else 1024 * 1024
-                )
-
-                val buffer = ByteArray(65536)
-                var bytesRead: Int
-                var totalBytesRead = 0L
-                var lastUpdateMs = 0L
-
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    outputBuffer.write(buffer, 0, bytesRead)
-                    totalBytesRead += bytesRead
-
-                    val now = System.currentTimeMillis()
-                    if (contentLength > 0 && (now - lastUpdateMs >= 200 || totalBytesRead == contentLength)) {
-                        lastUpdateMs = now
-                        val percent = ((totalBytesRead * 100) / contentLength).toInt().coerceIn(0, 100)
-                        showProgressNotification(
-                            context = context,
-                            notificationId = notificationId,
-                            title = mediaMetadata.title,
-                            progress = percent,
-                            subText = subText,
-                        )
-                    }
-                }
-
-                val audioBytes = outputBuffer.toByteArray()
-                Timber.tag(TAG).d("Downloaded ${audioBytes.size} bytes for $fileName")
-
-                // 5. Write to Music folder
-                val mimeType = when (extension) {
-                    "opus" -> "audio/ogg"
-                    "m4a" -> "audio/mp4"
-                    else -> "audio/mpeg"
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    // Android 10+ use MediaStore (scoped storage)
-                    val contentValues = ContentValues().apply {
-                        put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
-                        put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
-                        put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/$relativeFolder")
-                        put(MediaStore.Audio.Media.TITLE, mediaMetadata.title)
-                        put(MediaStore.Audio.Media.ARTIST, artistName)
-                        mediaMetadata.album?.title?.let {
-                            put(MediaStore.Audio.Media.ALBUM, it)
+                .header("Accept", "*/*").build()
+            httpClient.newCall(request).execute().use { response ->
+                check(response.isSuccessful) { "Download failed: HTTP ${response.code}" }
+                val body = response.body ?: error("Download body is missing")
+                val expected = length ?: body.contentLength().takeIf { it > 0 }
+                if (expected == null) showProgressNotification(context, notificationId, mediaMetadata.title, -1, subText)
+                var total = 0L
+                var lastUpdate = 0L
+                var lastPercent = -1
+                body.byteStream().use { input -> source.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        total += count
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        val percent = expected?.let { ((total * 100) / it).toInt().coerceIn(0, 100) } ?: -1
+                        if (percent != lastPercent && now - lastUpdate >= 500) {
+                            showProgressNotification(context, notificationId, mediaMetadata.title, percent, subText)
+                            lastUpdate = now
+                            lastPercent = percent
                         }
-                        put(MediaStore.Audio.Media.DURATION, mediaMetadata.duration * 1000L)
-                        put(MediaStore.Audio.Media.IS_PENDING, 1)
                     }
-
-                    val resolver = context.contentResolver
-                    val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, contentValues)
-                        ?: throw Exception("Failed to create MediaStore entry")
-
-                    try {
-                        resolver.openOutputStream(uri, "w")?.use { outputStream ->
-                            outputStream.write(audioBytes)
-                            outputStream.flush()
-                        } ?: throw Exception("Failed to open output stream")
-
-                        // Publish only after all audio bytes have been written successfully.
-                        contentValues.clear()
-                        contentValues.put(MediaStore.Audio.Media.IS_PENDING, 0)
-                        if (resolver.update(uri, contentValues, null, null) <= 0) {
-                            throw Exception("Failed to publish downloaded audio")
-                        }
-                    } catch (writeError: Exception) {
-                        resolver.delete(uri, null, null)
-                        throw writeError
-                    }
-
-                    Timber.tag(TAG).d("Saved via MediaStore: $fileName")
-                } else {
-                    // Android 9 and below - direct file write
-                    val musicDir = File(
-                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
-                        relativeFolder
-                    )
-                    if (!musicDir.exists()) musicDir.mkdirs()
-
-                    val outputFile = File(musicDir, fileName)
-                    FileOutputStream(outputFile).use { fos ->
-                        fos.write(audioBytes)
-                    }
-
-                    // Notify media scanner
-                    MediaScannerConnection.scanFile(
-                        context,
-                        arrayOf(outputFile.absolutePath),
-                        arrayOf(mimeType),
-                        null
-                    )
-
-                    Timber.tag(TAG).d("Saved via direct file write: ${outputFile.absolutePath}")
-                }
+                } }
+                check(total > 0 && (expected == null || total == expected)) { "Audio download was incomplete" }
             }
+            showProgressNotification(context, notificationId, mediaMetadata.title, 100, "Adding artwork")
+            val artwork = AudioFileExport.artwork(context, mediaMetadata)
+            AudioFileExport.remuxAac(source, remuxed)
+            source.delete()
+            val output = try {
+                Mp4CoverWriter.write(remuxed, tagged, mediaMetadata.title,
+                    mediaMetadata.artists.joinToString(", ") { it.name },
+                    ExportArtworkPolicy.album(mediaMetadata.title, mediaMetadata.artists.joinToString(", ") { it.name }, mediaMetadata.album?.title), artwork)
+                tagged
+            } catch (error: Exception) {
+                Timber.tag(TAG).w(error, "Could not embed export tags; keeping playable audio")
+                remuxed
+            }
+            val title = mediaMetadata.title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(180)
+            val artist = mediaMetadata.artists.joinToString(", ") { it.name }.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(80)
+            val fileName = "$title - $artist.m4a"
+            publish(context, mediaMetadata, output, fileName, relativeFolder)
+            showCompleteNotification(context, notificationId, mediaMetadata.title, true,
+                if (artwork != null && output == tagged) "${mediaMetadata.title} saved with cover art"
+                else "${mediaMetadata.title} saved; cover art was unavailable")
+            Result.success(fileName)
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            Timber.tag(TAG).e(error, "Could not save audio to phone")
+            showCompleteNotification(context, notificationId, mediaMetadata.title, false, "Failed to download: ${error.message}")
+            Result.failure(error)
+        } finally { workspace.deleteRecursively() }
+    }
 
-            showCompleteNotification(
-                context = context,
-                notificationId = notificationId,
-                title = mediaMetadata.title,
-                success = true,
-                message = "${mediaMetadata.title} saved to Music/$relativeFolder",
-            )
-            fileName
-        }.onFailure { e ->
-            Timber.tag(TAG).e(e, "Failed to save song to local storage")
-            showCompleteNotification(
-                context = context,
-                notificationId = notificationId,
-                title = mediaMetadata.title,
-                success = false,
-                message = "Failed to download: ${e.message}",
-            )
+    private fun publish(context: Context, track: MediaMetadata, source: File, fileName: String, relativeFolder: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Audio.Media.MIME_TYPE, "audio/mp4")
+                put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/$relativeFolder")
+                put(MediaStore.Audio.Media.TITLE, track.title)
+                put(MediaStore.Audio.Media.ARTIST, track.artists.joinToString(", ") { it.name })
+                put(MediaStore.Audio.Media.ALBUM, ExportArtworkPolicy.album(track.title, track.artists.joinToString(", ") { it.name }, track.album?.title))
+                if (track.duration > 0) put(MediaStore.Audio.Media.DURATION, track.duration * 1000L)
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values) ?: error("Could not create audio entry")
+            try {
+                resolver.openOutputStream(uri, "w")?.use { output -> source.inputStream().use { it.copyTo(output) } }
+                    ?: error("Could not write audio file")
+                values.clear()
+                values.put(MediaStore.Audio.Media.IS_PENDING, 0)
+                check(resolver.update(uri, values, null, null) > 0) { "Could not publish audio file" }
+            } catch (error: Exception) { resolver.delete(uri, null, null); throw error }
+        } else {
+            val folder = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), relativeFolder)
+            check(folder.isDirectory || folder.mkdirs())
+            val temporary = File.createTempFile("audio-", ".part", folder)
+            val destination = File(folder, fileName)
+            try {
+                source.inputStream().use { input -> temporary.outputStream().use { input.copyTo(it) } }
+                check(temporary.renameTo(destination)) { "Could not publish audio file" }
+            } finally { temporary.delete() }
+            MediaScannerConnection.scanFile(context, arrayOf(destination.absolutePath), arrayOf("audio/mp4"), null)
         }
     }
 }
